@@ -75,6 +75,12 @@ function fmtElapsed(ms: number): string {
   return fmtSec(ms / 1000)
 }
 
+function toLocalInput(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 function prevSummary(kind: WorkoutKind, s: WorkoutSet): string | null {
   if (kind === 'speed') {
     if (s.distanceM == null && s.durationSec == null) return null
@@ -242,12 +248,24 @@ function ActiveWorkout({
         )}
       </div>
 
-      <input
-        className={inputClass}
-        placeholder="session title (optional)"
-        value={w.title ?? ''}
-        onChange={(e) => setW({ ...w, title: e.target.value || undefined })}
-      />
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          className={inputClass}
+          placeholder="session title (optional)"
+          value={w.title ?? ''}
+          onChange={(e) => setW({ ...w, title: e.target.value || undefined })}
+        />
+        <input
+          className={inputClass}
+          type="datetime-local"
+          aria-label="workout date and time"
+          value={toLocalInput(w.start)}
+          onChange={(e) =>
+            e.target.value &&
+            setW({ ...w, start: new Date(e.target.value).toISOString() })
+          }
+        />
+      </div>
 
       {w.kind === 'cardio' && (
         <div className="flex gap-2">
@@ -863,12 +881,21 @@ export function Workouts({ api }: { api: Api }) {
   }
 
   if (mode.m === 'strength') {
+    const originalStart = mode.workout.start
     return (
       <ActiveWorkout
         initial={mode.workout}
         isNew={mode.isNew}
         history={workouts}
-        onFinish={finish}
+        onFinish={(w) =>
+          finish(
+            // An edited start time is a key move — tell the API which old
+            // row to drop so the workout doesn't duplicate.
+            !mode.isNew && w.start !== originalStart
+              ? { ...w, previousStart: originalStart }
+              : w,
+          )
+        }
         onCancel={() => cancelStrength(mode.workout, mode.isNew)}
         onDelete={mode.isNew ? undefined : remove}
       />
@@ -937,7 +964,7 @@ export function Workouts({ api }: { api: Api }) {
           [
             ['workouts', 'Workouts'],
             ['analytics', 'Analytics'],
-            ['whoop', 'WHOOP'],
+            ['whoop', 'Captured'],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -1009,7 +1036,8 @@ export function Workouts({ api }: { api: Api }) {
         <div className="flex flex-col gap-3">
           {sessions.length === 0 && (
             <p className="py-8 text-center text-sm text-neutral-600">
-              No WHOOP-detected activity in the last 180 days.
+              No captured activity yet — data from connected wearables lands
+              here automatically.
             </p>
           )}
           {sessions

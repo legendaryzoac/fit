@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { SPEED_DRILLS } from '../lib/exercises'
 import {
   fmtSec,
   sectionTone,
@@ -10,10 +11,155 @@ import {
   type SessionRecord,
   type TimerDraft,
   type Workout,
+  type WorkoutExercise,
 } from '../lib/workouts'
 import { buttonClass, inputClass } from './ui'
 
 const MILE = 1609.34
+const YD = 0.9144
+
+const repInput =
+  'w-full rounded-lg border border-neutral-800 bg-neutral-900 px-1 py-2 ' +
+  'text-center text-base text-neutral-100 placeholder-neutral-600 outline-none ' +
+  'focus:border-teal-500'
+
+/** Post-timer rep logging for speed sessions — feeds the sprint analytics. */
+function DrillSetsEditor({
+  drills,
+  onChange,
+}: {
+  drills: WorkoutExercise[]
+  onChange: (drills: WorkoutExercise[]) => void
+}) {
+  const [name, setName] = useState('')
+
+  function addDrill() {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    onChange([...drills, { name: trimmed, sets: [{}] }])
+    setName('')
+  }
+
+  const patch = (
+    di: number,
+    si: number,
+    field: 'distanceM' | 'durationSec',
+    raw: string,
+  ) => {
+    const value =
+      raw === ''
+        ? undefined
+        : field === 'distanceM'
+          ? Math.round(Number(raw) * YD * 100) / 100
+          : Number(raw)
+    onChange(
+      drills.map((d, i) =>
+        i !== di
+          ? d
+          : {
+              ...d,
+              sets: d.sets.map((s, j) =>
+                j !== si ? s : { ...s, [field]: value },
+              ),
+            },
+      ),
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-neutral-500">
+        Log your rep times (optional — powers the speed trend chart):
+      </p>
+      {drills.map((d, di) => (
+        <div key={di} className="rounded-lg border border-neutral-800 p-2.5">
+          <div className="mb-1.5 flex items-baseline justify-between">
+            <p className="text-sm font-medium text-neutral-200">{d.name}</p>
+            <button
+              onClick={() => onChange(drills.filter((_, i) => i !== di))}
+              className="text-xs text-neutral-600 hover:text-red-400"
+            >
+              remove
+            </button>
+          </div>
+          <div className="mb-1 grid grid-cols-[1.5rem_1fr_1fr_2rem] gap-1.5 text-[11px] uppercase tracking-wide text-neutral-600">
+            <span>rep</span>
+            <span className="text-center">yd</span>
+            <span className="text-center">sec</span>
+            <span />
+          </div>
+          {d.sets.map((s, si) => (
+            <div
+              key={si}
+              className="mb-1 grid grid-cols-[1.5rem_1fr_1fr_2rem] items-center gap-1.5"
+            >
+              <span className="text-sm text-neutral-500">{si + 1}</span>
+              <input
+                className={repInput}
+                type="number"
+                inputMode="numeric"
+                value={s.distanceM != null ? Math.round(s.distanceM / YD) : ''}
+                onChange={(e) => patch(di, si, 'distanceM', e.target.value)}
+              />
+              <input
+                className={repInput}
+                type="number"
+                inputMode="decimal"
+                value={s.durationSec ?? ''}
+                onChange={(e) => patch(di, si, 'durationSec', e.target.value)}
+              />
+              <button
+                onClick={() =>
+                  onChange(
+                    drills.map((x, i) =>
+                      i !== di
+                        ? x
+                        : { ...x, sets: x.sets.filter((_, j) => j !== si) },
+                    ),
+                  )
+                }
+                className="text-neutral-600 hover:text-red-400"
+                aria-label="remove rep"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={() =>
+              onChange(
+                drills.map((x, i) =>
+                  i !== di ? x : { ...x, sets: [...x.sets, { ...x.sets.at(-1) }] },
+                ),
+              )
+            }
+            className="text-xs font-medium text-teal-400 hover:text-teal-300"
+          >
+            + add rep
+          </button>
+        </div>
+      ))}
+      <div className="flex gap-2">
+        <input
+          className={inputClass}
+          list="drill-names"
+          placeholder="add drill…"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && addDrill()}
+        />
+        <datalist id="drill-names">
+          {SPEED_DRILLS.map((d) => (
+            <option key={d.name} value={d.name} />
+          ))}
+        </datalist>
+        <button onClick={addDrill} className={`${buttonClass} shrink-0`}>
+          Add
+        </button>
+      </div>
+    </div>
+  )
+}
 
 const TONE: Record<SectionTone, { pill: string; text: string; bar: string }> = {
   warm: { pill: 'bg-amber-500/15 text-amber-300', text: 'text-amber-300', bar: 'bg-amber-400' },
@@ -70,6 +216,7 @@ export function IntervalSession({
   const [miles, setMiles] = useState('')
   const [notes, setNotes] = useState('')
   const [linkedSk, setLinkedSk] = useState<string | undefined>()
+  const [drills, setDrills] = useState<WorkoutExercise[]>([])
   const lastIdxRef = useRef(0)
   const doneElapsedRef = useRef(0)
 
@@ -156,7 +303,7 @@ export function IntervalSession({
       kind: draft.kind,
       title: title || undefined,
       weightUnit: 'lb',
-      exercises: [],
+      exercises: drills,
       intervals: sections,
       durationMin: Math.max(1, Math.round(durMs / 60_000)),
       distanceM: miles ? Math.round(Number(miles) * MILE) : undefined,
@@ -182,6 +329,9 @@ export function IntervalSession({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
+        {draft.kind === 'speed' && (
+          <DrillSetsEditor drills={drills} onChange={setDrills} />
+        )}
         {draft.kind === 'cardio' && (
           <>
             <input

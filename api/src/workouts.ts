@@ -1,4 +1,9 @@
-import { DeleteCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb'
+import {
+  DeleteCommand,
+  PutCommand,
+  QueryCommand,
+  TransactWriteCommand,
+} from '@aws-sdk/lib-dynamodb'
 import type {
   LambdaFunctionURLEvent,
   LambdaFunctionURLResult,
@@ -40,6 +45,8 @@ interface Workout {
   linkedSessionSk?: string
   durationMin?: number
   distanceM?: number
+  /** When an edit changed the start time: the old start whose row must go. */
+  previousStart?: string
 }
 
 const num = (v: unknown): number | undefined =>
@@ -109,6 +116,10 @@ function parseWorkout(raw: unknown): Workout | null {
         : undefined,
     durationMin: num(r.durationMin),
     distanceM: num(r.distanceM),
+    previousStart:
+      str(r.previousStart, 40) && !Number.isNaN(Date.parse(r.previousStart as string))
+        ? new Date(r.previousStart as string).toISOString()
+        : undefined,
   }
 }
 
@@ -128,24 +139,43 @@ export async function handleSaveWorkout(
   userId: string,
   event: LambdaFunctionURLEvent,
 ): Promise<LambdaFunctionURLResult> {
-  const workout = parseWorkout(parseBody(event))
-  if (!workout) return json(400, { error: 'invalid workout' })
+  const parsed = parseWorkout(parseBody(event))
+  if (!parsed) return json(400, { error: 'invalid workout' })
+  const { previousStart, ...workout } = parsed
 
-  await ddb.send(
-    new PutCommand({
-      TableName: TABLE_NAME,
-      Item: {
-        pk: `USER#${userId}`,
-        // Server-derived key: same client id + start always lands on the
-        // same item, which makes offline-queue retries idempotent.
-        sk: `WORKOUT#${workout.start}#${workout.id}`,
-        type: 'workout',
-        source: 'manual',
-        ...workout,
-        updatedAt: new Date().toISOString(),
-      },
-    }),
-  )
+  const item = {
+    pk: `USER#${userId}`,
+    // Server-derived key: same client id + start always lands on the
+    // same item, which makes offline-queue retries idempotent.
+    sk: `WORKOUT#${workout.start}#${workout.id}`,
+    type: 'workout',
+    source: 'manual',
+    ...workout,
+    updatedAt: new Date().toISOString(),
+  }
+
+  if (previousStart && previousStart !== workout.start) {
+    // Backdated edit: the start time lives in the sort key, so a changed
+    // start is a move — write the new row and drop the old one atomically.
+    await ddb.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          { Put: { TableName: TABLE_NAME, Item: item } },
+          {
+            Delete: {
+              TableName: TABLE_NAME,
+              Key: {
+                pk: `USER#${userId}`,
+                sk: `WORKOUT#${previousStart}#${workout.id}`,
+              },
+            },
+          },
+        ],
+      }),
+    )
+  } else {
+    await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: item }))
+  }
   return json(200, { saved: workout.id })
 }
 

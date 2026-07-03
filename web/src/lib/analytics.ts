@@ -211,6 +211,158 @@ export function sprintSeries(workouts: Workout[], drill: string): SprintPoint[] 
     .sort((a, b) => a.date.localeCompare(b.date))
 }
 
+export interface ExerciseDetailPoint {
+  date: string
+  volume: number
+  sets: number
+  topWeight?: number
+  e1rm?: number
+}
+
+/** Per-session volume, heaviest set, and e1RM for one exercise. */
+export function exerciseDetail(
+  workouts: Workout[],
+  exercise: string,
+): ExerciseDetailPoint[] {
+  const lower = exercise.toLowerCase()
+  const byDate = new Map<string, ExerciseDetailPoint>()
+  for (const w of workouts) {
+    if (w.kind !== 'strength') continue
+    const match = w.exercises.find((e) => e.name.toLowerCase() === lower)
+    if (!match) continue
+    const date = w.start.slice(0, 10)
+    const point = byDate.get(date) ?? { date, volume: 0, sets: 0 }
+    for (const s of match.sets) {
+      if (s.weight == null || s.reps == null) continue
+      point.sets += 1
+      point.volume += s.weight * s.reps
+      if (point.topWeight === undefined || s.weight > point.topWeight) {
+        point.topWeight = s.weight
+      }
+      const est = Math.round(epley(s.weight, s.reps) * 10) / 10
+      if (point.e1rm === undefined || est > point.e1rm) point.e1rm = est
+    }
+    if (point.sets > 0) {
+      point.volume = Math.round(point.volume)
+      byDate.set(date, point)
+    }
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
+}
+
+export interface ZoneWeekRow {
+  week: string
+  z1: number
+  z2: number
+  z3: number
+  z4: number
+  z5: number
+}
+
+/** Hours per HR zone per week across all captured activity. */
+export function weeklyZones(sessions: SessionRecord[], weeks = 12): ZoneWeekRow[] {
+  const mondayKey = (iso: string): string => {
+    const d = new Date(iso)
+    const shift = (d.getDay() + 6) % 7
+    d.setDate(d.getDate() - shift)
+    return d.toISOString().slice(0, 10)
+  }
+  const totals = new Map<string, ZoneWeekRow>()
+  for (const s of sessions) {
+    if (!s.zoneMin) continue
+    const week = mondayKey(s.start)
+    const row =
+      totals.get(week) ?? { week, z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 }
+    row.z1 += s.zoneMin.z1 ?? 0
+    row.z2 += s.zoneMin.z2 ?? 0
+    row.z3 += s.zoneMin.z3 ?? 0
+    row.z4 += s.zoneMin.z4 ?? 0
+    row.z5 += s.zoneMin.z5 ?? 0
+    totals.set(week, row)
+  }
+  return [...totals.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-weeks)
+    .map(([week, row]) => ({
+      week: week.slice(5),
+      z1: Math.round((row.z1 / 60) * 10) / 10,
+      z2: Math.round((row.z2 / 60) * 10) / 10,
+      z3: Math.round((row.z3 / 60) * 10) / 10,
+      z4: Math.round((row.z4 / 60) * 10) / 10,
+      z5: Math.round((row.z5 / 60) * 10) / 10,
+    }))
+}
+
+/** Decimal clock hours in the sleep's own timezone, minus an offset in minutes. */
+function localClock(iso: string, offset?: string, minusMin = 0): number {
+  const m = offset?.match(/^([+-])(\d{2}):(\d{2})/)
+  const shift = m
+    ? (Number(m[2]) * 60 + Number(m[3])) * 60_000 * (m[1] === '-' ? -1 : 1)
+    : 0
+  const d = new Date(new Date(iso).getTime() + shift - minusMin * 60_000)
+  return d.getUTCHours() + d.getUTCMinutes() / 60
+}
+
+export interface BedtimePoint {
+  date: string
+  /** Hours relative to midnight; 23:30 → -0.5 so lines don't wrap. */
+  bed: number
+  wake: number
+}
+
+/** Bed and wake times per night (bedtime derived as end − time in bed). */
+export function bedtimeSeries(
+  sleeps: Array<{
+    end: string
+    timezoneOffset?: string
+    nap: boolean
+    inBedMin?: number
+  }>,
+): BedtimePoint[] {
+  return sleeps
+    .flatMap((s) => {
+      if (s.nap || s.inBedMin == null) return []
+      const wake = localClock(s.end, s.timezoneOffset)
+      const bedRaw = localClock(s.end, s.timezoneOffset, s.inBedMin)
+      const bed = bedRaw > 12 ? bedRaw - 24 : bedRaw
+      return [
+        {
+          date: localDate(s.end, s.timezoneOffset),
+          bed: Math.round(bed * 100) / 100,
+          wake: Math.round(wake * 100) / 100,
+        },
+      ]
+    })
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+export interface WeekdayRecovery {
+  day: string
+  avg: number
+  nights: number
+}
+
+export function recoveryByWeekday(
+  recoveries: Array<{ date: string; recoveryScore?: number }>,
+): WeekdayRecovery[] {
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const sums = new Map<string, { total: number; n: number }>()
+  for (const r of recoveries) {
+    if (r.recoveryScore == null) continue
+    const utcDay = new Date(`${r.date.slice(0, 10)}T12:00:00Z`).getUTCDay()
+    const day = DAYS[(utcDay + 6) % 7]
+    const entry = sums.get(day) ?? { total: 0, n: 0 }
+    entry.total += r.recoveryScore
+    entry.n += 1
+    sums.set(day, entry)
+  }
+  return DAYS.flatMap((day) => {
+    const entry = sums.get(day)
+    if (!entry) return []
+    return [{ day, avg: Math.round(entry.total / entry.n), nights: entry.n }]
+  })
+}
+
 export interface RunPoint {
   date: string
   paceMinMi: number

@@ -12,14 +12,18 @@ import {
   YAxis,
 } from 'recharts'
 import {
+  bedtimeSeries,
   drillsByFrequency,
   e1rmSeries,
+  exerciseDetail,
   exercisesByFrequency,
   loadVsRecovery,
   personalRecords,
+  recoveryByWeekday,
   runSeries,
   sprintSeries,
   weeklyVolume,
+  weeklyZones,
 } from '../lib/analytics'
 import type { Api } from '../lib/api'
 import type { Metrics } from '../lib/metrics'
@@ -83,6 +87,7 @@ export function Analytics({
   const [metricsError, setMetricsError] = useState(false)
   const [exercise, setExercise] = useState<string | null>(null)
   const [drill, setDrill] = useState<string | null>(null)
+  const [deepDiveOpen, setDeepDiveOpen] = useState(false)
 
   useEffect(() => {
     api
@@ -117,6 +122,26 @@ export function Analytics({
   )
 
   const runs = useMemo(() => runSeries(sessions), [sessions])
+  const detail = useMemo(
+    () => (deepDiveOpen && activeExercise ? exerciseDetail(workouts, activeExercise) : []),
+    [deepDiveOpen, workouts, activeExercise],
+  )
+  const zones = useMemo(() => weeklyZones(sessions), [sessions])
+  const bedtimes = useMemo(
+    () => (metrics ? bedtimeSeries(metrics.sleeps).slice(-45) : []),
+    [metrics],
+  )
+  const weekdays = useMemo(
+    () => (metrics ? recoveryByWeekday(metrics.recoveries) : []),
+    [metrics],
+  )
+
+  const clock = (v: number) => {
+    const h = ((v % 24) + 24) % 24
+    const hh = Math.floor(h)
+    const mm = Math.round((h - hh) * 60)
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+  }
 
   const currentPr = activeExercise
     ? prs.find((p) => p.exercise === activeExercise)
@@ -153,7 +178,7 @@ export function Analytics({
               <Bar
                 yAxisId="strain"
                 dataKey="strain"
-                fill="#0f766e"
+                fill="#b48408"
                 name="strain"
                 radius={[2, 2, 0, 0]}
               />
@@ -161,7 +186,7 @@ export function Analytics({
                 yAxisId="recovery"
                 type="monotone"
                 dataKey="recovery"
-                stroke="#f59e0b"
+                stroke="#2dd4bf"
                 strokeWidth={1.5}
                 dot={false}
                 connectNulls
@@ -270,6 +295,101 @@ export function Analytics({
               </div>
             ))}
           </div>
+        </Card>
+      )}
+
+      {exercises.length > 0 && (
+        <Card
+          title="Exercise deep dive"
+          subtitle="session volume, top set, and e1RM for one lift"
+        >
+          {!deepDiveOpen ? (
+            <button
+              onClick={() => setDeepDiveOpen(true)}
+              className="w-full rounded-lg border border-neutral-700 px-4 py-2.5 text-sm text-neutral-300 hover:border-neutral-500"
+            >
+              Show exercise breakdown
+            </button>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="flex gap-1 overflow-x-auto pb-1">
+                {exercises.slice(0, 8).map((name) => (
+                  <Chip
+                    key={name}
+                    label={name}
+                    active={name === activeExercise}
+                    onClick={() => setExercise(name)}
+                  />
+                ))}
+              </div>
+              {detail.length > 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <ComposedChart
+                    data={detail}
+                    margin={{ top: 4, right: -14, bottom: 0, left: -10 }}
+                  >
+                    <CartesianGrid
+                      stroke="#262626"
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="date"
+                      {...axisProps()}
+                      tickFormatter={dateTick}
+                      minTickGap={32}
+                    />
+                    <YAxis yAxisId="volume" width={52} {...axisProps()} />
+                    <YAxis
+                      yAxisId="weight"
+                      orientation="right"
+                      width={44}
+                      domain={['auto', 'auto']}
+                      {...axisProps()}
+                    />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      labelStyle={{ color: '#d4d4d4' }}
+                      formatter={(value, name) => [
+                        `${Number(value).toLocaleString()} lb`,
+                        String(name),
+                      ]}
+                    />
+                    <Bar
+                      yAxisId="volume"
+                      dataKey="volume"
+                      fill="#134e4a"
+                      name="session volume"
+                      radius={[2, 2, 0, 0]}
+                    />
+                    <Line
+                      yAxisId="weight"
+                      type="monotone"
+                      dataKey="topWeight"
+                      stroke="#2dd4bf"
+                      strokeWidth={1.5}
+                      dot={{ r: 2.5, fill: '#2dd4bf' }}
+                      name="top set"
+                    />
+                    <Line
+                      yAxisId="weight"
+                      type="monotone"
+                      dataKey="e1rm"
+                      stroke="#a78bfa"
+                      strokeWidth={1}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      name="e1RM"
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="py-4 text-center text-sm text-neutral-600">
+                  No weighted sets logged for {activeExercise} yet.
+                </p>
+              )}
+            </div>
+          )}
         </Card>
       )}
 
@@ -415,6 +535,123 @@ export function Analytics({
             Faster pace at the same heart rate = improving aerobic fitness.
             (Pace axis is reversed so up means faster.)
           </p>
+        </Card>
+      )}
+
+      {zones.length > 0 && (
+        <Card
+          title="HR zone mix"
+          subtitle="hours per heart-rate zone per week, all captured activity"
+        >
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart
+              data={zones}
+              margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
+            >
+              <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="week" {...axisProps()} minTickGap={24} />
+              <YAxis width={46} unit="h" {...axisProps()} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                labelStyle={{ color: '#d4d4d4' }}
+                formatter={(value, name) => [`${value} h`, String(name)]}
+              />
+              <Bar dataKey="z1" stackId="z" fill="#525252" name="zone 1" />
+              <Bar dataKey="z2" stackId="z" fill="#38bdf8" name="zone 2" />
+              <Bar dataKey="z3" stackId="z" fill="#2dd4bf" name="zone 3" />
+              <Bar dataKey="z4" stackId="z" fill="#f59e0b" name="zone 4" />
+              <Bar
+                dataKey="z5"
+                stackId="z"
+                fill="#f87171"
+                name="zone 5"
+                radius={[2, 2, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="mt-1 text-xs text-neutral-600">
+            Polarized training shows as tall grey/blue bases with thin red
+            caps — big moderate middles mean junk-mileage risk.
+          </p>
+        </Card>
+      )}
+
+      {bedtimes.length > 1 && (
+        <Card title="Bedtime consistency" subtitle="bed and wake times per night">
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart
+              data={bedtimes}
+              margin={{ top: 4, right: 4, bottom: 0, left: -10 }}
+            >
+              <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="date"
+                {...axisProps()}
+                tickFormatter={dateTick}
+                minTickGap={32}
+              />
+              <YAxis
+                width={52}
+                domain={['auto', 'auto']}
+                tickFormatter={clock}
+                {...axisProps()}
+              />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                labelStyle={{ color: '#d4d4d4' }}
+                formatter={(value, name) => [clock(Number(value)), String(name)]}
+              />
+              <Line
+                type="monotone"
+                dataKey="bed"
+                stroke="#a78bfa"
+                strokeWidth={1.5}
+                dot={false}
+                name="bedtime"
+              />
+              <Line
+                type="monotone"
+                dataKey="wake"
+                stroke="#f59e0b"
+                strokeWidth={1.5}
+                dot={false}
+                name="wake"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+          <p className="mt-1 text-xs text-neutral-600">
+            Flat lines = consistent circadian rhythm; the vertical gap is your
+            time in bed.
+          </p>
+        </Card>
+      )}
+
+      {weekdays.length > 1 && (
+        <Card title="Recovery by weekday" subtitle="average recovery score per day">
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart
+              data={weekdays}
+              margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
+            >
+              <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="day" {...axisProps()} />
+              <YAxis width={40} domain={[0, 100]} {...axisProps()} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                labelStyle={{ color: '#d4d4d4' }}
+                formatter={(value, _name, item) => [
+                  `${value}% avg over ${(item?.payload as { nights?: number })?.nights ?? '?'} nights`,
+                  'recovery',
+                ]}
+              />
+              <Bar
+                dataKey="avg"
+                fill="#2dd4bf"
+                name="recovery"
+                radius={[2, 2, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
         </Card>
       )}
     </div>

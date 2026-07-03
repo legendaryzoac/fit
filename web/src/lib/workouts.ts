@@ -36,6 +36,8 @@ export interface Workout {
   durationMin?: number
   distanceM?: number
   updatedAt?: string
+  /** Set when an edit changes start: tells the API to move, not duplicate. */
+  previousStart?: string
 }
 
 /** Drop rows the lifter never filled in and strip client-only flags. */
@@ -70,6 +72,14 @@ export interface SessionRecord {
   maxHr?: number
   kilojoule?: number
   distanceM?: number
+  zoneMin?: {
+    z0?: number
+    z1?: number
+    z2?: number
+    z3?: number
+    z4?: number
+    z5?: number
+  }
   scoreState?: string
 }
 
