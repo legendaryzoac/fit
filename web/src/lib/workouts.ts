@@ -1,9 +1,15 @@
 import type { Api } from './api'
 
+export type WorkoutKind = 'strength' | 'speed' | 'cardio'
+
 export interface WorkoutSet {
   weight?: number
   reps?: number
   rpe?: number
+  durationSec?: number
+  distanceM?: number
+  /** Session-screen check-off state; stripped before the API sees it. */
+  done?: boolean
 }
 
 export interface WorkoutExercise {
@@ -15,7 +21,7 @@ export interface Workout {
   id: string
   start: string
   end?: string
-  kind: 'strength' | 'cardio'
+  kind: WorkoutKind
   title?: string
   weightUnit: 'lb' | 'kg'
   notes?: string
@@ -24,6 +30,27 @@ export interface Workout {
   durationMin?: number
   distanceM?: number
   updatedAt?: string
+}
+
+/** Drop rows the lifter never filled in and strip client-only flags. */
+export function finalizeWorkout(w: Workout): Workout {
+  return {
+    ...w,
+    exercises: w.exercises
+      .map((e) => ({
+        ...e,
+        sets: e.sets
+          .filter(
+            (s) =>
+              s.weight != null ||
+              s.reps != null ||
+              s.durationSec != null ||
+              s.distanceM != null,
+          )
+          .map(({ done: _done, ...rest }) => rest),
+      }))
+      .filter((e) => e.sets.length > 0),
+  }
 }
 
 export interface SessionRecord {
@@ -40,7 +67,7 @@ export interface SessionRecord {
   scoreState?: string
 }
 
-export function newWorkout(kind: Workout['kind']): Workout {
+export function newWorkout(kind: WorkoutKind): Workout {
   return {
     id: crypto.randomUUID(),
     start: new Date().toISOString(),
@@ -48,6 +75,25 @@ export function newWorkout(kind: Workout['kind']): Workout {
     weightUnit: 'lb',
     exercises: [],
   }
+}
+
+// ---- active-session draft ----
+// The in-progress workout survives phone locks and reloads at the gym.
+
+const DRAFT_KEY = 'fit.activeWorkoutDraft'
+
+export function loadDraft(): Workout | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    return raw ? (JSON.parse(raw) as Workout) : null
+  } catch {
+    return null
+  }
+}
+
+export function saveDraft(workout: Workout | null): void {
+  if (workout === null) localStorage.removeItem(DRAFT_KEY)
+  else localStorage.setItem(DRAFT_KEY, JSON.stringify(workout))
 }
 
 // ---- offline write queue ----

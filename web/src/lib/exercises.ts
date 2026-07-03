@@ -37,3 +37,21 @@ export const EXERCISES: Array<{ name: string; muscle: string }> = [
   { name: 'Hanging leg raise', muscle: 'core' },
   { name: 'Farmer carry', muscle: 'full body' },
 ]
+
+export const SPEED_DRILLS: Array<{ name: string; muscle: string }> = [
+  { name: '10 yd sprint', muscle: 'speed' },
+  { name: '40 yd sprint', muscle: 'speed' },
+  { name: '100 m sprint', muscle: 'speed' },
+  { name: 'Flying 30', muscle: 'speed' },
+  { name: 'Hill sprint', muscle: 'speed' },
+  { name: 'Sled push', muscle: 'speed' },
+  { name: 'Shuttle run', muscle: 'speed' },
+  { name: 'Broad jump', muscle: 'power' },
+]
+
+export function muscleFor(name: string): string | undefined {
+  const lower = name.toLowerCase()
+  return [...EXERCISES, ...SPEED_DRILLS].find(
+    (e) => e.name.toLowerCase() === lower,
+  )?.muscle
+}

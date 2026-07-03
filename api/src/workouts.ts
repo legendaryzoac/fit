@@ -10,6 +10,8 @@ interface WorkoutSet {
   weight?: number
   reps?: number
   rpe?: number
+  durationSec?: number
+  distanceM?: number
 }
 
 interface WorkoutExercise {
@@ -17,11 +19,14 @@ interface WorkoutExercise {
   sets: WorkoutSet[]
 }
 
+const KINDS = ['strength', 'speed', 'cardio'] as const
+type WorkoutKind = (typeof KINDS)[number]
+
 interface Workout {
   id: string
   start: string
   end?: string
-  kind: 'strength' | 'cardio'
+  kind: WorkoutKind
   title?: string
   weightUnit: 'lb' | 'kg'
   notes?: string
@@ -45,7 +50,7 @@ function parseWorkout(raw: unknown): Workout | null {
   const id = str(r.id, 64)
   const start = str(r.start, 40)
   if (!id || !start || Number.isNaN(Date.parse(start))) return null
-  if (r.kind !== 'strength' && r.kind !== 'cardio') return null
+  if (!KINDS.includes(r.kind as WorkoutKind)) return null
   const weightUnit = r.weightUnit === 'kg' ? 'kg' : 'lb'
 
   if (!Array.isArray(r.exercises) || r.exercises.length > 30) return null
@@ -60,6 +65,8 @@ function parseWorkout(raw: unknown): Workout | null {
         weight: num(s?.weight),
         reps: num(s?.reps),
         rpe: num(s?.rpe),
+        durationSec: num(s?.durationSec),
+        distanceM: num(s?.distanceM),
       })),
     })
   }
@@ -68,7 +75,7 @@ function parseWorkout(raw: unknown): Workout | null {
     id,
     start: new Date(start).toISOString(),
     end: str(r.end, 40),
-    kind: r.kind,
+    kind: r.kind as WorkoutKind,
     title: str(r.title, 120),
     weightUnit,
     notes: str(r.notes, 2000),
