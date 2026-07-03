@@ -19,6 +19,11 @@ interface WorkoutExercise {
   sets: WorkoutSet[]
 }
 
+interface IntervalSection {
+  label: string
+  durationSec: number
+}
+
 const KINDS = ['strength', 'speed', 'cardio'] as const
 type WorkoutKind = (typeof KINDS)[number]
 
@@ -31,6 +36,7 @@ interface Workout {
   weightUnit: 'lb' | 'kg'
   notes?: string
   exercises: WorkoutExercise[]
+  intervals?: IntervalSection[]
   linkedSessionSk?: string
   durationMin?: number
   distanceM?: number
@@ -71,11 +77,27 @@ function parseWorkout(raw: unknown): Workout | null {
     })
   }
 
+  // Interval-timer workouts (speed/cardio) record their executed plan
+  let intervals: IntervalSection[] | undefined
+  if (Array.isArray(r.intervals)) {
+    if (r.intervals.length > 80) return null
+    intervals = []
+    for (const s of r.intervals) {
+      const label = str((s as Record<string, unknown>)?.label, 40)
+      const durationSec = num((s as Record<string, unknown>)?.durationSec)
+      if (!label || durationSec == null || durationSec < 1 || durationSec > 7200) {
+        return null
+      }
+      intervals.push({ label, durationSec: Math.round(durationSec) })
+    }
+  }
+
   return {
     id,
     start: new Date(start).toISOString(),
     end: str(r.end, 40),
     kind: r.kind as WorkoutKind,
+    intervals,
     title: str(r.title, 120),
     weightUnit,
     notes: str(r.notes, 2000),

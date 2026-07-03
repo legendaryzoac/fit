@@ -8,6 +8,11 @@ import { TABLE_NAME, ddb } from './db'
 import { json } from './http'
 import { handleMetrics, handleSessions } from './metrics'
 import {
+  handleDeleteTemplate,
+  handleListTemplates,
+  handleSaveTemplate,
+} from './templates'
+import {
   handleDeleteWorkout,
   handleListWorkouts,
   handleSaveWorkout,
@@ -85,6 +90,9 @@ export async function handler(
   if (route === 'GET /api/workouts') return handleListWorkouts(userId, event)
   if (route === 'POST /api/workouts') return handleSaveWorkout(userId, event)
   if (route === 'DELETE /api/workouts') return handleDeleteWorkout(userId, event)
+  if (route === 'GET /api/templates') return handleListTemplates(userId)
+  if (route === 'POST /api/templates') return handleSaveTemplate(userId, event)
+  if (route === 'DELETE /api/templates') return handleDeleteTemplate(userId, event)
   if (route === 'GET /api/whoop/connect') return handleWhoopConnect(userId)
 
   return json(404, { error: 'not found' })

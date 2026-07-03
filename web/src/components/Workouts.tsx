@@ -2,20 +2,36 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Api } from '../lib/api'
 import { EXERCISES, SPEED_DRILLS, muscleFor } from '../lib/exercises'
 import {
+  buildIntervals,
+  DEFAULT_PLAN,
+  fmtSec,
+  loadTemplateCache,
+  saveTemplateCache,
+  totalSec,
+  type QuickIntervalPlan,
+  type Template,
+} from '../lib/templates'
+import {
   enqueue,
   finalizeWorkout,
   flushQueue,
   loadDraft,
   loadPending,
+  loadTimerDraft,
   loadWorkoutCache,
   newWorkout,
   saveDraft,
+  saveTimerDraft,
   saveWorkoutCache,
+  type IntervalSection,
   type SessionRecord,
+  type TimerDraft,
   type Workout,
   type WorkoutKind,
   type WorkoutSet,
 } from '../lib/workouts'
+import { IntervalSession } from './IntervalTimer'
+import { PlanFields, TemplateBuilder } from './TemplateBuilder'
 import { buttonClass, Card, inputClass } from './ui'
 
 // 16px font so iOS doesn't zoom on focus; big touch targets for gym thumbs
@@ -23,6 +39,10 @@ const setInput =
   'w-full rounded-lg border border-neutral-800 bg-neutral-900 px-1 py-2.5 ' +
   'text-center text-base text-neutral-100 placeholder-neutral-600 outline-none ' +
   'focus:border-teal-500'
+
+const secondaryButton =
+  'rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-300 ' +
+  'hover:border-neutral-500'
 
 const YD = 0.9144
 const MILE = 1609.34
@@ -51,12 +71,7 @@ function fmtDateTime(iso: string): string {
 }
 
 function fmtElapsed(ms: number): string {
-  const totalSec = Math.max(0, Math.floor(ms / 1000))
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  const s = totalSec % 60
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+  return fmtSec(ms / 1000)
 }
 
 function prevSummary(kind: WorkoutKind, s: WorkoutSet): string | null {
@@ -83,14 +98,13 @@ function setVolume(w: Workout): { sets: number; volume: number } {
 }
 
 // ---------------------------------------------------------------------------
-// Active workout session (RP-style: check off sets as you go)
+// Strength session (RP-style: check off sets as you go)
 // ---------------------------------------------------------------------------
 
 function ActiveWorkout({
   initial,
   isNew,
   history,
-  sessions,
   onFinish,
   onCancel,
   onDelete,
@@ -98,7 +112,6 @@ function ActiveWorkout({
   initial: Workout
   isNew: boolean
   history: Workout[]
-  sessions: SessionRecord[]
   onFinish: (w: Workout) => void
   onCancel: () => void
   onDelete?: (w: Workout) => void
@@ -190,10 +203,7 @@ function ActiveWorkout({
       exercises: w.exercises.map((e, i) =>
         i !== ei
           ? e
-          : {
-              ...e,
-              sets: [...e.sets, { ...e.sets.at(-1), done: false }],
-            },
+          : { ...e, sets: [...e.sets, { ...e.sets.at(-1), done: false }] },
       ),
     })
   }
@@ -203,14 +213,6 @@ function ActiveWorkout({
   }
 
   const numeric = (raw: string) => (raw === '' ? undefined : Number(raw))
-
-  const linkSuggestions = useMemo(() => {
-    if (w.kind !== 'cardio') return []
-    const start = new Date(w.start).getTime()
-    return sessions.filter(
-      (s) => Math.abs(new Date(s.start).getTime() - start) < 4 * 3_600_000,
-    )
-  }, [w.kind, w.start, sessions])
 
   const doneCount = w.exercises.reduce(
     (n, e) => n + e.sets.filter((s) => s.done).length,
@@ -239,182 +241,204 @@ function ActiveWorkout({
         )}
       </div>
 
-      <div className="flex gap-2">
-        {(['strength', 'speed', 'cardio'] as const).map((k) => (
-          <button
-            key={k}
-            onClick={() => setW({ ...w, kind: k })}
-            className={`rounded-full px-3 py-1.5 text-sm capitalize ${
-              w.kind === k
-                ? KIND_STYLE[k]
-                : 'text-neutral-500 hover:text-neutral-300'
-            }`}
-          >
-            {k}
-          </button>
-        ))}
-      </div>
-
       <input
         className={inputClass}
-        placeholder={`${w.kind} session title (optional)`}
+        placeholder="session title (optional)"
         value={w.title ?? ''}
         onChange={(e) => setW({ ...w, title: e.target.value || undefined })}
       />
 
-      {w.kind !== 'cardio' &&
-        w.exercises.map((e, ei) => {
-          const prev = prevSetsFor(e.name)
-          const muscle = muscleFor(e.name)
-          return (
-            <div
-              key={ei}
-              className="rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3"
-            >
-              <div className="mb-2 flex items-baseline justify-between">
-                <p className="text-sm font-semibold text-neutral-100">
-                  {e.name}
-                  {muscle && (
-                    <span className="ml-2 text-[11px] font-normal uppercase tracking-wide text-neutral-600">
-                      {muscle}
-                    </span>
-                  )}
-                </p>
-                <button
-                  onClick={() => removeExercise(ei)}
-                  className="text-xs text-neutral-600 hover:text-red-400"
-                >
-                  remove
-                </button>
-              </div>
+      {w.kind === 'cardio' && (
+        <div className="flex gap-2">
+          <input
+            className={inputClass}
+            type="number"
+            inputMode="numeric"
+            placeholder="duration (min)"
+            value={w.durationMin ?? ''}
+            onChange={(e) => setW({ ...w, durationMin: numeric(e.target.value) })}
+          />
+          <input
+            className={inputClass}
+            type="number"
+            inputMode="decimal"
+            placeholder="distance (miles)"
+            value={
+              w.distanceM != null
+                ? Math.round((w.distanceM / MILE) * 100) / 100
+                : ''
+            }
+            onChange={(e) =>
+              setW({
+                ...w,
+                distanceM: e.target.value
+                  ? Math.round(Number(e.target.value) * MILE)
+                  : undefined,
+              })
+            }
+          />
+        </div>
+      )}
 
-              <div className="mb-1 grid grid-cols-[1.5rem_3.2rem_1fr_1fr_2.6rem_2.4rem] items-center gap-1.5 text-[11px] uppercase tracking-wide text-neutral-600">
-                <span>set</span>
-                <span>prev</span>
-                {w.kind === 'strength' ? (
-                  <>
-                    <span className="text-center">{w.weightUnit}</span>
-                    <span className="text-center">reps</span>
-                    <span className="text-center">rpe</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-center">yd</span>
-                    <span className="text-center">sec</span>
-                    <span />
-                  </>
+      {w.exercises.map((e, ei) => {
+        const prev = prevSetsFor(e.name)
+        const muscle = muscleFor(e.name)
+        return (
+          <div
+            key={ei}
+            className="rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3"
+          >
+            <div className="mb-2 flex items-baseline justify-between">
+              <p className="text-sm font-semibold text-neutral-100">
+                {e.name}
+                {muscle && (
+                  <span className="ml-2 text-[11px] font-normal uppercase tracking-wide text-neutral-600">
+                    {muscle}
+                  </span>
                 )}
-                <span />
-              </div>
-
-              {e.sets.map((s, si) => {
-                const ghost = prev[si] ?? prev.at(-1)
-                return (
-                  <div
-                    key={si}
-                    className="mb-1.5 grid grid-cols-[1.5rem_3.2rem_1fr_1fr_2.6rem_2.4rem] items-center gap-1.5"
-                  >
-                    <span className="text-sm text-neutral-500">{si + 1}</span>
-                    <span className="truncate text-[11px] text-neutral-600">
-                      {ghost ? prevSummary(w.kind, ghost) : '—'}
-                    </span>
-                    {w.kind === 'strength' ? (
-                      <>
-                        <input
-                          className={setInput}
-                          type="number"
-                          inputMode="decimal"
-                          placeholder={ghost?.weight != null ? String(ghost.weight) : ''}
-                          value={s.weight ?? ''}
-                          onChange={(ev) =>
-                            patchSet(ei, si, { weight: numeric(ev.target.value) })
-                          }
-                        />
-                        <input
-                          className={setInput}
-                          type="number"
-                          inputMode="numeric"
-                          placeholder={ghost?.reps != null ? String(ghost.reps) : ''}
-                          value={s.reps ?? ''}
-                          onChange={(ev) =>
-                            patchSet(ei, si, { reps: numeric(ev.target.value) })
-                          }
-                        />
-                        <input
-                          className={setInput}
-                          type="number"
-                          inputMode="decimal"
-                          placeholder="rpe"
-                          value={s.rpe ?? ''}
-                          onChange={(ev) =>
-                            patchSet(ei, si, { rpe: numeric(ev.target.value) })
-                          }
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <input
-                          className={setInput}
-                          type="number"
-                          inputMode="numeric"
-                          placeholder={
-                            ghost?.distanceM != null
-                              ? String(Math.round(ghost.distanceM / YD))
-                              : ''
-                          }
-                          value={
-                            s.distanceM != null
-                              ? Math.round(s.distanceM / YD)
-                              : ''
-                          }
-                          onChange={(ev) =>
-                            patchSet(ei, si, {
-                              distanceM:
-                                ev.target.value === ''
-                                  ? undefined
-                                  : Math.round(Number(ev.target.value) * YD * 100) / 100,
-                            })
-                          }
-                        />
-                        <input
-                          className={setInput}
-                          type="number"
-                          inputMode="decimal"
-                          placeholder={
-                            ghost?.durationSec != null ? String(ghost.durationSec) : ''
-                          }
-                          value={s.durationSec ?? ''}
-                          onChange={(ev) =>
-                            patchSet(ei, si, { durationSec: numeric(ev.target.value) })
-                          }
-                        />
-                        <span />
-                      </>
-                    )}
-                    <button
-                      onClick={() => toggleDone(ei, si, ghost)}
-                      aria-label={s.done ? 'set done' : 'mark set done'}
-                      className={`flex h-10 items-center justify-center rounded-lg border text-sm font-bold ${
-                        s.done
-                          ? 'border-teal-500 bg-teal-500 text-neutral-950'
-                          : 'border-neutral-700 text-neutral-600 hover:border-teal-500/60'
-                      }`}
-                    >
-                      ✓
-                    </button>
-                  </div>
-                )
-              })}
-
+              </p>
               <button
-                onClick={() => addSet(ei)}
-                className="mt-1 text-xs font-medium text-teal-400 hover:text-teal-300"
+                onClick={() => removeExercise(ei)}
+                className="text-xs text-neutral-600 hover:text-red-400"
               >
-                + add set
+                remove
               </button>
             </div>
-          )
-        })}
+
+            <div className="mb-1 grid grid-cols-[1.5rem_3.2rem_1fr_1fr_2.6rem_2.4rem] items-center gap-1.5 text-[11px] uppercase tracking-wide text-neutral-600">
+              <span>set</span>
+              <span>prev</span>
+              {w.kind === 'speed' ? (
+                <>
+                  <span className="text-center">yd</span>
+                  <span className="text-center">sec</span>
+                  <span />
+                </>
+              ) : (
+                <>
+                  <span className="text-center">{w.weightUnit}</span>
+                  <span className="text-center">reps</span>
+                  <span className="text-center">rpe</span>
+                </>
+              )}
+              <span />
+            </div>
+
+            {e.sets.map((s, si) => {
+              const ghost = prev[si] ?? prev.at(-1)
+              return (
+                <div
+                  key={si}
+                  className="mb-1.5 grid grid-cols-[1.5rem_3.2rem_1fr_1fr_2.6rem_2.4rem] items-center gap-1.5"
+                >
+                  <span className="text-sm text-neutral-500">{si + 1}</span>
+                  <span className="truncate text-[11px] text-neutral-600">
+                    {ghost ? prevSummary(w.kind, ghost) : '—'}
+                  </span>
+                  {w.kind === 'speed' ? (
+                    <>
+                      <input
+                        className={setInput}
+                        type="number"
+                        inputMode="numeric"
+                        placeholder={
+                          ghost?.distanceM != null
+                            ? String(Math.round(ghost.distanceM / YD))
+                            : ''
+                        }
+                        value={
+                          s.distanceM != null ? Math.round(s.distanceM / YD) : ''
+                        }
+                        onChange={(ev) =>
+                          patchSet(ei, si, {
+                            distanceM:
+                              ev.target.value === ''
+                                ? undefined
+                                : Math.round(Number(ev.target.value) * YD * 100) /
+                                  100,
+                          })
+                        }
+                      />
+                      <input
+                        className={setInput}
+                        type="number"
+                        inputMode="decimal"
+                        placeholder={
+                          ghost?.durationSec != null
+                            ? String(ghost.durationSec)
+                            : ''
+                        }
+                        value={s.durationSec ?? ''}
+                        onChange={(ev) =>
+                          patchSet(ei, si, {
+                            durationSec: numeric(ev.target.value),
+                          })
+                        }
+                      />
+                      <span />
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        className={setInput}
+                        type="number"
+                        inputMode="decimal"
+                        placeholder={
+                          ghost?.weight != null ? String(ghost.weight) : ''
+                        }
+                        value={s.weight ?? ''}
+                        onChange={(ev) =>
+                          patchSet(ei, si, { weight: numeric(ev.target.value) })
+                        }
+                      />
+                      <input
+                        className={setInput}
+                        type="number"
+                        inputMode="numeric"
+                        placeholder={
+                          ghost?.reps != null ? String(ghost.reps) : ''
+                        }
+                        value={s.reps ?? ''}
+                        onChange={(ev) =>
+                          patchSet(ei, si, { reps: numeric(ev.target.value) })
+                        }
+                      />
+                      <input
+                        className={setInput}
+                        type="number"
+                        inputMode="decimal"
+                        placeholder="rpe"
+                        value={s.rpe ?? ''}
+                        onChange={(ev) =>
+                          patchSet(ei, si, { rpe: numeric(ev.target.value) })
+                        }
+                      />
+                    </>
+                  )}
+                  <button
+                    onClick={() => toggleDone(ei, si, ghost)}
+                    aria-label={s.done ? 'set done' : 'mark set done'}
+                    className={`flex h-10 items-center justify-center rounded-lg border text-sm font-bold ${
+                      s.done
+                        ? 'border-teal-500 bg-teal-500 text-neutral-950'
+                        : 'border-neutral-700 text-neutral-600 hover:border-teal-500/60'
+                    }`}
+                  >
+                    ✓
+                  </button>
+                </div>
+              )
+            })}
+
+            <button
+              onClick={() => addSet(ei)}
+              className="mt-1 text-xs font-medium text-teal-400 hover:text-teal-300"
+            >
+              + add set
+            </button>
+          </div>
+        )
+      })}
 
       {w.kind !== 'cardio' && (
         <div className="flex gap-2">
@@ -431,77 +455,10 @@ function ActiveWorkout({
               <option key={n} value={n} />
             ))}
           </datalist>
-          <button
-            onClick={addExercise}
-            className={`${buttonClass} shrink-0`}
-          >
+          <button onClick={addExercise} className={`${buttonClass} shrink-0`}>
             Add
           </button>
         </div>
-      )}
-
-      {w.kind === 'cardio' && (
-        <>
-          <div className="flex gap-2">
-            <input
-              className={inputClass}
-              type="number"
-              inputMode="numeric"
-              placeholder="duration (min)"
-              value={w.durationMin ?? ''}
-              onChange={(e) =>
-                setW({ ...w, durationMin: numeric(e.target.value) })
-              }
-            />
-            <input
-              className={inputClass}
-              type="number"
-              inputMode="decimal"
-              placeholder="distance (miles)"
-              value={
-                w.distanceM != null
-                  ? Math.round((w.distanceM / MILE) * 100) / 100
-                  : ''
-              }
-              onChange={(e) =>
-                setW({
-                  ...w,
-                  distanceM: e.target.value
-                    ? Math.round(Number(e.target.value) * MILE)
-                    : undefined,
-                })
-              }
-            />
-          </div>
-          {linkSuggestions.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <p className="text-xs text-neutral-500">
-                Attach WHOOP heart-rate data:
-              </p>
-              {linkSuggestions.map((s) => (
-                <button
-                  key={s.sk}
-                  onClick={() =>
-                    setW({
-                      ...w,
-                      linkedSessionSk:
-                        w.linkedSessionSk === s.sk ? undefined : s.sk,
-                    })
-                  }
-                  className={`rounded-lg border px-3 py-2.5 text-left text-xs ${
-                    w.linkedSessionSk === s.sk
-                      ? 'border-teal-500/60 bg-teal-500/10 text-teal-200'
-                      : 'border-neutral-800 text-neutral-400 hover:border-neutral-600'
-                  }`}
-                >
-                  {s.sport ?? 'activity'} · {fmtDateTime(s.start)}
-                  {s.strain != null && ` · strain ${Math.round(s.strain * 10) / 10}`}
-                  {s.avgHr != null && ` · ${Math.round(s.avgHr)} bpm avg`}
-                </button>
-              ))}
-            </div>
-          )}
-        </>
       )}
 
       <textarea
@@ -515,10 +472,7 @@ function ActiveWorkout({
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
           <button
             onClick={() =>
-              onFinish({
-                ...w,
-                end: isNew ? new Date().toISOString() : w.end,
-              })
+              onFinish({ ...w, end: isNew ? new Date().toISOString() : w.end })
             }
             className={`${buttonClass} flex-1`}
           >
@@ -539,6 +493,140 @@ function ActiveWorkout({
 }
 
 // ---------------------------------------------------------------------------
+// Start flow: pick a kind, then a template of that kind (or blank/custom)
+// ---------------------------------------------------------------------------
+
+const KIND_BLURB: Record<WorkoutKind, string> = {
+  strength: 'Sets, reps, and RPE with last-time ghosts',
+  speed: 'Interval timer for sprint and drill work',
+  cardio: 'Interval timer, log the miles afterwards',
+}
+
+function StartPicker({
+  templates,
+  onStrength,
+  onTimer,
+  onDeleteTemplate,
+  onCancel,
+}: {
+  templates: Template[]
+  onStrength: (template?: Template) => void
+  onTimer: (kind: WorkoutKind, sections: IntervalSection[], title?: string) => void
+  onDeleteTemplate: (t: Template) => void
+  onCancel: () => void
+}) {
+  const [kind, setKind] = useState<WorkoutKind | null>(null)
+  const [plan, setPlan] = useState<QuickIntervalPlan>(DEFAULT_PLAN)
+  const [showCustom, setShowCustom] = useState(false)
+
+  const matching = templates.filter((t) => t.kind === kind)
+
+  function templateMeta(t: Template): string {
+    if (t.kind === 'strength' && t.exercises) {
+      const sets = t.exercises.reduce((n, e) => n + e.setCount, 0)
+      return `${t.exercises.length} exercises · ${sets} sets`
+    }
+    if (t.sections) {
+      return `${t.sections.length} sections · ${fmtSec(totalSec(t.sections))}`
+    }
+    return ''
+  }
+
+  function startTemplate(t: Template) {
+    if (t.kind === 'strength') onStrength(t)
+    else if (t.sections) onTimer(t.kind, t.sections, t.name)
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-base font-medium text-neutral-300">
+          {kind === null ? 'What are you training?' : `Start ${kind}`}
+        </h1>
+        <button
+          onClick={() => (kind === null ? onCancel() : setKind(null))}
+          className="text-sm text-neutral-500 hover:text-neutral-300"
+        >
+          {kind === null ? 'Cancel' : '← Back'}
+        </button>
+      </div>
+
+      {kind === null &&
+        (['strength', 'speed', 'cardio'] as const).map((k) => (
+          <button
+            key={k}
+            onClick={() => setKind(k)}
+            className="rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-4 text-left hover:border-neutral-600"
+          >
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${KIND_STYLE[k]}`}
+            >
+              {k}
+            </span>
+            <p className="mt-1.5 text-sm text-neutral-400">{KIND_BLURB[k]}</p>
+          </button>
+        ))}
+
+      {kind !== null && (
+        <>
+          {matching.map((t) => (
+            <div
+              key={t.id}
+              className="flex items-center gap-2 rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3"
+            >
+              <button
+                onClick={() => startTemplate(t)}
+                className="flex-1 text-left"
+              >
+                <p className="text-sm font-semibold text-neutral-100">
+                  {t.name}
+                </p>
+                <p className="text-xs text-neutral-500">{templateMeta(t)}</p>
+              </button>
+              <button
+                onClick={() => onDeleteTemplate(t)}
+                className="px-2 text-neutral-600 hover:text-red-400"
+                aria-label={`delete template ${t.name}`}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          {matching.length === 0 && (
+            <p className="text-sm text-neutral-600">
+              No {kind} templates yet — “Create workout” builds one.
+            </p>
+          )}
+
+          {kind === 'strength' ? (
+            <button onClick={() => onStrength()} className={`${buttonClass} w-full`}>
+              Blank strength session
+            </button>
+          ) : showCustom ? (
+            <div className="flex flex-col gap-3 rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3">
+              <PlanFields plan={plan} onChange={setPlan} />
+              <button
+                onClick={() => onTimer(kind, buildIntervals(plan))}
+                className={`${buttonClass} w-full`}
+              >
+                Start timer
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowCustom(true)}
+              className={`${secondaryButton} w-full`}
+            >
+              Custom timer…
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Lists: logged training, separated from WHOOP-captured activity
 // ---------------------------------------------------------------------------
 
@@ -552,6 +640,22 @@ function WorkoutCard({
   onRepeat: () => void
 }) {
   const { sets, volume } = setVolume(workout)
+  const metaParts: string[] = []
+  if (workout.kind === 'strength' && sets > 0) {
+    metaParts.push(`${workout.exercises.length} exercises · ${sets} sets`)
+    if (volume > 0) {
+      metaParts.push(`${Math.round(volume).toLocaleString()} ${workout.weightUnit}`)
+    }
+  }
+  if (workout.intervals && workout.intervals.length > 0) {
+    metaParts.push(`${workout.intervals.length} intervals`)
+  }
+  if (workout.durationMin != null) metaParts.push(`${workout.durationMin} min`)
+  if (workout.distanceM != null) {
+    metaParts.push(`${Math.round((workout.distanceM / MILE) * 100) / 100} mi`)
+  }
+  if (workout.linkedSessionSk) metaParts.push('WHOOP linked')
+
   return (
     <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-4">
       <div className="mb-1 flex items-center gap-2">
@@ -563,29 +667,14 @@ function WorkoutCard({
       </div>
       <p className="mb-2 text-xs text-neutral-500">
         {fmtDateTime(workout.start)}
-        {workout.kind === 'strength' &&
-          sets > 0 &&
-          ` · ${workout.exercises.length} exercises · ${sets} sets` +
-            (volume > 0 ? ` · ${Math.round(volume).toLocaleString()} ${workout.weightUnit}` : '')}
-        {workout.kind === 'cardio' &&
-          [
-            workout.durationMin != null && `${workout.durationMin} min`,
-            workout.distanceM != null &&
-              `${Math.round((workout.distanceM / MILE) * 100) / 100} mi`,
-            workout.linkedSessionSk && 'WHOOP linked',
-          ]
-            .filter(Boolean)
-            .map((part) => ` · ${part}`)
-            .join('')}
+        {metaParts.map((part) => ` · ${part}`).join('')}
       </p>
       <div className="flex flex-col gap-0.5 text-sm text-neutral-400">
         {workout.exercises.slice(0, 4).map((e, i) => (
           <p key={i} className="truncate">
             <span className="text-neutral-200">{e.name}</span>{' '}
             <span className="text-neutral-500">
-              {e.sets
-                .map((s) => prevSummary(workout.kind, s) ?? '—')
-                .join(', ')}
+              {e.sets.map((s) => prevSummary(workout.kind, s) ?? '—').join(', ')}
             </span>
           </p>
         ))}
@@ -602,29 +691,48 @@ function WorkoutCard({
         <button onClick={onEdit} className="text-teal-400 hover:text-teal-300">
           Edit
         </button>
-        <button onClick={onRepeat} className="text-teal-400 hover:text-teal-300">
-          Repeat
-        </button>
+        {workout.kind === 'strength' && (
+          <button
+            onClick={onRepeat}
+            className="text-teal-400 hover:text-teal-300"
+          >
+            Repeat
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
+type Mode =
+  | { m: 'list' }
+  | { m: 'pick' }
+  | { m: 'build' }
+  | { m: 'strength'; workout: Workout; isNew: boolean }
+  | { m: 'timer'; draft: TimerDraft }
+
 export function Workouts({ api }: { api: Api }) {
   const [segment, setSegment] = useState<'training' | 'whoop'>('training')
   const [workouts, setWorkouts] = useState<Workout[]>(loadWorkoutCache)
   const [sessions, setSessions] = useState<SessionRecord[]>([])
-  const [active, setActive] = useState<Workout | null>(loadDraft)
-  const [isNew, setIsNew] = useState(() => loadDraft() !== null)
+  const [templates, setTemplates] = useState<Template[]>(loadTemplateCache)
   const [pendingCount, setPendingCount] = useState(() => loadPending().length)
   const [offline, setOffline] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [mode, setMode] = useState<Mode>(() => {
+    const timer = loadTimerDraft()
+    if (timer) return { m: 'timer', draft: timer }
+    const draft = loadDraft()
+    if (draft) return { m: 'strength', workout: draft, isNew: true }
+    return { m: 'list' }
+  })
 
   async function refresh() {
     try {
-      const [wRes, sRes] = await Promise.all([
+      const [wRes, sRes, tRes] = await Promise.all([
         api.get('/api/workouts?days=180'),
         api.get('/api/sessions?days=180'),
+        api.get('/api/templates'),
       ])
       if (wRes.ok) {
         const body = await wRes.json()
@@ -632,6 +740,11 @@ export function Workouts({ api }: { api: Api }) {
         saveWorkoutCache(body.workouts)
       }
       if (sRes.ok) setSessions((await sRes.json()).sessions)
+      if (tRes.ok) {
+        const body = await tRes.json()
+        setTemplates(body.templates)
+        saveTemplateCache(body.templates)
+      }
       setOffline(false)
     } catch {
       setOffline(true) // cached view stays up
@@ -664,21 +777,9 @@ export function Workouts({ api }: { api: Api }) {
       return merged
     })
     saveDraft(null)
-    setActive(null)
+    saveTimerDraft(null)
+    setMode({ m: 'list' })
     void sync()
-  }
-
-  function cancelActive() {
-    if (
-      isNew &&
-      active &&
-      active.exercises.length > 0 &&
-      !window.confirm('Discard this workout?')
-    ) {
-      return
-    }
-    saveDraft(null)
-    setActive(null)
   }
 
   async function remove(w: Workout) {
@@ -693,22 +794,120 @@ export function Workouts({ api }: { api: Api }) {
         saveWorkoutCache(next)
         return next
       })
-      setActive(null)
+      setMode({ m: 'list' })
     } catch {
       setError('Deleting needs a connection — try again when online.')
     }
   }
 
-  if (active) {
+  async function removeTemplate(t: Template) {
+    try {
+      const res = await api.send(
+        'DELETE',
+        `/api/templates?id=${encodeURIComponent(t.id)}`,
+      )
+      if (!res.ok) throw new Error(`API responded ${res.status}`)
+      setTemplates((prev) => {
+        const next = prev.filter((x) => x.id !== t.id)
+        saveTemplateCache(next)
+        return next
+      })
+    } catch {
+      setError('Deleting templates needs a connection.')
+    }
+  }
+
+  function startStrength(template?: Template) {
+    const w = newWorkout('strength')
+    if (template) {
+      w.title = template.name
+      w.exercises = (template.exercises ?? []).map((e) => ({
+        name: e.name,
+        sets: Array.from({ length: e.setCount }, () => ({})),
+      }))
+    }
+    setMode({ m: 'strength', workout: w, isNew: true })
+  }
+
+  function startTimer(
+    kind: WorkoutKind,
+    sections: IntervalSection[],
+    title?: string,
+  ) {
+    const draft: TimerDraft = {
+      kind,
+      title,
+      sections,
+      startEpoch: Date.now(),
+      skipOffsetMs: 0,
+      paused: false,
+      pausedElapsedMs: 0,
+    }
+    saveTimerDraft(draft)
+    setMode({ m: 'timer', draft })
+  }
+
+  function cancelStrength(w: Workout, isNew: boolean) {
+    if (
+      isNew &&
+      w.exercises.length > 0 &&
+      !window.confirm('Discard this workout?')
+    ) {
+      return
+    }
+    saveDraft(null)
+    setMode({ m: 'list' })
+  }
+
+  if (mode.m === 'strength') {
     return (
       <ActiveWorkout
-        initial={active}
-        isNew={isNew}
+        initial={mode.workout}
+        isNew={mode.isNew}
         history={workouts}
-        sessions={sessions}
         onFinish={finish}
-        onCancel={cancelActive}
-        onDelete={isNew ? undefined : remove}
+        onCancel={() => cancelStrength(mode.workout, mode.isNew)}
+        onDelete={mode.isNew ? undefined : remove}
+      />
+    )
+  }
+
+  if (mode.m === 'timer') {
+    return (
+      <IntervalSession
+        initial={mode.draft}
+        sessions={sessions}
+        onSave={finish}
+        onCancel={() => setMode({ m: 'list' })}
+      />
+    )
+  }
+
+  if (mode.m === 'pick') {
+    return (
+      <StartPicker
+        templates={templates}
+        onStrength={startStrength}
+        onTimer={startTimer}
+        onDeleteTemplate={removeTemplate}
+        onCancel={() => setMode({ m: 'list' })}
+      />
+    )
+  }
+
+  if (mode.m === 'build') {
+    return (
+      <TemplateBuilder
+        api={api}
+        onSaved={(t) => {
+          setTemplates((prev) => {
+            const next = [...prev.filter((x) => x.id !== t.id), t]
+            saveTemplateCache(next)
+            return next
+          })
+          setMode({ m: 'pick' })
+        }}
+        onCancel={() => setMode({ m: 'list' })}
       />
     )
   }
@@ -717,15 +916,17 @@ export function Workouts({ api }: { api: Api }) {
     <>
       <div className="flex items-center justify-between">
         <h1 className="text-base font-medium text-neutral-300">Workouts</h1>
-        <button
-          onClick={() => {
-            setActive(newWorkout('strength'))
-            setIsNew(true)
-          }}
-          className={buttonClass}
-        >
-          Start workout
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setMode({ m: 'build' })}
+            className={secondaryButton}
+          >
+            Create workout
+          </button>
+          <button onClick={() => setMode({ m: 'pick' })} className={buttonClass}>
+            Start workout
+          </button>
+        </div>
       </div>
 
       <div className="flex w-full rounded-full border border-neutral-800 p-0.5 text-sm">
@@ -768,24 +969,24 @@ export function Workouts({ api }: { api: Api }) {
             <WorkoutCard
               key={w.id}
               workout={w}
-              onEdit={() => {
-                setActive(w)
-                setIsNew(false)
-              }}
-              onRepeat={() => {
-                setActive({
-                  ...w,
-                  id: crypto.randomUUID(),
-                  start: new Date().toISOString(),
-                  end: undefined,
-                  updatedAt: undefined,
-                  exercises: w.exercises.map((e) => ({
-                    ...e,
-                    sets: e.sets.map((s) => ({ ...s, done: false })),
-                  })),
+              onEdit={() => setMode({ m: 'strength', workout: w, isNew: false })}
+              onRepeat={() =>
+                setMode({
+                  m: 'strength',
+                  isNew: true,
+                  workout: {
+                    ...w,
+                    id: crypto.randomUUID(),
+                    start: new Date().toISOString(),
+                    end: undefined,
+                    updatedAt: undefined,
+                    exercises: w.exercises.map((e) => ({
+                      ...e,
+                      sets: e.sets.map((s) => ({ ...s, done: false })),
+                    })),
+                  },
                 })
-                setIsNew(true)
-              }}
+              }
             />
           ))}
         </div>

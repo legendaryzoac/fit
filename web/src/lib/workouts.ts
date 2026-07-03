@@ -17,6 +17,11 @@ export interface WorkoutExercise {
   sets: WorkoutSet[]
 }
 
+export interface IntervalSection {
+  label: string
+  durationSec: number
+}
+
 export interface Workout {
   id: string
   start: string
@@ -26,6 +31,7 @@ export interface Workout {
   weightUnit: 'lb' | 'kg'
   notes?: string
   exercises: WorkoutExercise[]
+  intervals?: IntervalSection[]
   linkedSessionSk?: string
   durationMin?: number
   distanceM?: number
@@ -94,6 +100,35 @@ export function loadDraft(): Workout | null {
 export function saveDraft(workout: Workout | null): void {
   if (workout === null) localStorage.removeItem(DRAFT_KEY)
   else localStorage.setItem(DRAFT_KEY, JSON.stringify(workout))
+}
+
+// ---- interval-timer draft (speed/cardio sessions) ----
+
+export interface TimerDraft {
+  kind: WorkoutKind
+  title?: string
+  sections: IntervalSection[]
+  startEpoch: number
+  /** Skipped time gets added to real elapsed so sections jump forward. */
+  skipOffsetMs: number
+  paused: boolean
+  pausedElapsedMs: number
+}
+
+const TIMER_KEY = 'fit.activeTimerDraft'
+
+export function loadTimerDraft(): TimerDraft | null {
+  try {
+    const raw = localStorage.getItem(TIMER_KEY)
+    return raw ? (JSON.parse(raw) as TimerDraft) : null
+  } catch {
+    return null
+  }
+}
+
+export function saveTimerDraft(draft: TimerDraft | null): void {
+  if (draft === null) localStorage.removeItem(TIMER_KEY)
+  else localStorage.setItem(TIMER_KEY, JSON.stringify(draft))
 }
 
 // ---- offline write queue ----
