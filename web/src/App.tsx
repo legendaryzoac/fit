@@ -168,7 +168,9 @@ function initialBanner(): string | null {
     return 'WHOOP connected — your history is syncing now.'
   }
   if (q.get('whoop') === 'error') {
-    return 'WHOOP connection failed — please try again.'
+    const reason = q.get('reason') ?? 'unknown'
+    const detail = q.get('detail')
+    return `WHOOP connection failed (${reason}${detail ? `: ${detail}` : ''}) — please try again.`
   }
   return null
 }

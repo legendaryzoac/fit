@@ -72,10 +72,27 @@ export async function handleWhoopCallback(
   try {
     const q = event.queryStringParameters ?? {}
     if (!q.code || !q.state) {
-      return redirect(`${APP_URL}/?whoop=error&reason=missing-params`)
+      // WHOOP rejected the authorize request (scope mismatch, denial, …) and
+      // sent error/error_description instead of a code — surface them.
+      console.error(
+        'whoop callback missing code',
+        JSON.stringify({
+          keys: Object.keys(q),
+          error: q.error,
+          error_description: q.error_description,
+        }),
+      )
+      const reason = encodeURIComponent(q.error ?? 'missing-params')
+      const detail = q.error_description
+        ? `&detail=${encodeURIComponent(q.error_description)}`
+        : ''
+      return redirect(`${APP_URL}/?whoop=error&reason=${reason}${detail}`)
     }
     const userId = await consumeOauthState(q.state)
-    if (!userId) return redirect(`${APP_URL}/?whoop=error&reason=state`)
+    if (!userId) {
+      console.error('whoop callback: state nonce invalid or expired')
+      return redirect(`${APP_URL}/?whoop=error&reason=state`)
+    }
 
     const creds = await getWhoopCredentials()
     if (!creds) return redirect(`${APP_URL}/?whoop=error&reason=config`)
