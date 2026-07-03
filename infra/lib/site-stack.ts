@@ -2,6 +2,7 @@ import { CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib'
 import * as acm from 'aws-cdk-lib/aws-certificatemanager'
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront'
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins'
+import * as iam from 'aws-cdk-lib/aws-iam'
 import * as route53 from 'aws-cdk-lib/aws-route53'
 import * as targets from 'aws-cdk-lib/aws-route53-targets'
 import * as s3 from 'aws-cdk-lib/aws-s3'
@@ -10,6 +11,7 @@ import type { Construct } from 'constructs'
 const DOMAIN = 'fit.zackwithers.com'
 const ZONE_ID = 'Z0874780F3FVBPDZKEOR'
 const ZONE_NAME = 'zackwithers.com'
+const GITHUB_REPO = 'legendaryzoac/fit'
 
 export class SiteStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -77,8 +79,33 @@ export class SiteStack extends Stack {
       ),
     })
 
+    // Deploy role assumed by GitHub Actions via the account's existing
+    // OIDC provider; scoped to pushes on this repo's main branch.
+    const ciRole = new iam.Role(this, 'GithubDeployRole', {
+      roleName: 'fit-github-deploy',
+      assumedBy: new iam.WebIdentityPrincipal(
+        `arn:aws:iam::${this.account}:oidc-provider/token.actions.githubusercontent.com`,
+        {
+          StringEquals: {
+            'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+            'token.actions.githubusercontent.com:sub': `repo:${GITHUB_REPO}:ref:refs/heads/main`,
+          },
+        },
+      ),
+    })
+    siteBucket.grantPut(ciRole)
+    siteBucket.grantDelete(ciRole)
+    ciRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:ListBucket'],
+        resources: [siteBucket.bucketArn],
+      }),
+    )
+    distribution.grantCreateInvalidation(ciRole)
+
     new CfnOutput(this, 'BucketName', { value: siteBucket.bucketName })
     new CfnOutput(this, 'DistributionId', { value: distribution.distributionId })
+    new CfnOutput(this, 'CiRoleArn', { value: ciRole.roleArn })
     new CfnOutput(this, 'Url', { value: `https://${DOMAIN}` })
   }
 }
