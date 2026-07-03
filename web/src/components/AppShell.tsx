@@ -5,7 +5,7 @@ import { Recovery } from './Recovery'
 import { Workouts } from './Workouts'
 import { PulseMark } from './ui'
 
-const TABS = ['recovery', 'workouts'] as const
+const TABS = ['recovery', 'training'] as const
 
 export function AppShell({
   session,
@@ -56,7 +56,7 @@ export function AppShell({
       <main className="mx-auto flex max-w-3xl flex-col gap-4 px-4 pb-16">
         {tab === 'recovery' ? <Recovery api={api} /> : <Workouts api={api} />}
         <p className="pt-4 text-center text-xs text-neutral-700">
-          M4 · workout logger — training analytics arrive in M5
+          M5 · training analytics
         </p>
       </main>
     </div>

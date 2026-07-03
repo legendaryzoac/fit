@@ -30,6 +30,7 @@ import {
   type WorkoutKind,
   type WorkoutSet,
 } from '../lib/workouts'
+import { Analytics } from './Analytics'
 import { IntervalSession } from './IntervalTimer'
 import { PlanFields, TemplateBuilder } from './TemplateBuilder'
 import { buttonClass, Card, inputClass } from './ui'
@@ -712,7 +713,9 @@ type Mode =
   | { m: 'timer'; draft: TimerDraft }
 
 export function Workouts({ api }: { api: Api }) {
-  const [segment, setSegment] = useState<'training' | 'whoop'>('training')
+  const [segment, setSegment] = useState<'workouts' | 'analytics' | 'whoop'>(
+    'workouts',
+  )
   const [workouts, setWorkouts] = useState<Workout[]>(loadWorkoutCache)
   const [sessions, setSessions] = useState<SessionRecord[]>([])
   const [templates, setTemplates] = useState<Template[]>(loadTemplateCache)
@@ -730,8 +733,8 @@ export function Workouts({ api }: { api: Api }) {
   async function refresh() {
     try {
       const [wRes, sRes, tRes] = await Promise.all([
-        api.get('/api/workouts?days=180'),
-        api.get('/api/sessions?days=180'),
+        api.get('/api/workouts?days=365'),
+        api.get('/api/sessions?days=365'),
         api.get('/api/templates'),
       ])
       if (wRes.ok) {
@@ -915,7 +918,7 @@ export function Workouts({ api }: { api: Api }) {
   return (
     <>
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-medium text-neutral-300">Workouts</h1>
+        <h1 className="text-base font-medium text-neutral-300">Training</h1>
         <div className="flex gap-2">
           <button
             onClick={() => setMode({ m: 'build' })}
@@ -930,17 +933,23 @@ export function Workouts({ api }: { api: Api }) {
       </div>
 
       <div className="flex w-full rounded-full border border-neutral-800 p-0.5 text-sm">
-        {(['training', 'whoop'] as const).map((s) => (
+        {(
+          [
+            ['workouts', 'Workouts'],
+            ['analytics', 'Analytics'],
+            ['whoop', 'WHOOP'],
+          ] as const
+        ).map(([value, label]) => (
           <button
-            key={s}
-            onClick={() => setSegment(s)}
+            key={value}
+            onClick={() => setSegment(value)}
             className={`flex-1 rounded-full py-1.5 ${
-              segment === s
+              segment === value
                 ? 'bg-neutral-800 text-neutral-100'
                 : 'text-neutral-500 hover:text-neutral-300'
             }`}
           >
-            {s === 'training' ? 'My training' : 'WHOOP activity'}
+            {label}
           </button>
         ))}
       </div>
@@ -958,7 +967,11 @@ export function Workouts({ api }: { api: Api }) {
       )}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      {segment === 'training' && (
+      {segment === 'analytics' && (
+        <Analytics api={api} workouts={workouts} sessions={sessions} />
+      )}
+
+      {segment === 'workouts' && (
         <div className="flex flex-col gap-3">
           {workouts.length === 0 && (
             <p className="py-8 text-center text-sm text-neutral-600">

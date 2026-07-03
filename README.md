@@ -40,7 +40,7 @@ npm run deploy   # cdk deploy (infra changes; web deploys go through CI)
 - [x] M2 — ingestion: WHOOP OAuth (per-user, optional), webhooks, nightly sync, backfill
 - [x] M3 — recovery dashboard: RHR/HRV/sleep trends with rolling baselines
 - [x] M4 — workout logger: offline-capable strength logging, cardio session linking
-- [ ] M5 — training analytics: e1RM, volume, PRs, cardio efficiency, load-vs-recovery
+- [x] M5 — training analytics: e1RM, volume, PRs, cardio efficiency, load-vs-recovery
 - [ ] M6 — portfolio polish: public demo mode with synthetic data
 
 ## Cost
