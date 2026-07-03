@@ -13,23 +13,20 @@ CDK-managed. Infra deploys run locally with your credentials; CI only ships the 
 
 ## 2. GitHub repo
 
-- [ ] `git init` done locally; create the repo when ready:
-      `gh repo create fit --public --source . --push` (public = portfolio piece)
-- [ ] Repo settings → Secrets and variables → Actions:
+- [x] Repo: [legendaryzoac/fit](https://github.com/legendaryzoac/fit) (public — portfolio piece)
+- [x] Repo settings → Secrets and variables → Actions:
   - Variable `S3_BUCKET` — from stack output `BucketName`
   - Variable `CLOUDFRONT_DISTRIBUTION_ID` — from stack output `DistributionId`
-  - Secret `AWS_ROLE_ARN` — created in step 3
+  - Secret `AWS_ROLE_ARN` — from stack output `CiRoleArn`
 
 ## 3. AWS: OIDC role for GitHub Actions (no long-lived keys)
 
-- [ ] IAM → Identity providers: `token.actions.githubusercontent.com` already exists
-      from the adversarial-playground setup — reuse it
-- [ ] Create an IAM role trusted by that provider with condition
-      `token.actions.githubusercontent.com:sub` = `repo:<you>/fit:ref:refs/heads/main`
-- [ ] Minimal permissions policy:
-  - `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket` on the site bucket + objects
-  - `cloudfront:CreateInvalidation` on the distribution
-- [ ] Copy the role ARN into the `AWS_ROLE_ARN` repo secret
+- [x] The `token.actions.githubusercontent.com` identity provider already existed
+      from the adversarial-playground setup and is reused
+- [x] The deploy role is **CDK-managed** (`GithubDeployRole` in
+      `infra/lib/site-stack.ts`): trusted for `repo:legendaryzoac/fit:ref:refs/heads/main`
+      only, with S3 put/delete/list on the site bucket and
+      `cloudfront:CreateInvalidation` on the distribution
 
 ## 4. Deploys after that
 
