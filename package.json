@@ -1,0 +1,13 @@
+{
+  "name": "fit",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": ["web", "infra"],
+  "scripts": {
+    "dev": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "lint": "npm run lint -w web",
+    "synth": "npm run synth -w infra",
+    "deploy": "npm run deploy -w infra"
+  }
+}
