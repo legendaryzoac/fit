@@ -1,3 +1,5 @@
+import { storageKey } from './storage'
+
 export const EXERCISES: Array<{ name: string; muscle: string }> = [
   { name: 'Back squat', muscle: 'quads' },
   { name: 'Front squat', muscle: 'quads' },
@@ -108,14 +110,14 @@ const CUSTOM_KEY = 'fit.customExercises'
 
 export function loadCustomExercises(): CustomExercise[] {
   try {
-    return JSON.parse(localStorage.getItem(CUSTOM_KEY) ?? '[]')
+    return JSON.parse(localStorage.getItem(storageKey(CUSTOM_KEY)) ?? '[]')
   } catch {
     return []
   }
 }
 
 export function saveCustomExercises(list: CustomExercise[]): void {
-  localStorage.setItem(CUSTOM_KEY, JSON.stringify(list))
+  localStorage.setItem(storageKey(CUSTOM_KEY), JSON.stringify(list))
 }
 
 /** Muscle resolver over built-ins, drills, and the user's own exercises. */

@@ -1,4 +1,5 @@
 import type { Api } from './api'
+import { storageKey } from './storage'
 
 export type WorkoutKind = 'strength' | 'speed' | 'cardio'
 
@@ -100,7 +101,7 @@ const DRAFT_KEY = 'fit.activeWorkoutDraft'
 
 export function loadDraft(): Workout | null {
   try {
-    const raw = localStorage.getItem(DRAFT_KEY)
+    const raw = localStorage.getItem(storageKey(DRAFT_KEY))
     return raw ? (JSON.parse(raw) as Workout) : null
   } catch {
     return null
@@ -108,8 +109,8 @@ export function loadDraft(): Workout | null {
 }
 
 export function saveDraft(workout: Workout | null): void {
-  if (workout === null) localStorage.removeItem(DRAFT_KEY)
-  else localStorage.setItem(DRAFT_KEY, JSON.stringify(workout))
+  if (workout === null) localStorage.removeItem(storageKey(DRAFT_KEY))
+  else localStorage.setItem(storageKey(DRAFT_KEY), JSON.stringify(workout))
 }
 
 // ---- interval-timer draft (speed/cardio sessions) ----
@@ -129,7 +130,7 @@ const TIMER_KEY = 'fit.activeTimerDraft'
 
 export function loadTimerDraft(): TimerDraft | null {
   try {
-    const raw = localStorage.getItem(TIMER_KEY)
+    const raw = localStorage.getItem(storageKey(TIMER_KEY))
     return raw ? (JSON.parse(raw) as TimerDraft) : null
   } catch {
     return null
@@ -137,8 +138,8 @@ export function loadTimerDraft(): TimerDraft | null {
 }
 
 export function saveTimerDraft(draft: TimerDraft | null): void {
-  if (draft === null) localStorage.removeItem(TIMER_KEY)
-  else localStorage.setItem(TIMER_KEY, JSON.stringify(draft))
+  if (draft === null) localStorage.removeItem(storageKey(TIMER_KEY))
+  else localStorage.setItem(storageKey(TIMER_KEY), JSON.stringify(draft))
 }
 
 // ---- offline write queue ----
@@ -150,14 +151,14 @@ const CACHE_KEY = 'fit.workoutsCache'
 
 export function loadPending(): Workout[] {
   try {
-    return JSON.parse(localStorage.getItem(PENDING_KEY) ?? '[]')
+    return JSON.parse(localStorage.getItem(storageKey(PENDING_KEY)) ?? '[]')
   } catch {
     return []
   }
 }
 
 function savePending(list: Workout[]): void {
-  localStorage.setItem(PENDING_KEY, JSON.stringify(list))
+  localStorage.setItem(storageKey(PENDING_KEY), JSON.stringify(list))
 }
 
 export function enqueue(workout: Workout): void {
@@ -192,12 +193,12 @@ export async function flushQueue(
 
 export function loadWorkoutCache(): Workout[] {
   try {
-    return JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]')
+    return JSON.parse(localStorage.getItem(storageKey(CACHE_KEY)) ?? '[]')
   } catch {
     return []
   }
 }
 
 export function saveWorkoutCache(list: Workout[]): void {
-  localStorage.setItem(CACHE_KEY, JSON.stringify(list))
+  localStorage.setItem(storageKey(CACHE_KEY), JSON.stringify(list))
 }

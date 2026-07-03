@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import type { Api } from '../lib/api'
 import {
   EXERCISES,
@@ -38,10 +38,14 @@ import {
   type WorkoutKind,
   type WorkoutSet,
 } from '../lib/workouts'
-import { Analytics } from './Analytics'
 import { IntervalSession } from './IntervalTimer'
 import { PlanFields, TemplateBuilder } from './TemplateBuilder'
 import { buttonClass, Card, inputClass } from './ui'
+
+// Analytics carries the recharts dependency — split it out of the logger path
+const Analytics = lazy(() =>
+  import('./Analytics').then((m) => ({ default: m.Analytics })),
+)
 
 // 16px font so iOS doesn't zoom on focus; big touch targets for gym thumbs
 const setInput =
@@ -1062,12 +1066,20 @@ export function Workouts({ api }: { api: Api }) {
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {segment === 'analytics' && (
-        <Analytics
-          api={api}
-          workouts={workouts}
-          sessions={sessions}
-          customs={customs}
-        />
+        <Suspense
+          fallback={
+            <p className="py-12 text-center text-sm text-neutral-600">
+              Loading…
+            </p>
+          }
+        >
+          <Analytics
+            api={api}
+            workouts={workouts}
+            sessions={sessions}
+            customs={customs}
+          />
+        </Suspense>
       )}
 
       {segment === 'workouts' && (

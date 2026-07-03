@@ -16,6 +16,7 @@ import * as eventsTargets from 'aws-cdk-lib/aws-events-targets'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
+import * as logs from 'aws-cdk-lib/aws-logs'
 import * as route53 from 'aws-cdk-lib/aws-route53'
 import * as targets from 'aws-cdk-lib/aws-route53-targets'
 import * as s3 from 'aws-cdk-lib/aws-s3'
@@ -138,6 +139,7 @@ export class SiteStack extends Stack {
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
       timeout: Duration.seconds(10),
+      logRetention: logs.RetentionDays.ONE_MONTH,
       environment: {
         TABLE_NAME: table.tableName,
         USER_POOL_ID: userPool.userPoolId,
@@ -194,6 +196,7 @@ export class SiteStack extends Stack {
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 512,
       timeout: Duration.minutes(10), // full-history backfill pages slowly on purpose
+      logRetention: logs.RetentionDays.ONE_MONTH,
       environment: {
         TABLE_NAME: table.tableName,
         RAW_BUCKET: rawBucket.bucketName,
@@ -230,6 +233,7 @@ export class SiteStack extends Stack {
       runtime: lambda.Runtime.NODEJS_22_X,
       memorySize: 256,
       timeout: Duration.seconds(10),
+      logRetention: logs.RetentionDays.ONE_MONTH,
       environment: {
         TABLE_NAME: table.tableName,
         WHOOP_SSM_PREFIX: '/fit/whoop',

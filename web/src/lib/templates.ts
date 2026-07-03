@@ -1,3 +1,4 @@
+import { storageKey } from './storage'
 import type { IntervalSection, WorkoutKind } from './workouts'
 
 export interface Template {
@@ -76,12 +77,12 @@ const CACHE_KEY = 'fit.templatesCache'
 
 export function loadTemplateCache(): Template[] {
   try {
-    return JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]')
+    return JSON.parse(localStorage.getItem(storageKey(CACHE_KEY)) ?? '[]')
   } catch {
     return []
   }
 }
 
 export function saveTemplateCache(list: Template[]): void {
-  localStorage.setItem(CACHE_KEY, JSON.stringify(list))
+  localStorage.setItem(storageKey(CACHE_KEY), JSON.stringify(list))
 }
