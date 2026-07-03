@@ -38,7 +38,7 @@ npm run deploy   # cdk deploy (infra changes; web deploys go through CI)
 - [x] M0 — infrastructure: subdomain live, CDK stack, CI deploy
 - [x] M1 — accounts & authenticated API: invite-only Cognito, login, DynamoDB, `/api/*`
 - [x] M2 — ingestion: WHOOP OAuth (per-user, optional), webhooks, nightly sync, backfill
-- [ ] M3 — recovery dashboard: RHR/HRV/sleep trends with rolling baselines
+- [x] M3 — recovery dashboard: RHR/HRV/sleep trends with rolling baselines
 - [ ] M4 — workout logger: offline-capable strength logging, cardio session linking
 - [ ] M5 — training analytics: e1RM, volume, PRs, cardio efficiency, load-vs-recovery
 - [ ] M6 — portfolio polish: public demo mode with synthetic data

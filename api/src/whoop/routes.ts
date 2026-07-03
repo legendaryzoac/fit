@@ -4,6 +4,7 @@ import type {
   LambdaFunctionURLEvent,
   LambdaFunctionURLResult,
 } from 'aws-lambda'
+import { json, redirect } from '../http'
 import { buildAuthorizeUrl, exchangeCode, fetchWhoopProfile } from './client'
 import { getWhoopCredentials } from './config'
 import {
@@ -17,18 +18,6 @@ import {
 const lambda = new LambdaClient({})
 const APP_URL = process.env.APP_URL ?? 'https://fit.zackwithers.com'
 const SYNC_FUNCTION_NAME = process.env.SYNC_FUNCTION_NAME
-
-function json(statusCode: number, body: unknown): LambdaFunctionURLResult {
-  return {
-    statusCode,
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  }
-}
-
-function redirect(location: string): LambdaFunctionURLResult {
-  return { statusCode: 302, headers: { location }, body: '' }
-}
 
 async function triggerSync(
   payload: Record<string, unknown>,

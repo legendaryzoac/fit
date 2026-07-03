@@ -5,6 +5,8 @@ import type {
   LambdaFunctionURLResult,
 } from 'aws-lambda'
 import { TABLE_NAME, ddb } from './db'
+import { json } from './http'
+import { handleMetrics } from './metrics'
 import { handleWhoopCallback, handleWhoopConnect } from './whoop/routes'
 import { loadConnection } from './whoop/store'
 
@@ -13,14 +15,6 @@ const verifier = CognitoJwtVerifier.create({
   tokenUse: 'access',
   clientId: process.env.CLIENT_ID!,
 })
-
-function json(statusCode: number, body: unknown): LambdaFunctionURLResult {
-  return {
-    statusCode,
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  }
-}
 
 async function getMe(userId: string): Promise<LambdaFunctionURLResult> {
   const key = { pk: `USER#${userId}`, sk: 'PROFILE' }
@@ -81,6 +75,7 @@ export async function handler(
   }
 
   if (route === 'GET /api/me') return getMe(userId)
+  if (route === 'GET /api/metrics') return handleMetrics(userId, event)
   if (route === 'GET /api/whoop/connect') return handleWhoopConnect(userId)
 
   return json(404, { error: 'not found' })
