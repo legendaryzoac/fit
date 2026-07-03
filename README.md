@@ -5,6 +5,10 @@ recovery dashboards (RHR, HRV, sleep) fed by the WHOOP API, plus a gym-friendly 
 logger with strength and cardio analytics that no consumer app does well. Built to run
 on AWS always-free tiers (~$0/month) as a portfolio project.
 
+Invite-only multi-user: a handful of friends get accounts (admin-created, no public
+sign-up) for workout tracking. WHOOP connection is optional per user — friends without
+a strap still get the full logger and strength analytics.
+
 ## How data flows
 
 WHOOP strap → WHOOP app/cloud (proprietary sync, computes HRV/recovery) → this system
@@ -15,8 +19,9 @@ adapter into DynamoDB, served by Lambda to a static PWA on S3 + CloudFront.
 ## Monorepo layout
 
 - `web/` — Vite + React 19 + Tailwind 4 PWA (the entire UI)
-- `infra/` — AWS CDK app (TypeScript); one stack per concern, starting with `FitSite`
-  (S3 + CloudFront + ACM cert + Route 53 records)
+- `api/` — Lambda handler behind CloudFront `/api/*` (Cognito-JWT auth, DynamoDB)
+- `infra/` — AWS CDK app (TypeScript); the `FitSite` stack owns everything:
+  S3 + CloudFront + cert + DNS, Cognito user pool, DynamoDB table, API Lambda
 
 ## Commands
 
@@ -31,14 +36,16 @@ npm run deploy   # cdk deploy (infra changes; web deploys go through CI)
 ## Milestones
 
 - [x] M0 — infrastructure: subdomain live, CDK stack, CI deploy
-- [ ] M1 — ingestion: WHOOP OAuth, webhooks, nightly sync, history backfill
-- [ ] M2 — recovery dashboard: RHR/HRV/sleep trends with rolling baselines
-- [ ] M3 — workout logger: offline-capable strength logging, cardio session linking
-- [ ] M4 — training analytics: e1RM, volume, PRs, cardio efficiency, load-vs-recovery
-- [ ] M5 — portfolio polish: public demo mode with synthetic data
+- [ ] M1 — accounts & authenticated API: invite-only Cognito, login, DynamoDB, `/api/*`
+- [ ] M2 — ingestion: WHOOP OAuth (per-user, optional), webhooks, nightly sync, backfill
+- [ ] M3 — recovery dashboard: RHR/HRV/sleep trends with rolling baselines
+- [ ] M4 — workout logger: offline-capable strength logging, cardio session linking
+- [ ] M5 — training analytics: e1RM, volume, PRs, cardio efficiency, load-vs-recovery
+- [ ] M6 — portfolio polish: public demo mode with synthetic data
 
 ## Cost
 
-S3 + CloudFront (1 TB/mo free) + Lambda (1M req/mo free) + DynamoDB (25 GB free) +
-EventBridge + Route 53 records on the existing zone: effectively $0/month at
-single-user scale. See `DEPLOYMENT.md` for the setup checklist.
+S3 + CloudFront (1 TB/mo free) + Lambda (1M req/mo free) + DynamoDB (pay-per-request,
+pennies at this volume) + Cognito (free below 10k monthly users) + EventBridge +
+Route 53 records on the existing zone: effectively $0/month at friends-and-family
+scale. See `DEPLOYMENT.md` for the setup checklist.
