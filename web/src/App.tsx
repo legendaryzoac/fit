@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { restoreSession, signOut } from './auth'
+import { AppShell } from './components/AppShell'
 import { LoginCard, NewPasswordCard, type AuthState } from './components/Auth'
-import { Dashboard } from './components/Dashboard'
 import { Shell } from './components/ui'
 
 export default function App() {
@@ -17,7 +17,7 @@ export default function App() {
 
   if (auth.phase === 'signed-in') {
     return (
-      <Dashboard
+      <AppShell
         session={auth.session}
         onSignOut={() => {
           signOut()

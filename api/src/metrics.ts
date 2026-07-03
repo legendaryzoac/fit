@@ -35,6 +35,33 @@ async function queryRange(
   return items
 }
 
+/** GET /api/sessions?days=N — WHOOP-detected workout sessions, for linking. */
+export async function handleSessions(
+  userId: string,
+  event: LambdaFunctionURLEvent,
+): Promise<LambdaFunctionURLResult> {
+  const daysRaw = Number(event.queryStringParameters?.days ?? '120')
+  const days = Math.min(Math.max(Number.isFinite(daysRaw) ? daysRaw : 120, 7), 730)
+  const startIso = new Date(Date.now() - days * 86_400_000).toISOString()
+  const sessions = await queryRange(userId, 'SESSION#', startIso)
+  return json(200, {
+    sessions: sessions.map((i) => ({
+      sk: i.sk,
+      sport: i.sport,
+      start: i.start,
+      end: i.end,
+      timezoneOffset: i.timezoneOffset,
+      strain: i.strain,
+      avgHr: i.avgHr,
+      maxHr: i.maxHr,
+      kilojoule: i.kilojoule,
+      distanceM: i.distanceM,
+      zoneMin: i.zoneMin,
+      scoreState: i.scoreState,
+    })),
+  })
+}
+
 /** GET /api/metrics?days=N — recovery/sleep/cycle series for the dashboard. */
 export async function handleMetrics(
   userId: string,

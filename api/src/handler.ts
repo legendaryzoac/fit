@@ -6,7 +6,12 @@ import type {
 } from 'aws-lambda'
 import { TABLE_NAME, ddb } from './db'
 import { json } from './http'
-import { handleMetrics } from './metrics'
+import { handleMetrics, handleSessions } from './metrics'
+import {
+  handleDeleteWorkout,
+  handleListWorkouts,
+  handleSaveWorkout,
+} from './workouts'
 import { handleWhoopCallback, handleWhoopConnect } from './whoop/routes'
 import { loadConnection } from './whoop/store'
 
@@ -76,6 +81,10 @@ export async function handler(
 
   if (route === 'GET /api/me') return getMe(userId)
   if (route === 'GET /api/metrics') return handleMetrics(userId, event)
+  if (route === 'GET /api/sessions') return handleSessions(userId, event)
+  if (route === 'GET /api/workouts') return handleListWorkouts(userId, event)
+  if (route === 'POST /api/workouts') return handleSaveWorkout(userId, event)
+  if (route === 'DELETE /api/workouts') return handleDeleteWorkout(userId, event)
   if (route === 'GET /api/whoop/connect') return handleWhoopConnect(userId)
 
   return json(404, { error: 'not found' })

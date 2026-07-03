@@ -1,0 +1,176 @@
+import { DeleteCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb'
+import type {
+  LambdaFunctionURLEvent,
+  LambdaFunctionURLResult,
+} from 'aws-lambda'
+import { TABLE_NAME, ddb } from './db'
+import { json } from './http'
+
+interface WorkoutSet {
+  weight?: number
+  reps?: number
+  rpe?: number
+}
+
+interface WorkoutExercise {
+  name: string
+  sets: WorkoutSet[]
+}
+
+interface Workout {
+  id: string
+  start: string
+  end?: string
+  kind: 'strength' | 'cardio'
+  title?: string
+  weightUnit: 'lb' | 'kg'
+  notes?: string
+  exercises: WorkoutExercise[]
+  linkedSessionSk?: string
+  durationMin?: number
+  distanceM?: number
+}
+
+const num = (v: unknown): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) ? v : undefined
+
+const str = (v: unknown, max: number): string | undefined =>
+  typeof v === 'string' && v.length > 0 && v.length <= max ? v : undefined
+
+/** Whitelist-parse an incoming workout; returns null when structurally invalid. */
+function parseWorkout(raw: unknown): Workout | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const r = raw as Record<string, unknown>
+
+  const id = str(r.id, 64)
+  const start = str(r.start, 40)
+  if (!id || !start || Number.isNaN(Date.parse(start))) return null
+  if (r.kind !== 'strength' && r.kind !== 'cardio') return null
+  const weightUnit = r.weightUnit === 'kg' ? 'kg' : 'lb'
+
+  if (!Array.isArray(r.exercises) || r.exercises.length > 30) return null
+  const exercises: WorkoutExercise[] = []
+  for (const e of r.exercises) {
+    const name = str((e as Record<string, unknown>)?.name, 80)
+    const setsRaw = (e as Record<string, unknown>)?.sets
+    if (!name || !Array.isArray(setsRaw) || setsRaw.length > 30) return null
+    exercises.push({
+      name,
+      sets: setsRaw.map((s: Record<string, unknown>) => ({
+        weight: num(s?.weight),
+        reps: num(s?.reps),
+        rpe: num(s?.rpe),
+      })),
+    })
+  }
+
+  return {
+    id,
+    start: new Date(start).toISOString(),
+    end: str(r.end, 40),
+    kind: r.kind,
+    title: str(r.title, 120),
+    weightUnit,
+    notes: str(r.notes, 2000),
+    exercises,
+    linkedSessionSk:
+      typeof r.linkedSessionSk === 'string' &&
+      r.linkedSessionSk.startsWith('SESSION#')
+        ? r.linkedSessionSk
+        : undefined,
+    durationMin: num(r.durationMin),
+    distanceM: num(r.distanceM),
+  }
+}
+
+function parseBody(event: LambdaFunctionURLEvent): unknown {
+  const body = event.isBase64Encoded
+    ? Buffer.from(event.body ?? '', 'base64').toString('utf8')
+    : (event.body ?? '')
+  if (body.length > 64_000) return null
+  try {
+    return JSON.parse(body)
+  } catch {
+    return null
+  }
+}
+
+export async function handleSaveWorkout(
+  userId: string,
+  event: LambdaFunctionURLEvent,
+): Promise<LambdaFunctionURLResult> {
+  const workout = parseWorkout(parseBody(event))
+  if (!workout) return json(400, { error: 'invalid workout' })
+
+  await ddb.send(
+    new PutCommand({
+      TableName: TABLE_NAME,
+      Item: {
+        pk: `USER#${userId}`,
+        // Server-derived key: same client id + start always lands on the
+        // same item, which makes offline-queue retries idempotent.
+        sk: `WORKOUT#${workout.start}#${workout.id}`,
+        type: 'workout',
+        source: 'manual',
+        ...workout,
+        updatedAt: new Date().toISOString(),
+      },
+    }),
+  )
+  return json(200, { saved: workout.id })
+}
+
+export async function handleListWorkouts(
+  userId: string,
+  event: LambdaFunctionURLEvent,
+): Promise<LambdaFunctionURLResult> {
+  const daysRaw = Number(event.queryStringParameters?.days ?? '120')
+  const days = Math.min(Math.max(Number.isFinite(daysRaw) ? daysRaw : 120, 7), 730)
+  const startIso = new Date(Date.now() - days * 86_400_000).toISOString()
+
+  const items: Record<string, any>[] = []
+  let lastKey: Record<string, unknown> | undefined
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: TABLE_NAME,
+        KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
+        ExpressionAttributeValues: {
+          ':pk': `USER#${userId}`,
+          ':from': `WORKOUT#${startIso}`,
+          ':to': 'WORKOUT#~',
+        },
+        ScanIndexForward: false,
+        ExclusiveStartKey: lastKey,
+      }),
+    )
+    items.push(...(res.Items ?? []))
+    lastKey = res.LastEvaluatedKey
+  } while (lastKey)
+
+  return json(200, {
+    workouts: items.map(({ pk: _pk, sk: _sk, type: _t, ...rest }) => rest),
+  })
+}
+
+export async function handleDeleteWorkout(
+  userId: string,
+  event: LambdaFunctionURLEvent,
+): Promise<LambdaFunctionURLResult> {
+  const q = event.queryStringParameters ?? {}
+  const id = str(q.id, 64)
+  const start = str(q.start, 40)
+  if (!id || !start || Number.isNaN(Date.parse(start))) {
+    return json(400, { error: 'id and start required' })
+  }
+  await ddb.send(
+    new DeleteCommand({
+      TableName: TABLE_NAME,
+      Key: {
+        pk: `USER#${userId}`,
+        sk: `WORKOUT#${new Date(start).toISOString()}#${id}`,
+      },
+    }),
+  )
+  return json(200, { deleted: id })
+}

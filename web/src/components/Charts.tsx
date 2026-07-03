@@ -113,7 +113,7 @@ export function SleepStagesChart({ data }: { data: SleepPoint[] }) {
           tickLine={false}
           axisLine={false}
           unit="h"
-          width={40}
+          width={46}
         />
         <Tooltip
           contentStyle={tooltipStyle}

@@ -52,4 +52,4 @@ jobs:
         run: >
           aws cloudfront create-invalidation
           --distribution-id ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
-          --paths "/index.html" "/manifest.webmanifest" "/icon.svg"
+          --paths "/index.html" "/manifest.webmanifest" "/icon.svg" "/sw.js" "/registerSW.js"

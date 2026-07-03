@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { CognitoUserSession } from 'amazon-cognito-identity-js'
+import type { Api } from '../lib/api'
 import {
   localDate,
   mean,
@@ -13,7 +13,7 @@ import {
   type SleepPoint,
   type TrendPoint,
 } from './Charts'
-import { buttonClass, Card, PulseMark } from './ui'
+import { buttonClass, Card } from './ui'
 
 type Me = {
   createdAt: string
@@ -49,18 +49,18 @@ function recoveryTone(score: number): 'good' | 'warn' | 'bad' {
 function WhoopConnect({
   me,
   onError,
-  authFetch,
+  api,
 }: {
   me: Me
   onError: (message: string) => void
-  authFetch: (path: string) => Promise<Response>
+  api: Api
 }) {
   const [connecting, setConnecting] = useState(false)
 
   async function connect() {
     setConnecting(true)
     try {
-      const res = await authFetch('/api/whoop/connect')
+      const res = await api.get('/api/whoop/connect')
       const body = await res.json()
       if (!res.ok) throw new Error(body.error ?? `API responded ${res.status}`)
       window.location.assign(body.url)
@@ -91,51 +91,37 @@ function WhoopConnect({
   )
 }
 
-export function Dashboard({
-  session,
-  onSignOut,
-}: {
-  session: CognitoUserSession
-  onSignOut: () => void
-}) {
+export function Recovery({ api }: { api: Api }) {
   const [me, setMe] = useState<Me | null>(null)
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [days, setDays] = useState<(typeof RANGES)[number]>(90)
   const [apiError, setApiError] = useState<string | null>(null)
   const [banner] = useState<string | null>(initialBanner)
-  const email = session.getIdToken().payload.email as string
-
-  const token = session.getAccessToken().getJwtToken()
-  const authFetch = (path: string) =>
-    fetch(path, {
-      // Not `Authorization`: CloudFront's OAC signing overwrites that header
-      headers: { 'x-authorization': `Bearer ${token}` },
-    })
 
   useEffect(() => {
     if (banner) window.history.replaceState(null, '', '/')
   }, [banner])
 
   useEffect(() => {
-    authFetch('/api/me')
+    api
+      .get('/api/me')
       .then(async (res) => {
         if (!res.ok) throw new Error(`API responded ${res.status}`)
         setMe(await res.json())
       })
       .catch((err: Error) => setApiError(err.message))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session])
+  }, [api])
 
   useEffect(() => {
     setMetrics(null)
-    authFetch(`/api/metrics?days=${days}`)
+    api
+      .get(`/api/metrics?days=${days}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`API responded ${res.status}`)
         setMetrics(await res.json())
       })
       .catch((err: Error) => setApiError(err.message))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, days])
+  }, [api, days])
 
   const recoverySeries = useMemo(() => {
     if (!metrics) return []
@@ -235,140 +221,108 @@ export function Dashboard({
       : `${value - base >= 0 ? '+' : ''}${Math.round((value - base) * 10) / 10} vs 30d`
 
   return (
-    <div className="min-h-dvh bg-neutral-950 text-neutral-100">
-      <header className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
-        <div className="flex items-center gap-2">
-          <PulseMark className="h-8 w-8" />
-          <span className="text-lg font-semibold tracking-tight">fit</span>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-neutral-500">
-          <span className="hidden sm:inline">{email}</span>
-          {me?.whoop.connected && (
-            <span className="text-teal-500/80">
-              WHOOP{' '}
-              {me.whoop.lastSyncAt
-                ? `· ${new Date(me.whoop.lastSyncAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}`
-                : '· syncing…'}
-            </span>
-          )}
-          <button
-            onClick={onSignOut}
-            className="underline-offset-4 hover:text-neutral-300 hover:underline"
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
+    <>
+      {banner && <p className="text-sm text-teal-300">{banner}</p>}
+      {apiError && <p className="text-sm text-red-400">{apiError}</p>}
 
-      <main className="mx-auto flex max-w-3xl flex-col gap-4 px-4 pb-16">
-        {banner && <p className="text-sm text-teal-300">{banner}</p>}
-        {apiError && <p className="text-sm text-red-400">{apiError}</p>}
+      {me && <WhoopConnect me={me} onError={setApiError} api={api} />}
 
-        {me && (
-          <WhoopConnect me={me} onError={setApiError} authFetch={authFetch} />
-        )}
-
-        <div className="flex items-center justify-between">
-          <h1 className="text-base font-medium text-neutral-300">Recovery</h1>
-          <div className="flex gap-1">
-            {RANGES.map((r) => (
-              <button
-                key={r}
-                onClick={() => setDays(r)}
-                className={`rounded-full px-3 py-1 text-xs ${
-                  days === r
-                    ? 'bg-teal-500/15 text-teal-300'
-                    : 'text-neutral-500 hover:text-neutral-300'
-                }`}
-              >
-                {r}d
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {!metrics && !apiError && (
-          <p className="py-8 text-center text-sm text-neutral-600">
-            Loading metrics…
-          </p>
-        )}
-
-        {metrics && recoverySeries.length === 0 && (
-          <p className="py-8 text-center text-sm text-neutral-600">
-            No recovery data yet
-            {me?.whoop.connected
-              ? ' — the backfill may still be running.'
-              : ' — connect WHOOP to start.'}
-          </p>
-        )}
-
-        {metrics && recoverySeries.length > 0 && (
-          <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <StatCard
-                label="Recovery"
-                value={latest?.score != null ? `${latest.score}%` : '—'}
-                tone={latest?.score != null ? recoveryTone(latest.score) : 'neutral'}
-                sub={latest?.date}
-              />
-              <StatCard
-                label="HRV"
-                value={latest?.hrv != null ? `${Math.round(latest.hrv)} ms` : '—'}
-                sub={delta(latest?.hrv, hrv30)}
-              />
-              <StatCard
-                label="Resting HR"
-                value={latest?.rhr != null ? `${Math.round(latest.rhr)} bpm` : '—'}
-                sub={delta(latest?.rhr, rhr30)}
-              />
-              <StatCard
-                label="Sleep perf."
-                value={lastSleep?.value != null ? `${Math.round(lastSleep.value)}%` : '—'}
-                sub={lastSleep?.date}
-              />
-            </div>
-
-            <Card title="Recovery score" subtitle="daily · dashed 7-day baseline">
-              <TrendChart
-                data={scoreSeries}
-                color="#2dd4bf"
-                unit="%"
-                domain={[0, 100]}
-              />
-            </Card>
-            <Card
-              title="Heart-rate variability"
-              subtitle="RMSSD, ms · dashed 30-day baseline"
+      <div className="flex items-center justify-between">
+        <h1 className="text-base font-medium text-neutral-300">Recovery</h1>
+        <div className="flex gap-1">
+          {RANGES.map((r) => (
+            <button
+              key={r}
+              onClick={() => setDays(r)}
+              className={`rounded-full px-3 py-1 text-xs ${
+                days === r
+                  ? 'bg-teal-500/15 text-teal-300'
+                  : 'text-neutral-500 hover:text-neutral-300'
+              }`}
             >
-              <TrendChart data={hrvSeries} color="#a78bfa" unit="ms" />
-            </Card>
-            <Card
-              title="Resting heart rate"
-              subtitle="bpm · dashed 30-day baseline"
-            >
-              <TrendChart data={rhrSeries} color="#f87171" unit="bpm" />
-            </Card>
-            <Card title="Sleep stages" subtitle="hours per night">
-              <SleepStagesChart data={sleepSeries} />
-            </Card>
-            <Card
-              title="Sleep performance"
-              subtitle="sleep achieved ÷ sleep needed · dashed 30-day baseline"
-            >
-              <TrendChart
-                data={sleepPerfSeries}
-                color="#38bdf8"
-                unit="%"
-                domain={[0, 100]}
-              />
-            </Card>
-          </>
-        )}
+              {r}d
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <p className="pt-4 text-center text-xs text-neutral-700">
-          M3 · recovery dashboard — workout logging arrives in M4
+      {!metrics && !apiError && (
+        <p className="py-8 text-center text-sm text-neutral-600">
+          Loading metrics…
         </p>
-      </main>
-    </div>
+      )}
+
+      {metrics && recoverySeries.length === 0 && (
+        <p className="py-8 text-center text-sm text-neutral-600">
+          No recovery data yet
+          {me?.whoop.connected
+            ? ' — the backfill may still be running.'
+            : ' — connect WHOOP to start.'}
+        </p>
+      )}
+
+      {metrics && recoverySeries.length > 0 && (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard
+              label="Recovery"
+              value={latest?.score != null ? `${latest.score}%` : '—'}
+              tone={latest?.score != null ? recoveryTone(latest.score) : 'neutral'}
+              sub={latest?.date}
+            />
+            <StatCard
+              label="HRV"
+              value={latest?.hrv != null ? `${Math.round(latest.hrv)} ms` : '—'}
+              sub={delta(latest?.hrv, hrv30)}
+            />
+            <StatCard
+              label="Resting HR"
+              value={latest?.rhr != null ? `${Math.round(latest.rhr)} bpm` : '—'}
+              sub={delta(latest?.rhr, rhr30)}
+            />
+            <StatCard
+              label="Sleep perf."
+              value={lastSleep?.value != null ? `${Math.round(lastSleep.value)}%` : '—'}
+              sub={lastSleep?.date}
+            />
+          </div>
+
+          <Card title="Recovery score" subtitle="daily · dashed 7-day baseline">
+            <TrendChart
+              data={scoreSeries}
+              color="#2dd4bf"
+              unit="%"
+              domain={[0, 100]}
+            />
+          </Card>
+          <Card
+            title="Heart-rate variability"
+            subtitle="RMSSD, ms · dashed 30-day baseline"
+          >
+            <TrendChart data={hrvSeries} color="#a78bfa" unit="ms" />
+          </Card>
+          <Card
+            title="Resting heart rate"
+            subtitle="bpm · dashed 30-day baseline"
+          >
+            <TrendChart data={rhrSeries} color="#f87171" unit="bpm" />
+          </Card>
+          <Card title="Sleep stages" subtitle="hours per night">
+            <SleepStagesChart data={sleepSeries} />
+          </Card>
+          <Card
+            title="Sleep performance"
+            subtitle="sleep achieved ÷ sleep needed · dashed 30-day baseline"
+          >
+            <TrendChart
+              data={sleepPerfSeries}
+              color="#38bdf8"
+              unit="%"
+              domain={[0, 100]}
+            />
+          </Card>
+        </>
+      )}
+    </>
   )
 }
