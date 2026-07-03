@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react'
 import type { Api } from '../lib/api'
-import { EXERCISES, SPEED_DRILLS } from '../lib/exercises'
+import {
+  EXERCISES,
+  MUSCLE_GROUPS,
+  SPEED_DRILLS,
+  makeMuscleLookup,
+  type CustomExercise,
+} from '../lib/exercises'
 import {
   buildIntervals,
   DEFAULT_PLAN,
@@ -68,10 +74,14 @@ export function PlanFields({
 
 export function TemplateBuilder({
   api,
+  customs,
+  onSaveCustom,
   onSaved,
   onCancel,
 }: {
   api: Api
+  customs: CustomExercise[]
+  onSaveCustom: (name: string, muscle: string) => void
   onSaved: (t: Template) => void
   onCancel: () => void
 }) {
@@ -81,21 +91,30 @@ export function TemplateBuilder({
     Array<{ name: string; setCount: number }>
   >([])
   const [exName, setExName] = useState('')
+  const [newMuscle, setNewMuscle] = useState<string>('other')
   const [plan, setPlan] = useState<QuickIntervalPlan>(DEFAULT_PLAN)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const names = useMemo(
-    () =>
-      (kind === 'speed' ? SPEED_DRILLS : EXERCISES).map((e) => e.name).sort(),
-    [kind],
-  )
+  const lookup = useMemo(() => makeMuscleLookup(customs), [customs])
+
+  const names = useMemo(() => {
+    const base = (kind === 'speed' ? SPEED_DRILLS : EXERCISES).map(
+      (e) => e.name,
+    )
+    return [...new Set([...base, ...customs.map((c) => c.name)])].sort()
+  }, [kind, customs])
+
+  const typedUnknown =
+    exName.trim().length > 0 && lookup(exName) === undefined
 
   function addExercise() {
     const trimmed = exName.trim()
     if (!trimmed) return
+    if (lookup(trimmed) === undefined) onSaveCustom(trimmed, newMuscle)
     setExercises([...exercises, { name: trimmed, setCount: 3 }])
     setExName('')
+    setNewMuscle('other')
   }
 
   async function save() {
@@ -229,6 +248,22 @@ export function TemplateBuilder({
               Add
             </button>
           </div>
+          {typedUnknown && (
+            <label className="flex items-center gap-2 text-xs text-neutral-500">
+              new exercise — muscle group:
+              <select
+                className={`${inputClass} w-auto py-1.5`}
+                value={newMuscle}
+                onChange={(e) => setNewMuscle(e.target.value)}
+              >
+                {MUSCLE_GROUPS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </>
       ) : (
         <PlanFields plan={plan} onChange={setPlan} />

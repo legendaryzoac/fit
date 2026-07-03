@@ -103,6 +103,7 @@ export interface WeekVolumeRow {
 /** Weekly tonnage (weight×reps) stacked by muscle group, last `weeks` weeks. */
 export function weeklyVolume(
   workouts: Workout[],
+  lookup: (name: string) => string | undefined = muscleFor,
   weeks = 12,
 ): { rows: WeekVolumeRow[]; muscles: string[] } {
   const totals = new Map<string, Map<string, number>>() // week → muscle → lb
@@ -111,7 +112,7 @@ export function weeklyVolume(
     if (w.kind !== 'strength') continue
     const week = mondayOf(browserLocalDay(w.start))
     for (const e of w.exercises) {
-      const muscle = muscleFor(e.name) ?? 'other'
+      const muscle = lookup(e.name) ?? 'other'
       for (const s of e.sets) {
         if (s.weight == null || s.reps == null) continue
         const tonnage = s.weight * s.reps

@@ -5,6 +5,11 @@ import type {
   LambdaFunctionURLResult,
 } from 'aws-lambda'
 import { TABLE_NAME, ddb } from './db'
+import {
+  handleDeleteExercise,
+  handleListExercises,
+  handleSaveExercise,
+} from './exercises'
 import { json } from './http'
 import { handleMetrics, handleSessions } from './metrics'
 import {
@@ -93,6 +98,9 @@ export async function handler(
   if (route === 'GET /api/templates') return handleListTemplates(userId)
   if (route === 'POST /api/templates') return handleSaveTemplate(userId, event)
   if (route === 'DELETE /api/templates') return handleDeleteTemplate(userId, event)
+  if (route === 'GET /api/exercises') return handleListExercises(userId)
+  if (route === 'POST /api/exercises') return handleSaveExercise(userId, event)
+  if (route === 'DELETE /api/exercises') return handleDeleteExercise(userId, event)
   if (route === 'GET /api/whoop/connect') return handleWhoopConnect(userId)
 
   return json(404, { error: 'not found' })

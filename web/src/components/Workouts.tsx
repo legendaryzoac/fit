@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Api } from '../lib/api'
-import { EXERCISES, SPEED_DRILLS, muscleFor } from '../lib/exercises'
+import {
+  EXERCISES,
+  MUSCLE_GROUPS,
+  SPEED_DRILLS,
+  loadCustomExercises,
+  makeMuscleLookup,
+  saveCustomExercises,
+  type CustomExercise,
+} from '../lib/exercises'
 import {
   buildIntervals,
   DEFAULT_PLAN,
@@ -112,6 +120,9 @@ function ActiveWorkout({
   initial,
   isNew,
   history,
+  customs,
+  lookup,
+  onSaveCustom,
   onFinish,
   onCancel,
   onDelete,
@@ -119,12 +130,16 @@ function ActiveWorkout({
   initial: Workout
   isNew: boolean
   history: Workout[]
+  customs: CustomExercise[]
+  lookup: (name: string) => string | undefined
+  onSaveCustom: (name: string, muscle: string) => void
   onFinish: (w: Workout) => void
   onCancel: () => void
   onDelete?: (w: Workout) => void
 }) {
   const [w, setW] = useState<Workout>(initial)
   const [exerciseName, setExerciseName] = useState('')
+  const [newMuscle, setNewMuscle] = useState<string>('other')
   const [now, setNow] = useState(Date.now())
 
   // Draft autosave: a locked phone or dead battery must not eat a workout
@@ -141,12 +156,16 @@ function ActiveWorkout({
   const knownNames = useMemo(() => {
     const base = w.kind === 'speed' ? SPEED_DRILLS : EXERCISES
     const names = new Set(base.map((e) => e.name))
+    for (const c of customs) names.add(c.name)
     for (const past of history) {
       if (past.kind !== w.kind) continue
       for (const e of past.exercises) names.add(e.name)
     }
     return [...names].sort()
-  }, [history, w.kind])
+  }, [history, w.kind, customs])
+
+  const typedUnknown =
+    exerciseName.trim().length > 0 && lookup(exerciseName) === undefined
 
   /** Last performance of this exercise, for ghost placeholders per set index. */
   function prevSetsFor(name: string): WorkoutSet[] {
@@ -162,6 +181,8 @@ function ActiveWorkout({
   function addExercise() {
     const name = exerciseName.trim()
     if (!name) return
+    // First time we see this name: remember it (and its muscle) per-user
+    if (lookup(name) === undefined) onSaveCustom(name, newMuscle)
     const prev = prevSetsFor(name)
     const rows = Math.max(prev.length, 1)
     setW({
@@ -172,6 +193,7 @@ function ActiveWorkout({
       ],
     })
     setExerciseName('')
+    setNewMuscle('other')
   }
 
   function patchSet(ei: number, si: number, patch: Partial<WorkoutSet>) {
@@ -301,7 +323,7 @@ function ActiveWorkout({
 
       {w.exercises.map((e, ei) => {
         const prev = prevSetsFor(e.name)
-        const muscle = muscleFor(e.name)
+        const muscle = lookup(e.name)
         return (
           <div
             key={ei}
@@ -460,23 +482,41 @@ function ActiveWorkout({
       })}
 
       {w.kind !== 'cardio' && (
-        <div className="flex gap-2">
-          <input
-            className={inputClass}
-            list="exercise-names"
-            placeholder={w.kind === 'speed' ? 'add drill…' : 'add exercise…'}
-            value={exerciseName}
-            onChange={(e) => setExerciseName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addExercise()}
-          />
-          <datalist id="exercise-names">
-            {knownNames.map((n) => (
-              <option key={n} value={n} />
-            ))}
-          </datalist>
-          <button onClick={addExercise} className={`${buttonClass} shrink-0`}>
-            Add
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <input
+              className={inputClass}
+              list="exercise-names"
+              placeholder={w.kind === 'speed' ? 'add drill…' : 'add exercise…'}
+              value={exerciseName}
+              onChange={(e) => setExerciseName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addExercise()}
+            />
+            <datalist id="exercise-names">
+              {knownNames.map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
+            <button onClick={addExercise} className={`${buttonClass} shrink-0`}>
+              Add
+            </button>
+          </div>
+          {typedUnknown && (
+            <label className="flex items-center gap-2 text-xs text-neutral-500">
+              new exercise — muscle group:
+              <select
+                className={`${inputClass} w-auto py-1.5`}
+                value={newMuscle}
+                onChange={(e) => setNewMuscle(e.target.value)}
+              >
+                {MUSCLE_GROUPS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       )}
 
@@ -737,6 +777,8 @@ export function Workouts({ api }: { api: Api }) {
   const [workouts, setWorkouts] = useState<Workout[]>(loadWorkoutCache)
   const [sessions, setSessions] = useState<SessionRecord[]>([])
   const [templates, setTemplates] = useState<Template[]>(loadTemplateCache)
+  const [customs, setCustoms] = useState<CustomExercise[]>(loadCustomExercises)
+  const muscleLookup = useMemo(() => makeMuscleLookup(customs), [customs])
   const [pendingCount, setPendingCount] = useState(() => loadPending().length)
   const [offline, setOffline] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -750,10 +792,11 @@ export function Workouts({ api }: { api: Api }) {
 
   async function refresh() {
     try {
-      const [wRes, sRes, tRes] = await Promise.all([
+      const [wRes, sRes, tRes, eRes] = await Promise.all([
         api.get('/api/workouts?days=365'),
         api.get('/api/sessions?days=365'),
         api.get('/api/templates'),
+        api.get('/api/exercises'),
       ])
       if (wRes.ok) {
         const body = await wRes.json()
@@ -765,6 +808,11 @@ export function Workouts({ api }: { api: Api }) {
         const body = await tRes.json()
         setTemplates(body.templates)
         saveTemplateCache(body.templates)
+      }
+      if (eRes.ok) {
+        const body = await eRes.json()
+        setCustoms(body.exercises)
+        saveCustomExercises(body.exercises)
       }
       setOffline(false)
     } catch {
@@ -819,6 +867,20 @@ export function Workouts({ api }: { api: Api }) {
     } catch {
       setError('Deleting needs a connection — try again when online.')
     }
+  }
+
+  function saveCustomExercise(name: string, muscle: string) {
+    // Optimistic: usable immediately, server write is fire-and-forget (the
+    // exercise also lives inside the workout record either way)
+    setCustoms((prev) => {
+      const next = [
+        ...prev.filter((c) => c.name.toLowerCase() !== name.toLowerCase()),
+        { name, muscle },
+      ]
+      saveCustomExercises(next)
+      return next
+    })
+    void api.send('POST', '/api/exercises', { name, muscle }).catch(() => {})
   }
 
   async function removeTemplate(t: Template) {
@@ -887,6 +949,9 @@ export function Workouts({ api }: { api: Api }) {
         initial={mode.workout}
         isNew={mode.isNew}
         history={workouts}
+        customs={customs}
+        lookup={muscleLookup}
+        onSaveCustom={saveCustomExercise}
         onFinish={(w) =>
           finish(
             // An edited start time is a key move — tell the API which old
@@ -929,6 +994,8 @@ export function Workouts({ api }: { api: Api }) {
     return (
       <TemplateBuilder
         api={api}
+        customs={customs}
+        onSaveCustom={saveCustomExercise}
         onSaved={(t) => {
           setTemplates((prev) => {
             const next = [...prev.filter((x) => x.id !== t.id), t]
@@ -995,7 +1062,12 @@ export function Workouts({ api }: { api: Api }) {
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {segment === 'analytics' && (
-        <Analytics api={api} workouts={workouts} sessions={sessions} />
+        <Analytics
+          api={api}
+          workouts={workouts}
+          sessions={sessions}
+          customs={customs}
+        />
       )}
 
       {segment === 'workouts' && (

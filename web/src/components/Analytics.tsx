@@ -26,6 +26,7 @@ import {
   weeklyZones,
 } from '../lib/analytics'
 import type { Api } from '../lib/api'
+import { makeMuscleLookup, type CustomExercise } from '../lib/exercises'
 import type { Metrics } from '../lib/metrics'
 import type { SessionRecord, Workout } from '../lib/workouts'
 import { Card } from './ui'
@@ -78,10 +79,12 @@ export function Analytics({
   api,
   workouts,
   sessions,
+  customs,
 }: {
   api: Api
   workouts: Workout[]
   sessions: SessionRecord[]
+  customs: CustomExercise[]
 }) {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [metricsError, setMetricsError] = useState(false)
@@ -112,7 +115,11 @@ export function Analytics({
     [workouts, activeExercise],
   )
   const prs = useMemo(() => personalRecords(workouts), [workouts])
-  const volume = useMemo(() => weeklyVolume(workouts), [workouts])
+  const muscleLookup = useMemo(() => makeMuscleLookup(customs), [customs])
+  const volume = useMemo(
+    () => weeklyVolume(workouts, muscleLookup),
+    [workouts, muscleLookup],
+  )
 
   const drills = useMemo(() => drillsByFrequency(workouts), [workouts])
   const activeDrill = drill ?? drills[0] ?? null
