@@ -33,6 +33,21 @@ CDK-managed. Infra deploys run locally with your credentials; CI only ships the 
 - **Web changes**: push to `main` → Actions builds `web/` and syncs to S3 + invalidates
 - **Infra changes**: `npm run deploy` locally (CDK diff shows what changes first)
 
+## Inviting a user (you + up to ~5 friends)
+
+There is no public sign-up. Create accounts by hand:
+
+```sh
+aws cognito-idp admin-create-user \
+  --user-pool-id us-east-1_2ehtxnXC9 \
+  --username friend@example.com \
+  --user-attributes Name=email,Value=friend@example.com Name=email_verified,Value=true
+```
+
+Cognito emails them a temporary password (built-in mailer, 50 emails/day cap —
+plenty). On first sign-in the app walks them through choosing a real password
+(12+ characters). To revoke access: `admin-disable-user` with the same identifiers.
+
 ## Secrets policy
 
 WHOOP client id/secret never enter this repo. From M1 on they live in SSM Parameter
