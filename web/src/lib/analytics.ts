@@ -7,6 +7,24 @@ export function epley(weight: number, reps: number): number {
   return reps <= 1 ? weight : weight * (1 + reps / 30)
 }
 
+/**
+ * Monday of the week containing a calendar day. Anchoring at noon UTC keeps
+ * the whole computation in one time frame — mixing local getDay() with UTC
+ * toISOString() used to split evening sessions into a phantom second bucket.
+ */
+function mondayOf(dayIso: string): string {
+  const d = new Date(`${dayIso}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7))
+  return d.toISOString().slice(0, 10)
+}
+
+/** Calendar day in the browser's timezone — right frame for hand-logged workouts. */
+function browserLocalDay(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 export interface E1rmPoint {
   date: string
   e1rm: number
@@ -87,18 +105,11 @@ export function weeklyVolume(
   workouts: Workout[],
   weeks = 12,
 ): { rows: WeekVolumeRow[]; muscles: string[] } {
-  const mondayKey = (iso: string): string => {
-    const d = new Date(iso)
-    const shift = (d.getDay() + 6) % 7
-    d.setDate(d.getDate() - shift)
-    return d.toISOString().slice(0, 10)
-  }
-
   const totals = new Map<string, Map<string, number>>() // week → muscle → lb
   const muscleTotals = new Map<string, number>()
   for (const w of workouts) {
     if (w.kind !== 'strength') continue
-    const week = mondayKey(w.start)
+    const week = mondayOf(browserLocalDay(w.start))
     for (const e of w.exercises) {
       const muscle = muscleFor(e.name) ?? 'other'
       for (const s of e.sets) {
@@ -261,16 +272,11 @@ export interface ZoneWeekRow {
 
 /** Hours per HR zone per week across all captured activity. */
 export function weeklyZones(sessions: SessionRecord[], weeks = 12): ZoneWeekRow[] {
-  const mondayKey = (iso: string): string => {
-    const d = new Date(iso)
-    const shift = (d.getDay() + 6) % 7
-    d.setDate(d.getDate() - shift)
-    return d.toISOString().slice(0, 10)
-  }
   const totals = new Map<string, ZoneWeekRow>()
   for (const s of sessions) {
     if (!s.zoneMin) continue
-    const week = mondayKey(s.start)
+    // The session's own timezone offset puts it on the right calendar day
+    const week = mondayOf(localDate(s.start, s.timezoneOffset))
     const row =
       totals.get(week) ?? { week, z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 }
     row.z1 += s.zoneMin.z1 ?? 0
