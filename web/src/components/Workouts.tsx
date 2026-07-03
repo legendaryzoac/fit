@@ -433,7 +433,7 @@ function ActiveWorkout({
           </datalist>
           <button
             onClick={addExercise}
-            className={`${buttonClass} w-auto shrink-0 px-4`}
+            className={`${buttonClass} shrink-0`}
           >
             Add
           </button>
@@ -722,7 +722,7 @@ export function Workouts({ api }: { api: Api }) {
             setActive(newWorkout('strength'))
             setIsNew(true)
           }}
-          className={`${buttonClass} w-auto px-4`}
+          className={buttonClass}
         >
           Start workout
         </button>

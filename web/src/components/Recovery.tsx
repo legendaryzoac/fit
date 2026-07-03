@@ -79,7 +79,7 @@ function WhoopConnect({
       <button
         onClick={connect}
         disabled={connecting}
-        className={`${buttonClass} max-w-xs`}
+        className={`${buttonClass} w-full max-w-xs`}
       >
         {connecting
           ? 'Redirecting…'

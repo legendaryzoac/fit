@@ -63,7 +63,7 @@ export function LoginCard({
         required
       />
       {error && <p className="text-sm text-red-400">{error}</p>}
-      <button className={buttonClass} disabled={busy}>
+      <button className={`${buttonClass} w-full`} disabled={busy}>
         {busy ? 'Signing in…' : 'Sign in'}
       </button>
     </form>
@@ -110,7 +110,7 @@ export function NewPasswordCard({
         required
       />
       {error && <p className="text-sm text-red-400">{error}</p>}
-      <button className={buttonClass} disabled={busy}>
+      <button className={`${buttonClass} w-full`} disabled={busy}>
         {busy ? 'Saving…' : 'Set password'}
       </button>
     </form>

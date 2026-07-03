@@ -31,8 +31,10 @@ export const inputClass =
   'w-full rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm ' +
   'text-neutral-100 placeholder-neutral-500 outline-none focus:border-teal-500'
 
+// Width intentionally unset — callers add w-full/flex-1 where needed
+// (mixing w-full here with a w-auto override loses to stylesheet order)
 export const buttonClass =
-  'w-full rounded-lg bg-teal-500 px-3 py-2 text-sm font-medium text-neutral-950 ' +
+  'rounded-lg bg-teal-500 px-4 py-2 text-sm font-medium text-neutral-950 ' +
   'hover:bg-teal-400 disabled:opacity-50'
 
 export function Card({
