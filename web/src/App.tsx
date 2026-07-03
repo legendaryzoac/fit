@@ -152,6 +152,88 @@ function NewPasswordCard({
   )
 }
 
+type Me = {
+  createdAt: string
+  whoop: {
+    connected: boolean
+    status?: 'active' | 'error'
+    lastSyncAt?: string | null
+    backfillDone?: boolean
+  }
+}
+
+function initialBanner(): string | null {
+  const q = new URLSearchParams(window.location.search)
+  if (q.get('whoop') === 'connected') {
+    return 'WHOOP connected — your history is syncing now.'
+  }
+  if (q.get('whoop') === 'error') {
+    return 'WHOOP connection failed — please try again.'
+  }
+  return null
+}
+
+function WhoopCard({
+  me,
+  onError,
+  authFetch,
+}: {
+  me: Me
+  onError: (message: string) => void
+  authFetch: (path: string) => Promise<Response>
+}) {
+  const [connecting, setConnecting] = useState(false)
+
+  async function connect() {
+    setConnecting(true)
+    try {
+      const res = await authFetch('/api/whoop/connect')
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.error ?? `API responded ${res.status}`)
+      window.location.assign(body.url)
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not start connect')
+      setConnecting(false)
+    }
+  }
+
+  if (me.whoop.connected) {
+    return (
+      <p className="text-sm text-neutral-400">
+        WHOOP connected ·{' '}
+        {me.whoop.lastSyncAt
+          ? `synced ${new Date(me.whoop.lastSyncAt).toLocaleString(undefined, {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            })}`
+          : 'first sync in progress…'}
+      </p>
+    )
+  }
+  if (me.whoop.status === 'error') {
+    return (
+      <div className="flex flex-col items-center gap-2">
+        <p className="text-sm text-amber-400">
+          WHOOP connection needs attention — please reconnect.
+        </p>
+        <button onClick={connect} disabled={connecting} className={buttonClass}>
+          {connecting ? 'Redirecting…' : 'Reconnect WHOOP'}
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="flex w-full flex-col items-center gap-2">
+      <button onClick={connect} disabled={connecting} className={buttonClass}>
+        {connecting ? 'Redirecting…' : 'Connect WHOOP'}
+      </button>
+      <p className="text-center text-xs text-neutral-600">
+        Optional — workout tracking works without a strap.
+      </p>
+    </div>
+  )
+}
+
 function Dashboard({
   session,
   onSignOut,
@@ -159,42 +241,56 @@ function Dashboard({
   session: CognitoUserSession
   onSignOut: () => void
 }) {
-  const [memberSince, setMemberSince] = useState<string | null>(null)
+  const [me, setMe] = useState<Me | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [banner] = useState<string | null>(initialBanner)
   const email = session.getIdToken().payload.email as string
 
-  useEffect(() => {
-    fetch('/api/me', {
-      headers: {
-        // Not `Authorization`: CloudFront's OAC signing overwrites that header
-        'x-authorization': `Bearer ${session.getAccessToken().getJwtToken()}`,
-      },
+  const token = session.getAccessToken().getJwtToken()
+  const authFetch = (path: string) =>
+    fetch(path, {
+      // Not `Authorization`: CloudFront's OAC signing overwrites that header
+      headers: { 'x-authorization': `Bearer ${token}` },
     })
+
+  useEffect(() => {
+    if (banner) window.history.replaceState(null, '', '/')
+  }, [banner])
+
+  useEffect(() => {
+    authFetch('/api/me')
       .then(async (res) => {
         if (!res.ok) throw new Error(`API responded ${res.status}`)
-        const profile = await res.json()
-        setMemberSince(
-          new Date(profile.createdAt).toLocaleDateString(undefined, {
-            dateStyle: 'medium',
-          }),
-        )
+        setMe(await res.json())
       })
       .catch((err: Error) => setApiError(err.message))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session])
 
   return (
     <div className="flex w-full max-w-xs flex-col items-center gap-4">
       <p className="text-sm text-neutral-400">
         Signed in as <span className="text-neutral-200">{email}</span>
-        {memberSince && <> · member since {memberSince}</>}
+        {me && (
+          <>
+            {' '}
+            · member since{' '}
+            {new Date(me.createdAt).toLocaleDateString(undefined, {
+              dateStyle: 'medium',
+            })}
+          </>
+        )}
       </p>
+      {banner && <p className="text-center text-sm text-teal-300">{banner}</p>}
       {apiError && <p className="text-sm text-red-400">{apiError}</p>}
+      {me && (
+        <WhoopCard me={me} onError={setApiError} authFetch={authFetch} />
+      )}
       <div className="rounded-full border border-teal-500/30 bg-teal-500/10 px-4 py-1.5 text-sm text-teal-300">
-        M1 · accounts online
+        M2 · WHOOP sync online
       </div>
       <p className="text-center text-sm text-neutral-500">
-        WHOOP sync, recovery dashboards, and the workout logger arrive in
-        M2–M5.
+        Recovery dashboards and the workout logger arrive in M3–M5.
       </p>
       <button
         onClick={onSignOut}

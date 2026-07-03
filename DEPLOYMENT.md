@@ -48,8 +48,32 @@ Cognito emails them a temporary password (built-in mailer, 50 emails/day cap —
 plenty). On first sign-in the app walks them through choosing a real password
 (12+ characters). To revoke access: `admin-disable-user` with the same identifiers.
 
+## WHOOP setup (M2, one-time, all by hand)
+
+1. Store the app credentials — never in the repo, never through an assistant:
+
+   ```sh
+   aws ssm put-parameter --name /fit/whoop/client-id --type SecureString --value "<client id>"
+   aws ssm put-parameter --name /fit/whoop/client-secret --type SecureString --value "<client secret>"
+   ```
+
+2. In the [WHOOP Developer Dashboard](https://developer.whoop.com/) app settings:
+   - Add redirect URL: `https://fit.zackwithers.com/api/whoop/callback`
+   - Add webhook URL (v2 models): the `WhoopWebhookUrl` stack output — a direct
+     Lambda function URL. It can't sit behind CloudFront: OAC-signed origins
+     require a payload hash header on POSTs that WHOOP doesn't send. The HMAC
+     signature check is the authentication.
+   - Ensure scopes include: `offline read:profile read:recovery read:cycles read:sleep read:workout read:body_measurement`
+
+3. Sign in at fit.zackwithers.com and click **Connect WHOOP**. The full-history
+   backfill kicks off automatically; webhooks keep it fresh afterwards, and a
+   17:00 UTC reconciliation sync re-pulls the last 14 days for every connected user.
+
+Known M2 limitations: `*.deleted` webhook events don't remove already-synced rows,
+and an edited sleep can leave a stale row under its old end-timestamp key (the
+nightly re-sync overwrites scores but not moved keys).
+
 ## Secrets policy
 
-WHOOP client id/secret never enter this repo. From M1 on they live in SSM Parameter
-Store (SecureString), written once by hand:
-`aws ssm put-parameter --name /fit/whoop/client-id --type SecureString --value ...`
+WHOOP client id/secret never enter this repo — they live only in the SSM
+SecureString parameters above, read by the Lambdas at runtime.

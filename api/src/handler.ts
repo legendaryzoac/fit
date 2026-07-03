@@ -1,23 +1,18 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
-import {
-  DynamoDBDocumentClient,
-  GetCommand,
-  PutCommand,
-} from '@aws-sdk/lib-dynamodb'
+import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb'
 import { CognitoJwtVerifier } from 'aws-jwt-verify'
 import type {
   LambdaFunctionURLEvent,
   LambdaFunctionURLResult,
 } from 'aws-lambda'
+import { TABLE_NAME, ddb } from './db'
+import { handleWhoopCallback, handleWhoopConnect } from './whoop/routes'
+import { loadConnection } from './whoop/store'
 
 const verifier = CognitoJwtVerifier.create({
   userPoolId: process.env.USER_POOL_ID!,
   tokenUse: 'access',
   clientId: process.env.CLIENT_ID!,
 })
-
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
-const TABLE_NAME = process.env.TABLE_NAME!
 
 function json(statusCode: number, body: unknown): LambdaFunctionURLResult {
   return {
@@ -27,9 +22,48 @@ function json(statusCode: number, body: unknown): LambdaFunctionURLResult {
   }
 }
 
+async function getMe(userId: string): Promise<LambdaFunctionURLResult> {
+  const key = { pk: `USER#${userId}`, sk: 'PROFILE' }
+  const existing = await ddb.send(
+    new GetCommand({ TableName: TABLE_NAME, Key: key }),
+  )
+  let profile = existing.Item
+  if (!profile) {
+    profile = {
+      ...key,
+      type: 'profile',
+      userId,
+      createdAt: new Date().toISOString(),
+    }
+    await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: profile }))
+  }
+
+  const connection = await loadConnection(userId)
+  return json(200, {
+    userId,
+    createdAt: profile.createdAt,
+    // Never the tokens — only presentation state
+    whoop: connection
+      ? {
+          connected: connection.status === 'active',
+          status: connection.status,
+          lastSyncAt: connection.lastSyncAt ?? null,
+          backfillDone: connection.backfillDone ?? false,
+        }
+      : { connected: false },
+  })
+}
+
 export async function handler(
   event: LambdaFunctionURLEvent,
 ): Promise<LambdaFunctionURLResult> {
+  const route = `${event.requestContext.http.method} ${event.rawPath}`
+
+  // The browser redirect from WHOOP can't carry our JWT; this route
+  // authenticates by its one-shot OAuth state nonce instead. (The WHOOP
+  // webhook lives on its own function URL — see webhook.ts.)
+  if (route === 'GET /api/whoop/callback') return handleWhoopCallback(event)
+
   // The app token rides in x-authorization: CloudFront's OAC signing owns the
   // real Authorization header on origin requests. (Function URLs lowercase
   // all header names.)
@@ -46,24 +80,8 @@ export async function handler(
     return json(401, { error: 'invalid token' })
   }
 
-  const route = `${event.requestContext.http.method} ${event.rawPath}`
-
-  if (route === 'GET /api/me') {
-    const key = { pk: `USER#${userId}`, sk: 'PROFILE' }
-    const existing = await ddb.send(
-      new GetCommand({ TableName: TABLE_NAME, Key: key }),
-    )
-    if (existing.Item) return json(200, existing.Item)
-
-    const profile = {
-      ...key,
-      type: 'profile',
-      userId,
-      createdAt: new Date().toISOString(),
-    }
-    await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: profile }))
-    return json(200, profile)
-  }
+  if (route === 'GET /api/me') return getMe(userId)
+  if (route === 'GET /api/whoop/connect') return handleWhoopConnect(userId)
 
   return json(404, { error: 'not found' })
 }

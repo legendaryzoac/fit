@@ -11,6 +11,8 @@ import * as cloudfront from 'aws-cdk-lib/aws-cloudfront'
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins'
 import * as cognito from 'aws-cdk-lib/aws-cognito'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+import * as events from 'aws-cdk-lib/aws-events'
+import * as eventsTargets from 'aws-cdk-lib/aws-events-targets'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs'
@@ -122,6 +124,15 @@ export class SiteStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     })
 
+    // Sparse index: only WHOOP connection items set gsi1pk, so this lists
+    // connected users without scanning entity data.
+    table.addGlobalSecondaryIndex({
+      indexName: 'gsi1',
+      partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.KEYS_ONLY,
+    })
+
     const apiFn = new NodejsFunction(this, 'ApiFn', {
       entry: path.join(__dirname, '../../api/src/handler.ts'),
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -160,6 +171,78 @@ export class SiteStack extends Stack {
       sourceArn: `arn:aws:cloudfront::${this.account}:distribution/${distribution.distributionId}`,
     })
 
+    // ---- WHOOP ingestion (M2) ----
+
+    // Untouched vendor JSON, kept for reprocessing when adapters change
+    const rawBucket = new s3.Bucket(this, 'RawBucket', {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    })
+
+    // WHOOP client id/secret are hand-written SSM SecureStrings, never in code
+    const whoopSsmRead = new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/fit/whoop/*`,
+      ],
+    })
+
+    const syncFn = new NodejsFunction(this, 'WhoopSyncFn', {
+      entry: path.join(__dirname, '../../api/src/sync.ts'),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 512,
+      timeout: Duration.minutes(10), // full-history backfill pages slowly on purpose
+      environment: {
+        TABLE_NAME: table.tableName,
+        RAW_BUCKET: rawBucket.bucketName,
+        WHOOP_SSM_PREFIX: '/fit/whoop',
+      },
+    })
+    table.grantReadWriteData(syncFn)
+    rawBucket.grantPut(syncFn)
+    syncFn.addToRolePolicy(whoopSsmRead)
+
+    apiFn.addToRolePolicy(whoopSsmRead)
+    apiFn.addEnvironment('SYNC_FUNCTION_NAME', syncFn.functionName)
+    apiFn.addEnvironment('APP_URL', `https://${DOMAIN}`)
+    apiFn.addEnvironment('WHOOP_SSM_PREFIX', '/fit/whoop')
+    syncFn.grantInvoke(apiFn)
+
+    // Reconciliation pass: scores change after the fact (sleep rescoring,
+    // late uploads), webhooks cover the real-time path.
+    new events.Rule(this, 'NightlyWhoopSync', {
+      schedule: events.Schedule.cron({ minute: '0', hour: '17' }),
+      targets: [
+        new eventsTargets.LambdaFunction(syncFn, {
+          event: events.RuleTargetInput.fromObject({ mode: 'nightly' }),
+        }),
+      ],
+    })
+
+    // Webhooks get a direct public function URL instead of the /api/*
+    // behavior: OAC-signed origins demand an x-amz-content-sha256 payload
+    // hash on POSTs, which WHOOP's servers don't send. Auth is the HMAC
+    // signature check in the handler.
+    const webhookFn = new NodejsFunction(this, 'WhoopWebhookFn', {
+      entry: path.join(__dirname, '../../api/src/webhook.ts'),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      environment: {
+        TABLE_NAME: table.tableName,
+        WHOOP_SSM_PREFIX: '/fit/whoop',
+        SYNC_FUNCTION_NAME: syncFn.functionName,
+      },
+    })
+    table.grantReadData(webhookFn)
+    webhookFn.addToRolePolicy(whoopSsmRead)
+    syncFn.grantInvoke(webhookFn)
+    const webhookUrl = webhookFn.addFunctionUrl({
+      authType: lambda.FunctionUrlAuthType.NONE,
+    })
+
     // Deploy role assumed by GitHub Actions via the account's existing
     // OIDC provider; scoped to pushes on this repo's main branch.
     const ciRole = new iam.Role(this, 'GithubDeployRole', {
@@ -189,6 +272,7 @@ export class SiteStack extends Stack {
     new CfnOutput(this, 'CiRoleArn', { value: ciRole.roleArn })
     new CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId })
     new CfnOutput(this, 'WebClientId', { value: webClient.userPoolClientId })
+    new CfnOutput(this, 'WhoopWebhookUrl', { value: webhookUrl.url })
     new CfnOutput(this, 'Url', { value: `https://${DOMAIN}` })
   }
 }
