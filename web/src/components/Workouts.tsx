@@ -788,6 +788,7 @@ export function Workouts({ api }: { api: Api }) {
   const [pendingCount, setPendingCount] = useState(() => loadPending().length)
   const [offline, setOffline] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [visibleCount, setVisibleCount] = useState(15)
   const [mode, setMode] = useState<Mode>(() => {
     const timer = loadTimerDraft()
     if (timer) return { m: 'timer', draft: timer }
@@ -839,6 +840,10 @@ export function Workouts({ api }: { api: Api }) {
     return () => window.removeEventListener('online', onOnline)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api])
+
+  useEffect(() => {
+    setVisibleCount(15)
+  }, [segment])
 
   function finish(raw: Workout) {
     const w = finalizeWorkout(raw)
@@ -1146,35 +1151,51 @@ export function Workouts({ api }: { api: Api }) {
         </div>
       )}
 
-      {segment === 'whoop' && (
-        <div className="flex flex-col gap-3">
-          {sessions.length === 0 && (
-            <p className="py-8 text-center text-sm text-neutral-600">
-              No captured activity yet — data from connected wearables lands
-              here automatically.
-            </p>
-          )}
-          {sessions
+      {segment === 'whoop' &&
+        (() => {
+          const sorted = sessions
             .slice()
             .sort((a, b) => b.start.localeCompare(a.start))
-            .slice(0, 60)
-            .map((s) => (
-              <Card
-                key={s.sk}
-                title={s.sport ?? 'Activity'}
-                subtitle={fmtDateTime(s.start)}
-              >
-                <p className="text-sm text-neutral-400">
-                  {s.strain != null && `strain ${Math.round(s.strain * 10) / 10}`}
-                  {s.avgHr != null && ` · ${Math.round(s.avgHr)} bpm avg`}
-                  {s.maxHr != null && ` · ${Math.round(s.maxHr)} max`}
-                  {s.distanceM != null &&
-                    ` · ${Math.round((s.distanceM / MILE) * 100) / 100} mi`}
+          const visible = sorted.slice(0, visibleCount)
+          return (
+            <div className="flex flex-col gap-3">
+              {sessions.length === 0 && (
+                <p className="py-8 text-center text-sm text-neutral-600">
+                  No captured activity yet — data from connected wearables lands
+                  here automatically.
                 </p>
-              </Card>
-            ))}
-        </div>
-      )}
+              )}
+              {visible.map((s) => (
+                <Card
+                  key={s.sk}
+                  title={s.sport ?? 'Activity'}
+                  subtitle={fmtDateTime(s.start)}
+                >
+                  <p className="text-sm text-neutral-400">
+                    {s.strain != null && `strain ${Math.round(s.strain * 10) / 10}`}
+                    {s.avgHr != null && ` · ${Math.round(s.avgHr)} bpm avg`}
+                    {s.maxHr != null && ` · ${Math.round(s.maxHr)} max`}
+                    {s.distanceM != null &&
+                      ` · ${Math.round((s.distanceM / MILE) * 100) / 100} mi`}
+                  </p>
+                </Card>
+              ))}
+              {sorted.length > 0 && (
+                <p className="text-xs text-neutral-600">
+                  Showing {visible.length} of {sorted.length}
+                </p>
+              )}
+              {visibleCount < sorted.length && (
+                <button
+                  onClick={() => setVisibleCount((n) => n + 15)}
+                  className={`${secondaryButton} w-full`}
+                >
+                  Show more
+                </button>
+              )}
+            </div>
+          )
+        })()}
     </>
   )
 }
