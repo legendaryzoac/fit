@@ -30,11 +30,13 @@ export function TrendChart({
   color,
   unit,
   domain,
+  baselineLabel = '30-day baseline',
 }: {
   data: TrendPoint[]
   color: string
   unit: string
   domain?: [number | 'auto', number | 'auto']
+  baselineLabel?: string
 }) {
   return (
     <ResponsiveContainer width="100%" height={180}>
@@ -60,7 +62,7 @@ export function TrendChart({
           labelStyle={{ color: '#d4d4d4' }}
           formatter={(value, name) => [
             `${Math.round(Number(value) * 10) / 10} ${unit}`,
-            String(name) === 'baseline' ? '30-day baseline' : unit,
+            String(name) === 'baseline' ? baselineLabel : unit,
           ]}
         />
         <Line

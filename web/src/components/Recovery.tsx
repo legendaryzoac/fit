@@ -293,6 +293,7 @@ export function Recovery({ api }: { api: Api }) {
               color="#2dd4bf"
               unit="%"
               domain={[0, 100]}
+              baselineLabel="7-day baseline"
             />
           </Card>
           <Card

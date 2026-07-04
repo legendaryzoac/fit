@@ -53,10 +53,7 @@ export function AppShell({
           ) : (
             <span className="hidden sm:inline">{email}</span>
           )}
-          <button
-            onClick={onSignOut}
-            className="underline-offset-4 hover:text-neutral-300 hover:underline"
-          >
+          <button onClick={onSignOut} className="hover:text-neutral-300">
             {demo ? 'Exit demo' : 'Sign out'}
           </button>
         </div>
@@ -83,7 +80,7 @@ export function AppShell({
           fit — a zackwithers.com project ·{' '}
           <a
             href="https://github.com/legendaryzoac/fit"
-            className="underline-offset-4 hover:text-neutral-400 hover:underline"
+            className="hover:text-neutral-400"
           >
             source
           </a>

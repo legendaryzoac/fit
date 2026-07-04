@@ -185,7 +185,7 @@ export function Analytics({
               <Bar
                 yAxisId="strain"
                 dataKey="strain"
-                fill="#b48408"
+                fill="#6366f1"
                 name="strain"
                 radius={[2, 2, 0, 0]}
               />
@@ -219,7 +219,7 @@ export function Analytics({
           </p>
         ) : (
           <div className="flex flex-col gap-3">
-            <div className="flex gap-1 overflow-x-auto pb-1">
+            <div className="scroll-thin flex gap-1 overflow-x-auto pb-1">
               {exercises.slice(0, 8).map((name) => (
                 <Chip
                   key={name}
@@ -319,7 +319,7 @@ export function Analytics({
             </button>
           ) : (
             <div className="flex flex-col gap-3">
-              <div className="flex gap-1 overflow-x-auto pb-1">
+              <div className="scroll-thin flex gap-1 overflow-x-auto pb-1">
                 {exercises.slice(0, 8).map((name) => (
                   <Chip
                     key={name}
