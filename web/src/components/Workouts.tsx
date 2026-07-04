@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import type { Api } from '../lib/api'
 import {
   EXERCISES,
@@ -147,6 +147,11 @@ function ActiveWorkout({
   const [newMuscle, setNewMuscle] = useState<string>('other')
   const [now, setNow] = useState(Date.now())
 
+  // Drag-to-reorder: exercise cards move as the handle crosses a neighbour's
+  // midpoint. Refs to the card elements let us read live positions on the fly.
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([])
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+
   // Draft autosave: a locked phone or dead battery must not eat a workout
   useEffect(() => {
     if (isNew) saveDraft(w)
@@ -246,6 +251,63 @@ function ActiveWorkout({
     setW({ ...w, exercises: w.exercises.filter((_, i) => i !== ei) })
   }
 
+  // Drop one set; the exercise itself goes when its last set is removed.
+  function removeSet(ei: number, si: number) {
+    setW({
+      ...w,
+      exercises: w.exercises
+        .map((e, i) =>
+          i !== ei ? e : { ...e, sets: e.sets.filter((_, j) => j !== si) },
+        )
+        .filter((e) => e.sets.length > 0),
+    })
+  }
+
+  function moveExercise(from: number, to: number) {
+    if (from === to) return
+    setW((prev) => {
+      const next = [...prev.exercises]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return { ...prev, exercises: next }
+    })
+  }
+
+  function onHandlePointerDown(ei: number, ev: React.PointerEvent) {
+    ev.preventDefault()
+    ev.currentTarget.setPointerCapture(ev.pointerId)
+    setDragIndex(ei)
+  }
+
+  function onHandlePointerMove(ev: React.PointerEvent) {
+    setDragIndex((from) => {
+      if (from === null) return from
+      // Swap once the pointer clears the midpoint of an adjacent card.
+      const prev = cardRefs.current[from - 1]
+      const next = cardRefs.current[from + 1]
+      if (prev) {
+        const r = prev.getBoundingClientRect()
+        if (ev.clientY < r.top + r.height / 2) {
+          moveExercise(from, from - 1)
+          return from - 1
+        }
+      }
+      if (next) {
+        const r = next.getBoundingClientRect()
+        if (ev.clientY > r.top + r.height / 2) {
+          moveExercise(from, from + 1)
+          return from + 1
+        }
+      }
+      return from
+    })
+  }
+
+  function onHandlePointerUp(ev: React.PointerEvent) {
+    ev.currentTarget.releasePointerCapture(ev.pointerId)
+    setDragIndex(null)
+  }
+
   const numeric = (raw: string) => (raw === '' ? undefined : Number(raw))
 
   const doneCount = w.exercises.reduce(
@@ -332,10 +394,17 @@ function ActiveWorkout({
         return (
           <div
             key={ei}
-            className="rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3"
+            ref={(el) => {
+              cardRefs.current[ei] = el
+            }}
+            className={`rounded-xl border bg-neutral-900/60 p-3 ${
+              dragIndex === ei
+                ? 'border-teal-500 opacity-60'
+                : 'border-neutral-800/60'
+            }`}
           >
-            <div className="mb-2 flex items-baseline justify-between">
-              <p className="text-sm font-semibold text-neutral-100">
+            <div className="mb-2 flex items-baseline justify-between gap-2">
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-100">
                 {e.name}
                 {muscle && (
                   <span className="ml-2 text-[11px] font-normal uppercase tracking-wide text-neutral-600">
@@ -344,6 +413,16 @@ function ActiveWorkout({
                 )}
               </p>
               <button
+                onPointerDown={(ev) => onHandlePointerDown(ei, ev)}
+                onPointerMove={onHandlePointerMove}
+                onPointerUp={onHandlePointerUp}
+                onPointerCancel={onHandlePointerUp}
+                aria-label={`reorder ${e.name}`}
+                className="touch-none cursor-grab select-none px-1 text-base leading-none text-neutral-600 hover:text-neutral-300"
+              >
+                ≡
+              </button>
+              <button
                 onClick={() => removeExercise(ei)}
                 className="text-xs text-neutral-600 hover:text-red-400"
               >
@@ -351,7 +430,7 @@ function ActiveWorkout({
               </button>
             </div>
 
-            <div className="mb-1 grid grid-cols-[1.5rem_3.2rem_1fr_1fr_2.6rem_2.4rem] items-center gap-1.5 text-[11px] uppercase tracking-wide text-neutral-600">
+            <div className="mb-1 grid grid-cols-[1.25rem_2.75rem_1fr_1fr_2.4rem_2rem_1.5rem] items-center gap-1 text-[11px] uppercase tracking-wide text-neutral-600">
               <span>set</span>
               <span>prev</span>
               {w.kind === 'speed' ? (
@@ -368,6 +447,7 @@ function ActiveWorkout({
                 </>
               )}
               <span />
+              <span />
             </div>
 
             {e.sets.map((s, si) => {
@@ -375,7 +455,7 @@ function ActiveWorkout({
               return (
                 <div
                   key={si}
-                  className="mb-1.5 grid grid-cols-[1.5rem_3.2rem_1fr_1fr_2.6rem_2.4rem] items-center gap-1.5"
+                  className="mb-1.5 grid grid-cols-[1.25rem_2.75rem_1fr_1fr_2.4rem_2rem_1.5rem] items-center gap-1"
                 >
                   <span className="text-sm text-neutral-500">{si + 1}</span>
                   <span className="truncate text-[11px] text-neutral-600">
@@ -471,6 +551,13 @@ function ActiveWorkout({
                     }`}
                   >
                     ✓
+                  </button>
+                  <button
+                    onClick={() => removeSet(ei, si)}
+                    aria-label="remove set"
+                    className="flex h-10 items-center justify-center text-sm text-neutral-600 hover:text-red-400"
+                  >
+                    ✕
                   </button>
                 </div>
               )
