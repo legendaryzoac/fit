@@ -149,7 +149,11 @@ function ActiveWorkout({
 
   // Drag-to-reorder: exercise cards move as the handle crosses a neighbour's
   // midpoint. Refs to the card elements let us read live positions on the fly.
+  // The live drag position lives in a ref (not just state) so the move logic
+  // stays out of state updaters — React double-invokes those in StrictMode,
+  // which would swap twice and cancel the reorder.
   const cardRefs = useRef<(HTMLDivElement | null)[]>([])
+  const dragFrom = useRef<number | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
 
   // Draft autosave: a locked phone or dead battery must not eat a workout
@@ -275,36 +279,50 @@ function ActiveWorkout({
 
   function onHandlePointerDown(ei: number, ev: React.PointerEvent) {
     ev.preventDefault()
-    ev.currentTarget.setPointerCapture(ev.pointerId)
+    try {
+      // Capture keeps move events flowing to the handle once the finger
+      // wanders off it; if capture is unavailable the drag still works
+      // while the pointer stays over the handle.
+      ev.currentTarget.setPointerCapture(ev.pointerId)
+    } catch {
+      /* no active pointer (synthetic events, exotic devices) */
+    }
+    dragFrom.current = ei
     setDragIndex(ei)
   }
 
   function onHandlePointerMove(ev: React.PointerEvent) {
-    setDragIndex((from) => {
-      if (from === null) return from
-      // Swap once the pointer clears the midpoint of an adjacent card.
-      const prev = cardRefs.current[from - 1]
-      const next = cardRefs.current[from + 1]
-      if (prev) {
-        const r = prev.getBoundingClientRect()
-        if (ev.clientY < r.top + r.height / 2) {
-          moveExercise(from, from - 1)
-          return from - 1
-        }
+    const from = dragFrom.current
+    if (from === null) return
+    // Swap once the pointer clears the midpoint of an adjacent card.
+    const prev = cardRefs.current[from - 1]
+    if (prev) {
+      const r = prev.getBoundingClientRect()
+      if (ev.clientY < r.top + r.height / 2) {
+        moveExercise(from, from - 1)
+        dragFrom.current = from - 1
+        setDragIndex(from - 1)
+        return
       }
-      if (next) {
-        const r = next.getBoundingClientRect()
-        if (ev.clientY > r.top + r.height / 2) {
-          moveExercise(from, from + 1)
-          return from + 1
-        }
+    }
+    const next = cardRefs.current[from + 1]
+    if (next) {
+      const r = next.getBoundingClientRect()
+      if (ev.clientY > r.top + r.height / 2) {
+        moveExercise(from, from + 1)
+        dragFrom.current = from + 1
+        setDragIndex(from + 1)
       }
-      return from
-    })
+    }
   }
 
   function onHandlePointerUp(ev: React.PointerEvent) {
-    ev.currentTarget.releasePointerCapture(ev.pointerId)
+    try {
+      ev.currentTarget.releasePointerCapture(ev.pointerId)
+    } catch {
+      /* capture may never have been acquired */
+    }
+    dragFrom.current = null
     setDragIndex(null)
   }
 
