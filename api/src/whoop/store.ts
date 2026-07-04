@@ -96,6 +96,21 @@ export async function getFreshAccessToken(
     await patchConnection(userId, { ...tokens, status: 'active' })
     return tokens.accessToken
   } catch (err) {
+    // WHOOP refresh tokens are single-use, and sleep + recovery webhooks
+    // land ~20ms apart every morning — a concurrent invocation may have
+    // just rotated the tokens out from under us. Give the winner time to
+    // persist its new pair, then re-read before declaring the connection
+    // dead. (Reserved concurrency would prevent the race outright, but the
+    // account's Lambda concurrency quota doesn't allow reservations.)
+    await new Promise((resolve) => setTimeout(resolve, 2500))
+    const latest = await loadConnection(userId)
+    if (
+      latest &&
+      latest.refreshToken !== connection.refreshToken &&
+      latest.expiresAt - Date.now() > 120_000
+    ) {
+      return latest.accessToken
+    }
     await patchConnection(userId, { status: 'error' })
     throw err
   }

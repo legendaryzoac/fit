@@ -253,12 +253,24 @@ export function Recovery({ api }: { api: Api }) {
       )}
 
       {metrics && recoverySeries.length === 0 && (
-        <p className="py-8 text-center text-sm text-neutral-600">
-          No recovery data yet
-          {me?.whoop.connected
-            ? ' — the backfill may still be running.'
-            : ' — connect WHOOP to start.'}
-        </p>
+        me?.whoop.connected ? (
+          <p className="py-8 text-center text-sm text-neutral-600">
+            No recovery data yet — the backfill may still be running.
+          </p>
+        ) : (
+          <div className="py-6 text-center">
+            <p className="mx-auto max-w-sm text-sm text-neutral-500">
+              This tab comes alive when a wearable is connected: daily
+              recovery scores, HRV and resting-heart-rate trends against your
+              own baselines, and sleep-stage breakdowns.
+            </p>
+            <p className="mx-auto mt-3 max-w-sm text-sm text-neutral-600">
+              No strap? No problem — the Training tab is the full product:
+              log workouts, build templates, run interval timers, and watch
+              your strength analytics grow.
+            </p>
+          </div>
+        )
       )}
 
       {metrics && recoverySeries.length > 0 && (

@@ -1,5 +1,6 @@
-import { Suspense, lazy, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import type { Api } from '../lib/api'
+import { storageKey } from '../lib/storage'
 import { Workouts } from './Workouts'
 import { PulseMark } from './ui'
 
@@ -10,6 +11,8 @@ const Recovery = lazy(() =>
 )
 
 const TABS = ['recovery', 'training'] as const
+type Tab = (typeof TABS)[number]
+const LAND_KEY = 'fit.landTraining'
 
 export function AppShell({
   api,
@@ -22,7 +25,29 @@ export function AppShell({
   demo?: boolean
   onSignOut: () => void
 }) {
-  const [tab, setTab] = useState<(typeof TABS)[number]>('recovery')
+  const [tabChoice, setTabChoice] = useState<Tab | null>(null)
+  const [connected, setConnected] = useState<boolean | null>(null)
+
+  // Land device-less users on the tab that actually has content for them
+  useEffect(() => {
+    api
+      .get('/api/me')
+      .then(async (res) => {
+        if (!res.ok) return
+        const me = await res.json()
+        const isConnected = Boolean(me?.whoop?.connected)
+        setConnected(isConnected)
+        localStorage.setItem(storageKey(LAND_KEY), isConnected ? '0' : '1')
+      })
+      .catch(() => {})
+  }, [api])
+
+  const tab: Tab =
+    tabChoice ??
+    ((connected ?? localStorage.getItem(storageKey(LAND_KEY)) !== '1')
+      ? 'recovery'
+      : 'training')
+  const setTab = setTabChoice
 
   return (
     <div className="min-h-dvh bg-neutral-950 text-neutral-100">

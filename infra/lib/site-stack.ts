@@ -197,6 +197,10 @@ export class SiteStack extends Stack {
       memorySize: 512,
       timeout: Duration.minutes(10), // full-history backfill pages slowly on purpose
       logRetention: logs.RetentionDays.ONE_MONTH,
+      // Reserved concurrency would serialize the morning webhook burst, but
+      // this account's total Lambda concurrency quota (50) is the floor AWS
+      // requires unreserved — so the token-refresh race is handled in
+      // getFreshAccessToken (delayed re-read) instead.
       environment: {
         TABLE_NAME: table.tableName,
         RAW_BUCKET: rawBucket.bucketName,
