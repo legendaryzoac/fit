@@ -11,6 +11,7 @@ import {
   buildIntervals,
   DEFAULT_PLAN,
   fmtSec,
+  planFromSections,
   totalSec,
   type QuickIntervalPlan,
   type Template,
@@ -18,7 +19,7 @@ import {
 import type { WorkoutKind } from '../lib/workouts'
 import { buttonClass, inputClass } from './ui'
 
-const KIND_STYLE: Record<WorkoutKind, string> = {
+export const KIND_STYLE: Record<WorkoutKind, string> = {
   strength: 'bg-teal-500/15 text-teal-300',
   speed: 'bg-violet-500/15 text-violet-300',
   cardio: 'bg-sky-500/15 text-sky-300',
@@ -75,24 +76,28 @@ export function PlanFields({
 export function TemplateBuilder({
   api,
   customs,
+  initial,
   onSaveCustom,
   onSaved,
   onCancel,
 }: {
   api: Api
   customs: CustomExercise[]
+  initial?: Template
   onSaveCustom: (name: string, muscle: string) => void
   onSaved: (t: Template) => void
   onCancel: () => void
 }) {
-  const [kind, setKind] = useState<WorkoutKind>('strength')
-  const [name, setName] = useState('')
+  const [kind, setKind] = useState<WorkoutKind>(initial?.kind ?? 'strength')
+  const [name, setName] = useState(initial?.name ?? '')
   const [exercises, setExercises] = useState<
     Array<{ name: string; setCount: number }>
-  >([])
+  >(initial?.exercises ?? [])
   const [exName, setExName] = useState('')
   const [newMuscle, setNewMuscle] = useState<string>('other')
-  const [plan, setPlan] = useState<QuickIntervalPlan>(DEFAULT_PLAN)
+  const [plan, setPlan] = useState<QuickIntervalPlan>(
+    initial?.sections ? planFromSections(initial.sections) : DEFAULT_PLAN,
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -131,9 +136,9 @@ export function TemplateBuilder({
     setError(null)
     const template: Template =
       kind === 'strength'
-        ? { id: crypto.randomUUID(), name: trimmed, kind, exercises }
+        ? { id: initial?.id ?? crypto.randomUUID(), name: trimmed, kind, exercises }
         : {
-            id: crypto.randomUUID(),
+            id: initial?.id ?? crypto.randomUUID(),
             name: trimmed,
             kind,
             sections: buildIntervals(plan),
@@ -155,7 +160,7 @@ export function TemplateBuilder({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-base font-medium text-neutral-300">
-          Create workout
+          {initial ? 'Edit template' : 'New template'}
         </h1>
         <button
           onClick={onCancel}

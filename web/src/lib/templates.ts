@@ -45,6 +45,26 @@ export function buildIntervals(plan: QuickIntervalPlan): IntervalSection[] {
   return out
 }
 
+/**
+ * Reverse of buildIntervals for editing: recovers the quick-plan fields from
+ * a stored flat section list (all current templates are app-generated, so
+ * the uniform structure round-trips cleanly).
+ */
+export function planFromSections(sections: IntervalSection[]): QuickIntervalPlan {
+  const lower = (s: IntervalSection) => s.label.toLowerCase()
+  const warm = sections.find((s) => lower(s).includes('warm'))
+  const cool = sections.find((s) => lower(s).includes('cool'))
+  const works = sections.filter((s) => sectionTone(s.label) === 'work')
+  const rests = sections.filter((s) => sectionTone(s.label) === 'rest')
+  return {
+    warmupSec: warm?.durationSec ?? 0,
+    workSec: works[0]?.durationSec ?? 60,
+    restSec: rests[0]?.durationSec ?? 0,
+    sets: Math.max(1, works.length),
+    cooldownSec: cool?.durationSec ?? 0,
+  }
+}
+
 export type SectionTone = 'warm' | 'work' | 'rest' | 'cool' | 'other'
 
 export function sectionTone(label: string): SectionTone {

@@ -39,6 +39,7 @@ import {
   type WorkoutSet,
 } from '../lib/workouts'
 import { IntervalSession } from './IntervalTimer'
+import { Manage } from './Manage'
 import { PlanFields, TemplateBuilder } from './TemplateBuilder'
 import { buttonClass, Card, inputClass } from './ui'
 
@@ -657,7 +658,7 @@ function StartPicker({
           ))}
           {matching.length === 0 && (
             <p className="text-sm text-neutral-600">
-              No {kind} templates yet — “Create workout” builds one.
+              No {kind} templates yet — build one from “Manage”.
             </p>
           )}
 
@@ -770,7 +771,8 @@ function WorkoutCard({
 type Mode =
   | { m: 'list' }
   | { m: 'pick' }
-  | { m: 'build' }
+  | { m: 'manage' }
+  | { m: 'build'; initial?: Template }
   | { m: 'strength'; workout: Workout; isNew: boolean }
   | { m: 'timer'; draft: TimerDraft }
 
@@ -999,6 +1001,7 @@ export function Workouts({ api }: { api: Api }) {
       <TemplateBuilder
         api={api}
         customs={customs}
+        initial={mode.initial}
         onSaveCustom={saveCustomExercise}
         onSaved={(t) => {
           setTemplates((prev) => {
@@ -1006,9 +1009,36 @@ export function Workouts({ api }: { api: Api }) {
             saveTemplateCache(next)
             return next
           })
-          setMode({ m: 'pick' })
+          setMode({ m: 'manage' })
         }}
-        onCancel={() => setMode({ m: 'list' })}
+        onCancel={() => setMode({ m: 'manage' })}
+      />
+    )
+  }
+
+  if (mode.m === 'manage') {
+    return (
+      <Manage
+        api={api}
+        templates={templates}
+        customs={customs}
+        workouts={workouts}
+        onNewTemplate={() => setMode({ m: 'build' })}
+        onEditTemplate={(t) => setMode({ m: 'build', initial: t })}
+        onDeleteTemplate={removeTemplate}
+        onCustomsChange={(next) => {
+          setCustoms(next)
+          saveCustomExercises(next)
+        }}
+        onTemplatesChange={(next) => {
+          setTemplates(next)
+          saveTemplateCache(next)
+        }}
+        onWorkoutsChange={(next) => {
+          setWorkouts(next)
+          saveWorkoutCache(next)
+        }}
+        onClose={() => setMode({ m: 'list' })}
       />
     )
   }
@@ -1019,10 +1049,10 @@ export function Workouts({ api }: { api: Api }) {
         <h1 className="text-base font-medium text-neutral-300">Training</h1>
         <div className="flex gap-2">
           <button
-            onClick={() => setMode({ m: 'build' })}
+            onClick={() => setMode({ m: 'manage' })}
             className={secondaryButton}
           >
-            Create workout
+            Manage
           </button>
           <button onClick={() => setMode({ m: 'pick' })} className={buttonClass}>
             Start workout
