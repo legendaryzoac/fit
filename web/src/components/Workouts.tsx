@@ -803,6 +803,13 @@ function StartPicker({
             <button onClick={() => onStrength()} className={`${buttonClass} w-full`}>
               Blank strength session
             </button>
+          ) : kind === 'cardio' ? (
+            <button
+              onClick={() => onTimer('cardio', [], undefined)}
+              className={`${buttonClass} w-full`}
+            >
+              Start timer
+            </button>
           ) : showCustom ? (
             <div className="flex flex-col gap-3 rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3">
               <PlanFields plan={plan} onChange={setPlan} />

@@ -12,14 +12,12 @@ import {
   YAxis,
 } from 'recharts'
 import {
-  bedtimeSeries,
   drillsByFrequency,
   e1rmSeries,
   exerciseDetail,
   exercisesByFrequency,
   loadVsRecovery,
   personalRecords,
-  recoveryByWeekday,
   runSeries,
   sprintSeries,
   weeklyVolume,
@@ -135,21 +133,6 @@ export function Analytics({
     [deepDiveOpen, workouts, activeExercise],
   )
   const zones = useMemo(() => weeklyZones(sessions), [sessions])
-  const bedtimes = useMemo(
-    () => (metrics ? bedtimeSeries(metrics.sleeps).slice(-45) : []),
-    [metrics],
-  )
-  const weekdays = useMemo(
-    () => (metrics ? recoveryByWeekday(metrics.recoveries) : []),
-    [metrics],
-  )
-
-  const clock = (v: number) => {
-    const h = ((v % 24) + 24) % 24
-    const hh = Math.floor(h)
-    const mm = Math.round((h - hh) * 60)
-    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
-  }
 
   const currentPr = activeExercise
     ? prs.find((p) => p.exercise === activeExercise)
@@ -585,85 +568,6 @@ export function Analytics({
       )}
 
       <LiveHR />
-
-      {bedtimes.length > 1 && (
-        <Card title="Bedtime consistency" subtitle="bed and wake times per night">
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart
-              data={bedtimes}
-              margin={{ top: 4, right: 4, bottom: 0, left: -10 }}
-            >
-              <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
-              <XAxis
-                dataKey="date"
-                {...axisProps()}
-                tickFormatter={dateTick}
-                minTickGap={32}
-              />
-              <YAxis
-                width={52}
-                domain={['auto', 'auto']}
-                tickFormatter={clock}
-                {...axisProps()}
-              />
-              <Tooltip
-                contentStyle={tooltipStyle}
-                labelStyle={{ color: '#d4d4d4' }}
-                formatter={(value, name) => [clock(Number(value)), String(name)]}
-              />
-              <Line
-                type="monotone"
-                dataKey="bed"
-                stroke="#a78bfa"
-                strokeWidth={1.5}
-                dot={false}
-                name="bedtime"
-              />
-              <Line
-                type="monotone"
-                dataKey="wake"
-                stroke="#f59e0b"
-                strokeWidth={1.5}
-                dot={false}
-                name="wake"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-          <p className="mt-1 text-xs text-neutral-600">
-            Flat lines = consistent circadian rhythm; the vertical gap is your
-            time in bed.
-          </p>
-        </Card>
-      )}
-
-      {weekdays.length > 1 && (
-        <Card title="Recovery by weekday" subtitle="average recovery score per day">
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart
-              data={weekdays}
-              margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
-            >
-              <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="day" {...axisProps()} />
-              <YAxis width={40} domain={[0, 100]} {...axisProps()} />
-              <Tooltip
-                contentStyle={tooltipStyle}
-                labelStyle={{ color: '#d4d4d4' }}
-                formatter={(value, _name, item) => [
-                  `${value}% avg over ${(item?.payload as { nights?: number })?.nights ?? '?'} nights`,
-                  'recovery',
-                ]}
-              />
-              <Bar
-                dataKey="avg"
-                fill="#2dd4bf"
-                name="recovery"
-                radius={[2, 2, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-      )}
     </div>
   )
 }

@@ -223,6 +223,7 @@ export function IntervalSession({
   const doneElapsedRef = useRef(0)
 
   const sections = draft.sections
+  const stopwatch = sections.length === 0
   const total = useMemo(() => totalSec(sections), [sections])
   const cumEnd = useMemo(() => {
     let acc = 0
@@ -243,7 +244,7 @@ export function IntervalSession({
     : now - draft.startEpoch + draft.skipOffsetMs
   const elapsedSec = elapsedMs / 1000
   const idx = cumEnd.findIndex((end) => elapsedSec < end)
-  const finished = idx === -1
+  const finished = !stopwatch && idx === -1
   const current = (finished ? sections[sections.length - 1] : sections[idx]) ?? {
     label: 'Work',
     durationSec: 1,
@@ -252,6 +253,7 @@ export function IntervalSession({
   const next = finished || idx === sections.length - 1 ? null : sections[idx + 1]
 
   useEffect(() => {
+    if (stopwatch) return
     if (phase !== 'run') return
     if (!finished && idx !== lastIdxRef.current) {
       lastIdxRef.current = idx
@@ -306,7 +308,7 @@ export function IntervalSession({
       title: title || undefined,
       weightUnit: 'lb',
       exercises: drills,
-      intervals: sections,
+      ...(sections.length > 0 && { intervals: sections }),
       durationMin: Math.max(1, Math.round(durMs / 60_000)),
       distanceM: miles ? Math.round(Number(miles) * MILE) : undefined,
       notes: notes || undefined,
@@ -414,38 +416,57 @@ export function IntervalSession({
             ⌄ Minimize
           </button>
         </div>
-        <span className="font-mono text-sm tabular-nums text-neutral-400">
-          {fmtSec(Math.min(elapsedSec, total))} / {fmtSec(total)}
-        </span>
-        <span className="text-xs tabular-nums text-neutral-600">
-          {idx + 1}/{sections.length}
-        </span>
+        {stopwatch ? (
+          <span className="font-mono text-sm tabular-nums text-neutral-400">
+            {fmtSec(elapsedSec)}
+          </span>
+        ) : (
+          <span className="font-mono text-sm tabular-nums text-neutral-400">
+            {fmtSec(Math.min(elapsedSec, total))} / {fmtSec(total)}
+          </span>
+        )}
+        {!stopwatch && (
+          <span className="text-xs tabular-nums text-neutral-600">
+            {idx + 1}/{sections.length}
+          </span>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center gap-5">
-        <span
-          className={`rounded-full px-4 py-1.5 text-sm font-semibold uppercase tracking-widest ${tone.pill}`}
-        >
-          {current.label}
-        </span>
-        <p
-          className={`font-mono text-[5.5rem] leading-none tabular-nums sm:text-[7rem] ${tone.text}`}
-        >
-          {fmtSec(Math.ceil(remaining))}
-        </p>
-        <div className="h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-neutral-800">
-          <div
-            className={`h-full transition-[width] duration-200 ${tone.bar}`}
-            style={{
-              width: `${Math.min(100, (1 - remaining / current.durationSec) * 100)}%`,
-            }}
-          />
-        </div>
-        <p className="text-sm text-neutral-500">
-          {next
-            ? `Next · ${next.label} ${fmtSec(next.durationSec)}`
-            : 'Final section'}
-        </p>
+        {stopwatch ? (
+          <>
+            <p className="font-mono text-[5.5rem] leading-none tabular-nums text-sky-300 sm:text-[7rem]">
+              {fmtSec(elapsedSec)}
+            </p>
+            <p className="text-sm text-neutral-500">elapsed</p>
+          </>
+        ) : (
+          <>
+            <span
+              className={`rounded-full px-4 py-1.5 text-sm font-semibold uppercase tracking-widest ${tone.pill}`}
+            >
+              {current.label}
+            </span>
+            <p
+              className={`font-mono text-[5.5rem] leading-none tabular-nums sm:text-[7rem] ${tone.text}`}
+            >
+              {fmtSec(Math.ceil(remaining))}
+            </p>
+            <div className="h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-neutral-800">
+              <div
+                className={`h-full transition-[width] duration-200 ${tone.bar}`}
+                style={{
+                  width: `${Math.min(100, (1 - remaining / current.durationSec) * 100)}%`,
+                }}
+              />
+            </div>
+            <p className="text-sm text-neutral-500">
+              {next
+                ? `Next · ${next.label} ${fmtSec(next.durationSec)}`
+                : 'Final section'}
+            </p>
+          </>
+        )}
         {draft.paused && (
           <p className="text-xs uppercase tracking-widest text-amber-400">
             paused
@@ -460,12 +481,14 @@ export function IntervalSession({
         >
           {draft.paused ? 'Resume' : 'Pause'}
         </button>
-        <button
-          onClick={skip}
-          className="rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-neutral-500"
-        >
-          Skip
-        </button>
+        {!stopwatch && (
+          <button
+            onClick={skip}
+            className="rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-neutral-500"
+          >
+            Skip
+          </button>
+        )}
         <button
           onClick={endEarly}
           className="px-2 text-sm text-red-400/80 hover:text-red-400"
