@@ -61,6 +61,23 @@ export function restoreSession(): Promise<CognitoUserSession | null> {
   })
 }
 
+export function getFreshToken(): Promise<string | null> {
+  let user: CognitoUser | null
+  try {
+    user = pool().getCurrentUser()
+  } catch {
+    return Promise.resolve(null) // unconfigured pool ids
+  }
+  if (!user) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    // getSession transparently refreshes an expired access token from the
+    // refresh token when the network allows; offline it errors -> null.
+    user.getSession((err: Error | null, session: CognitoUserSession | null) => {
+      resolve(err || !session ? null : session.getAccessToken().getJwtToken())
+    })
+  })
+}
+
 export function signOut(): void {
   pool().getCurrentUser()?.signOut()
 }

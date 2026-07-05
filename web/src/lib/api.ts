@@ -3,14 +3,23 @@ export interface Api {
   send: (method: 'POST' | 'DELETE', path: string, body?: unknown) => Promise<Response>
 }
 
-export function makeApi(token: string): Api {
+export function makeApi(getToken: () => Promise<string | null>): Api {
+  // Refresh per request: a token captured at app start expires mid-session,
+  // so the queued save would POST with a dead token. getToken() returns a
+  // fresh one; when it's null (offline — refresh needs network) fall back to
+  // the last known token so the request still fails with a retryable network
+  // error rather than never firing.
+  let lastToken: string | null = null
   // Not `Authorization`: CloudFront's OAC signing overwrites that header
-  const auth = { 'x-authorization': `Bearer ${token}` }
+  const authHeader = async (): Promise<Record<string, string>> => {
+    lastToken = (await getToken()) ?? lastToken
+    return { 'x-authorization': `Bearer ${lastToken}` }
+  }
   return {
-    get: (path) => fetch(path, { headers: auth }),
+    get: async (path) => fetch(path, { headers: await authHeader() }),
     send: async (method, path, body) => {
       const payload = body === undefined ? '' : JSON.stringify(body)
-      const headers: Record<string, string> = { ...auth }
+      const headers: Record<string, string> = { ...(await authHeader()) }
       if (payload) {
         headers['content-type'] = 'application/json'
         // OAC-signed origins reject bodied requests without the payload hash

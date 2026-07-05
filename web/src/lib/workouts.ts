@@ -143,8 +143,9 @@ export function saveTimerDraft(draft: TimerDraft | null): void {
 }
 
 // ---- offline write queue ----
-// Saves land here first; flush pushes them to the API and drops entries the
-// server permanently rejects (4xx = client bug, retrying forever won't help).
+// Saves land here first; flush pushes them to the API and drops only entries
+// the server can never accept (400/422 = malformed payload). Auth-expiry and
+// transient statuses stay queued so a stale token never eats a workout.
 
 const PENDING_KEY = 'fit.pendingWorkouts'
 const CACHE_KEY = 'fit.workoutsCache'
@@ -176,10 +177,13 @@ export async function flushQueue(
   for (const workout of pending) {
     try {
       const res = await api.send('POST', '/api/workouts', workout)
-      if (res.ok || (res.status >= 400 && res.status < 500)) {
+      // Drop only on hard validation errors — a malformed payload will never
+      // succeed. Keep everything else queued: 401/403 (token to refresh),
+      // 404/408/429 and 5xx (transient) all deserve a later retry.
+      if (res.ok || res.status === 400 || res.status === 422) {
         flushed += res.ok ? 1 : 0
       } else {
-        remaining.push(workout) // 5xx — try again later
+        remaining.push(workout) // retryable — try again later
       }
     } catch {
       remaining.push(workout) // offline
