@@ -912,8 +912,17 @@ export function Workouts({ api }: { api: Api }) {
       ])
       if (wRes.ok) {
         const body = await wRes.json()
-        setWorkouts(body.workouts)
-        saveWorkoutCache(body.workouts)
+        // Overlay the unsynced queue so a workout mid-flush can never vanish
+        // from the timeline when the server list (which lacks it) comes back.
+        const pending = loadPending()
+        const merged = [
+          ...pending,
+          ...body.workouts.filter(
+            (w: Workout) => !pending.some((p) => p.id === w.id),
+          ),
+        ].sort((a, b) => b.start.localeCompare(a.start))
+        setWorkouts(merged)
+        saveWorkoutCache(merged)
       }
       if (sRes.ok) setSessions((await sRes.json()).sessions)
       if (tRes.ok) {

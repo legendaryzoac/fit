@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { restoreSession, signOut } from './auth'
+import { getFreshToken, restoreSession, signOut } from './auth'
 import { AppShell } from './components/AppShell'
 import { LoginCard, NewPasswordCard, type AuthState } from './components/Auth'
 import { Shell } from './components/ui'
@@ -22,7 +22,7 @@ export default function App() {
 
   const api = useMemo(() => {
     if (auth.phase === 'signed-in') {
-      return makeApi(auth.session.getAccessToken().getJwtToken())
+      return makeApi(getFreshToken)
     }
     if (auth.phase === 'demo') return auth.api
     return null
