@@ -315,6 +315,7 @@ function generate(): DemoStore {
       status: 'active',
       lastSyncAt: new Date(now - 2 * 3_600_000).toISOString(),
       backfillDone: true,
+      bodyWeightLb: 181,
     },
   }
   return store

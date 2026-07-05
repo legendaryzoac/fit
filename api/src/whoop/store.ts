@@ -20,6 +20,7 @@ export interface WhoopConnection extends WhoopTokens {
   lastSyncAt?: string
   backfillDone?: boolean
   lastSyncCounts?: Record<string, number>
+  bodyWeightKg?: number
 }
 
 const connectionKey = (userId: string) => ({

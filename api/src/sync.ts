@@ -51,6 +51,13 @@ async function syncUser(
   if (!creds) throw new Error('WHOOP credentials not configured')
 
   const accessToken = await getFreshAccessToken(creds, userId, connection)
+
+  let bodyWeightKg: number | undefined
+  try {
+    const body = await whoopGet('/v2/user/measurement/body', accessToken)
+    if (typeof body?.weight_kilogram === 'number') bodyWeightKg = body.weight_kilogram
+  } catch { /* measurement is optional — never fail a sync over it */ }
+
   const start = opts.days
     ? new Date(Date.now() - opts.days * 86_400_000).toISOString()
     : undefined
@@ -85,6 +92,7 @@ async function syncUser(
     lastSyncAt: new Date().toISOString(),
     lastSyncCounts: counts,
     ...(opts.backfill && { backfillDone: true }),
+    ...(bodyWeightKg !== undefined && { bodyWeightKg }),
   })
   console.log(`synced ${userId}`, JSON.stringify(counts))
 }

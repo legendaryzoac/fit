@@ -4,6 +4,7 @@ import {
   EXERCISES,
   MUSCLE_GROUPS,
   SPEED_DRILLS,
+  isBodyweight,
   loadCustomExercises,
   makeMuscleLookup,
   saveCustomExercises,
@@ -128,6 +129,7 @@ function ActiveWorkout({
   history,
   customs,
   lookup,
+  bodyWeightLb,
   onSaveCustom,
   onFinish,
   onCancel,
@@ -139,6 +141,7 @@ function ActiveWorkout({
   history: Workout[]
   customs: CustomExercise[]
   lookup: (name: string) => string | undefined
+  bodyWeightLb?: number
   onSaveCustom: (name: string, muscle: string) => void
   onFinish: (w: Workout) => void
   onCancel: () => void
@@ -149,6 +152,10 @@ function ActiveWorkout({
   const [exerciseName, setExerciseName] = useState('')
   const [newMuscle, setNewMuscle] = useState<string>('other')
   const [now, setNow] = useState(Date.now())
+
+  // Bodyweight moves default to the athlete's WHOOP-measured mass (whole lb).
+  const roundedBodyWeight =
+    bodyWeightLb !== undefined ? Math.round(bodyWeightLb) : undefined
 
   // Drag-to-reorder: exercise cards move as the handle crosses a neighbour's
   // midpoint. Refs to the card elements let us read live positions on the fly.
@@ -234,9 +241,13 @@ function ActiveWorkout({
       return
     }
     // Checking an empty row adopts last time's numbers — RP-style "same again"
+    const exerciseName = w.exercises[ei].name
     patchSet(ei, si, {
       done: true,
-      weight: current.weight ?? prev?.weight,
+      weight:
+        current.weight ??
+        prev?.weight ??
+        (isBodyweight(exerciseName) ? roundedBodyWeight : undefined),
       reps: current.reps ?? prev?.reps,
       durationSec: current.durationSec ?? prev?.durationSec,
       distanceM: current.distanceM ?? prev?.distanceM,
@@ -412,6 +423,7 @@ function ActiveWorkout({
       {w.exercises.map((e, ei) => {
         const prev = prevSetsFor(e.name)
         const muscle = lookup(e.name)
+        const bw = w.kind !== 'speed' && isBodyweight(e.name)
         return (
           <div
             key={ei}
@@ -430,6 +442,11 @@ function ActiveWorkout({
                 {muscle && (
                   <span className="ml-2 text-[11px] font-normal uppercase tracking-wide text-neutral-600">
                     {muscle}
+                  </span>
+                )}
+                {bw && (
+                  <span className="ml-2 text-[10px] uppercase tracking-wide text-neutral-600">
+                    BW
                   </span>
                 )}
               </p>
@@ -531,7 +548,11 @@ function ActiveWorkout({
                         type="number"
                         inputMode="decimal"
                         placeholder={
-                          ghost?.weight != null ? String(ghost.weight) : ''
+                          ghost?.weight != null
+                            ? String(ghost.weight)
+                            : bw && roundedBodyWeight !== undefined
+                              ? String(roundedBodyWeight)
+                              : ''
                         }
                         value={s.weight ?? ''}
                         onChange={(ev) =>
@@ -902,6 +923,7 @@ export function Workouts({ api }: { api: Api }) {
   const [customs, setCustoms] = useState<CustomExercise[]>(loadCustomExercises)
   const muscleLookup = useMemo(() => makeMuscleLookup(customs), [customs])
   const [pendingCount, setPendingCount] = useState(() => loadPending().length)
+  const [bodyWeightLb, setBodyWeightLb] = useState<number | undefined>(undefined)
   const [offline, setOffline] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(15)
@@ -915,11 +937,12 @@ export function Workouts({ api }: { api: Api }) {
 
   async function refresh() {
     try {
-      const [wRes, sRes, tRes, eRes] = await Promise.all([
+      const [wRes, sRes, tRes, eRes, meRes] = await Promise.all([
         api.get('/api/workouts?days=365'),
         api.get('/api/sessions?days=365'),
         api.get('/api/templates'),
         api.get('/api/exercises'),
+        api.get('/api/me'),
       ])
       if (wRes.ok) {
         const body = await wRes.json()
@@ -945,6 +968,10 @@ export function Workouts({ api }: { api: Api }) {
         const body = await eRes.json()
         setCustoms(body.exercises)
         saveCustomExercises(body.exercises)
+      }
+      if (meRes.ok) {
+        const body = await meRes.json()
+        setBodyWeightLb(body?.whoop?.bodyWeightLb)
       }
       setOffline(false)
     } catch {
@@ -1106,6 +1133,7 @@ export function Workouts({ api }: { api: Api }) {
         history={workouts}
         customs={customs}
         lookup={muscleLookup}
+        bodyWeightLb={bodyWeightLb}
         onSaveCustom={saveCustomExercise}
         onFinish={(w) =>
           finish(

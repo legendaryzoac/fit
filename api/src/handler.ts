@@ -58,6 +58,10 @@ async function getMe(userId: string): Promise<LambdaFunctionURLResult> {
           status: connection.status,
           lastSyncAt: connection.lastSyncAt ?? null,
           backfillDone: connection.backfillDone ?? false,
+          bodyWeightLb:
+            typeof connection.bodyWeightKg === 'number'
+              ? Math.round(connection.bodyWeightKg * 2.20462 * 10) / 10
+              : undefined,
         }
       : { connected: false },
   })
