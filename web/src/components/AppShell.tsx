@@ -1,6 +1,12 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import type { Api } from '../lib/api'
+import {
+  isInSession,
+  requestResume,
+  subscribeInSession,
+} from '../lib/sessionBus'
 import { storageKey } from '../lib/storage'
+import { loadDraft, loadTimerDraft } from '../lib/workouts'
 import { Workouts } from './Workouts'
 import { PulseMark } from './ui'
 
@@ -27,6 +33,23 @@ export function AppShell({
 }) {
   const [tabChoice, setTabChoice] = useState<Tab | null>(null)
   const [connected, setConnected] = useState<boolean | null>(null)
+  const [inSession, setInSession] = useState(false)
+  const [liveKind, setLiveKind] = useState<'strength' | 'timer' | null>(null)
+
+  // The resume bar shows whenever a draft is parked but no session is on screen.
+  // Bus subscription flips the moment a session opens/closes; the poll catches
+  // draft changes (finish/discard) that happen inside the Workouts subtree.
+  useEffect(() => subscribeInSession(() => setInSession(isInSession())), [])
+
+  useEffect(() => {
+    const check = () =>
+      setLiveKind(
+        loadTimerDraft() ? 'timer' : loadDraft() ? 'strength' : null,
+      )
+    check()
+    const t = setInterval(check, 1000)
+    return () => clearInterval(t)
+  }, [])
 
   // Land device-less users on the tab that actually has content for them
   useEffect(() => {
@@ -111,6 +134,28 @@ export function AppShell({
           </a>
         </p>
       </main>
+
+      {liveKind && !inSession && (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-800/80 bg-neutral-950/95 backdrop-blur">
+          <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-2.5">
+            <span className="text-sm text-neutral-200">
+              <span className="animate-pulse text-teal-400">● </span>
+              {liveKind === 'strength'
+                ? 'Live strength session'
+                : 'Live timer session'}
+            </span>
+            <button
+              onClick={() => {
+                setTab('training')
+                requestResume()
+              }}
+              className="rounded-lg bg-teal-500 px-4 py-1.5 text-sm font-medium text-neutral-950 hover:bg-teal-400"
+            >
+              Resume
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

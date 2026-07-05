@@ -38,6 +38,7 @@ import {
   type WorkoutKind,
   type WorkoutSet,
 } from '../lib/workouts'
+import { onResume, setInSession } from '../lib/sessionBus'
 import { IntervalSession } from './IntervalTimer'
 import { Manage } from './Manage'
 import { PlanFields, TemplateBuilder } from './TemplateBuilder'
@@ -130,6 +131,7 @@ function ActiveWorkout({
   onSaveCustom,
   onFinish,
   onCancel,
+  onMinimize,
   onDelete,
 }: {
   initial: Workout
@@ -140,6 +142,7 @@ function ActiveWorkout({
   onSaveCustom: (name: string, muscle: string) => void
   onFinish: (w: Workout) => void
   onCancel: () => void
+  onMinimize: () => void
   onDelete?: (w: Workout) => void
 }) {
   const [w, setW] = useState<Workout>(initial)
@@ -336,12 +339,12 @@ function ActiveWorkout({
 
   return (
     <div className="flex flex-col gap-4 pb-24">
-      <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
         <button
-          onClick={onCancel}
+          onClick={isNew ? onMinimize : onCancel}
           className="text-sm text-neutral-500 hover:text-neutral-300"
         >
-          ← Back
+          {isNew ? '⌄ Minimize' : '← Back'}
         </button>
         {isNew && (
           <span className="font-mono text-sm tabular-nums text-teal-300">
@@ -647,6 +650,14 @@ function ActiveWorkout({
           >
             {isNew ? 'Finish workout' : 'Save changes'}
           </button>
+          {isNew && (
+            <button
+              onClick={onCancel}
+              className="text-sm text-red-400/80 hover:text-red-400"
+            >
+              Discard
+            </button>
+          )}
           {onDelete && (
             <button
               onClick={() => onDelete(w)}
@@ -959,6 +970,25 @@ export function Workouts({ api }: { api: Api }) {
     setVisibleCount(15)
   }, [segment])
 
+  // Keep the session bus in sync so the resume bar knows when we're live
+  useEffect(() => {
+    setInSession(mode.m === 'strength' || mode.m === 'timer')
+    return () => setInSession(false)
+  }, [mode])
+
+  // Resume from the persistent bar while already mounted: re-enter the draft
+  useEffect(() => {
+    return onResume(() => {
+      const timer = loadTimerDraft()
+      if (timer) {
+        setMode({ m: 'timer', draft: timer })
+        return
+      }
+      const draft = loadDraft()
+      if (draft) setMode({ m: 'strength', workout: draft, isNew: true })
+    })
+  }, [])
+
   function finish(raw: Workout) {
     const w = finalizeWorkout(raw)
     enqueue(w)
@@ -1087,6 +1117,7 @@ export function Workouts({ api }: { api: Api }) {
           )
         }
         onCancel={() => cancelStrength(mode.workout, mode.isNew)}
+        onMinimize={() => setMode({ m: 'list' })}
         onDelete={mode.isNew ? undefined : remove}
       />
     )
@@ -1099,6 +1130,7 @@ export function Workouts({ api }: { api: Api }) {
         sessions={sessions}
         onSave={finish}
         onCancel={() => setMode({ m: 'list' })}
+        onMinimize={() => setMode({ m: 'list' })}
       />
     )
   }

@@ -203,11 +203,13 @@ export function IntervalSession({
   sessions,
   onSave,
   onCancel,
+  onMinimize,
 }: {
   initial: TimerDraft
   sessions: SessionRecord[]
   onSave: (w: Workout) => void
   onCancel: () => void
+  onMinimize: () => void
 }) {
   const [draft, setDraft] = useState<TimerDraft>(initial)
   const [now, setNow] = useState(Date.now())
@@ -394,16 +396,24 @@ export function IntervalSession({
   const tone = TONE[sectionTone(current.label)]
   return (
     <div className="flex min-h-[78dvh] flex-col">
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => {
-            saveTimerDraft(null)
-            onCancel()
-          }}
-          className="text-sm text-neutral-500 hover:text-neutral-300"
-        >
-          ✕ Cancel
-        </button>
+      <div className="sticky top-0 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => {
+              saveTimerDraft(null)
+              onCancel()
+            }}
+            className="text-sm text-neutral-500 hover:text-neutral-300"
+          >
+            ✕ Cancel
+          </button>
+          <button
+            onClick={onMinimize}
+            className="text-sm text-neutral-500 hover:text-neutral-300"
+          >
+            ⌄ Minimize
+          </button>
+        </div>
         <span className="font-mono text-sm tabular-nums text-neutral-400">
           {fmtSec(Math.min(elapsedSec, total))} / {fmtSec(total)}
         </span>
