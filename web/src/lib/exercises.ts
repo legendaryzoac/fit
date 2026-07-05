@@ -85,6 +85,26 @@ export const EXERCISES: Array<{ name: string; muscle: string }> = [
   { name: 'Turkish get-up', muscle: 'full body' },
 ]
 
+/** Exercises loaded by the athlete's own body weight — default the weight
+ * field to their WHOOP-measured mass so 1RM and volume math stay honest. */
+export const BODYWEIGHT_EXERCISES = new Set([
+  'Pull-up',
+  'Chin-up',
+  'Dips',
+  'Push-up',
+  'Hanging leg raise',
+  'Nordic curl',
+  'Ab wheel',
+  'Plank',
+])
+
+export function isBodyweight(name: string): boolean {
+  for (const n of BODYWEIGHT_EXERCISES) {
+    if (n.toLowerCase() === name.trim().toLowerCase()) return true
+  }
+  return false
+}
+
 /** Options offered when the user names an exercise we don't know. */
 export const MUSCLE_GROUPS = [
   'chest',
