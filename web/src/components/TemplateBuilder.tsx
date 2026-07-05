@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { Api } from '../lib/api'
 import {
   EXERCISES,
@@ -101,6 +101,20 @@ export function TemplateBuilder({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Drag-to-reorder: exercise rows move as the handle crosses a neighbour's
+  // midpoint. Refs to the row elements let us read live positions on the fly.
+  // The live drag position lives in a ref (not just state) so the move logic
+  // stays out of state updaters — React double-invokes those in StrictMode,
+  // which would swap twice and cancel the reorder.
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([])
+  const dragFrom = useRef<number | null>(null)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+
+  // Sets-count inputs hold a transient string while focused so the user can
+  // clear the field and retype without it snapping back to 1; the committed
+  // number is only parsed and clamped on blur.
+  const [draftCounts, setDraftCounts] = useState<Record<number, string>>({})
+
   const lookup = useMemo(() => makeMuscleLookup(customs), [customs])
 
   const names = useMemo(() => {
@@ -120,6 +134,82 @@ export function TemplateBuilder({
     setExercises([...exercises, { name: trimmed, setCount: 3 }])
     setExName('')
     setNewMuscle('other')
+  }
+
+  function moveExercise(from: number, to: number) {
+    if (from === to) return
+    setExercises((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+
+  function onHandlePointerDown(ei: number, ev: React.PointerEvent) {
+    ev.preventDefault()
+    try {
+      // Capture keeps move events flowing to the handle once the finger
+      // wanders off it; if capture is unavailable the drag still works
+      // while the pointer stays over the handle.
+      ev.currentTarget.setPointerCapture(ev.pointerId)
+    } catch {
+      /* no active pointer (synthetic events, exotic devices) */
+    }
+    dragFrom.current = ei
+    setDragIndex(ei)
+  }
+
+  function onHandlePointerMove(ev: React.PointerEvent) {
+    const from = dragFrom.current
+    if (from === null) return
+    // Swap once the pointer clears the midpoint of an adjacent row.
+    const prev = rowRefs.current[from - 1]
+    if (prev) {
+      const r = prev.getBoundingClientRect()
+      if (ev.clientY < r.top + r.height / 2) {
+        moveExercise(from, from - 1)
+        dragFrom.current = from - 1
+        setDragIndex(from - 1)
+        return
+      }
+    }
+    const next = rowRefs.current[from + 1]
+    if (next) {
+      const r = next.getBoundingClientRect()
+      if (ev.clientY > r.top + r.height / 2) {
+        moveExercise(from, from + 1)
+        dragFrom.current = from + 1
+        setDragIndex(from + 1)
+      }
+    }
+  }
+
+  function onHandlePointerUp(ev: React.PointerEvent) {
+    try {
+      ev.currentTarget.releasePointerCapture(ev.pointerId)
+    } catch {
+      /* capture may never have been acquired */
+    }
+    dragFrom.current = null
+    setDragIndex(null)
+  }
+
+  function commitSetCount(i: number, raw: string) {
+    const parsed = Math.round(Number(raw))
+    const fallback = exercises[i]?.setCount ?? 1
+    const clamped =
+      raw.trim() !== '' && Number.isFinite(parsed)
+        ? Math.max(1, Math.min(30, parsed))
+        : fallback
+    setExercises(
+      exercises.map((x, j) => (j === i ? { ...x, setCount: clamped } : x)),
+    )
+    setDraftCounts((prev) => {
+      const next = { ...prev }
+      delete next[i]
+      return next
+    })
   }
 
   async function save() {
@@ -196,7 +286,27 @@ export function TemplateBuilder({
       {kind === 'strength' ? (
         <>
           {exercises.map((e, i) => (
-            <div key={i} className="flex items-center gap-2">
+            <div
+              key={i}
+              ref={(el) => {
+                rowRefs.current[i] = el
+              }}
+              className={`flex items-center gap-2 rounded-lg border p-1 ${
+                dragIndex === i
+                  ? 'border-teal-500 opacity-60'
+                  : 'border-transparent'
+              }`}
+            >
+              <button
+                onPointerDown={(ev) => onHandlePointerDown(i, ev)}
+                onPointerMove={onHandlePointerMove}
+                onPointerUp={onHandlePointerUp}
+                onPointerCancel={onHandlePointerUp}
+                aria-label={`reorder ${e.name}`}
+                className="touch-none cursor-grab select-none px-1 text-base leading-none text-neutral-600 hover:text-neutral-300"
+              >
+                ≡
+              </button>
               <span className="flex-1 truncate text-sm text-neutral-200">
                 {e.name}
               </span>
@@ -208,22 +318,14 @@ export function TemplateBuilder({
                   inputMode="numeric"
                   min={1}
                   max={30}
-                  value={e.setCount}
+                  value={draftCounts[i] ?? e.setCount}
                   onChange={(ev) =>
-                    setExercises(
-                      exercises.map((x, j) =>
-                        j === i
-                          ? {
-                              ...x,
-                              setCount: Math.max(
-                                1,
-                                Math.min(30, Math.round(Number(ev.target.value)) || 1),
-                              ),
-                            }
-                          : x,
-                      ),
-                    )
+                    setDraftCounts((prev) => ({ ...prev, [i]: ev.target.value }))
                   }
+                  onBlur={(ev) => commitSetCount(i, ev.target.value)}
+                  onKeyDown={(ev) => {
+                    if (ev.key === 'Enter') ev.currentTarget.blur()
+                  }}
                 />
               </label>
               <button
