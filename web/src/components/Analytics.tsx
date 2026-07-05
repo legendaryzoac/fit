@@ -29,6 +29,7 @@ import type { Api } from '../lib/api'
 import { makeMuscleLookup, type CustomExercise } from '../lib/exercises'
 import type { Metrics } from '../lib/metrics'
 import type { SessionRecord, Workout } from '../lib/workouts'
+import { LiveHR } from './LiveHR'
 import { Card } from './ui'
 
 const tickStyle = { fill: '#737373', fontSize: 11 }
@@ -582,6 +583,8 @@ export function Analytics({
           </p>
         </Card>
       )}
+
+      <LiveHR />
 
       {bedtimes.length > 1 && (
         <Card title="Bedtime consistency" subtitle="bed and wake times per night">
