@@ -354,7 +354,7 @@ function ActiveWorkout({
   const totalCount = w.exercises.reduce((n, e) => n + e.sets.length, 0)
 
   return (
-    <div className="flex flex-col gap-4 pb-24">
+    <div className="-mt-4 flex flex-col gap-4 pb-24">
       {/* top-16 tucks under the sticky app header */}
       <div className="sticky top-16 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
         <button

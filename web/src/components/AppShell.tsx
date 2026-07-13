@@ -123,7 +123,9 @@ export function AppShell({
         </p>
       )}
 
-      <main className="mx-auto flex max-w-3xl flex-col gap-4 px-4 pb-16">
+      {/* pt-4 keeps page content off the sticky header's border; session
+          screens pull their full-bleed timer bars back up with -mt-4 */}
+      <main className="mx-auto flex max-w-3xl flex-col gap-4 px-4 pb-16 pt-4">
         <Suspense
           fallback={
             <p className="py-12 text-center text-sm text-neutral-600">

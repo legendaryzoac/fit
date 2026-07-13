@@ -411,7 +411,7 @@ export function IntervalSession({
 
   const tone = TONE[sectionTone(current.label)]
   return (
-    <div className="flex min-h-[78dvh] flex-col">
+    <div className="-mt-4 flex min-h-[78dvh] flex-col">
       {/* top-16 tucks under the sticky app header */}
       <div className="sticky top-16 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-4">
