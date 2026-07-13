@@ -126,6 +126,49 @@ export interface TimerDraft {
   pausedElapsedMs: number
 }
 
+/**
+ * Where a running timer draft stands at a wall-clock instant. Mirrors the
+ * math inside IntervalSession so the resume bar and the lock-screen widget
+ * tick in lockstep with the on-screen countdown.
+ */
+export interface TimerSnapshot {
+  elapsedMs: number
+  /** No sections — cardio stopwatch counting up. */
+  stopwatch: boolean
+  /** All sections exhausted (never true for a stopwatch). */
+  finished: boolean
+  /** Current section index, clamped to the last section once finished. */
+  index: number
+  section: IntervalSection | null
+  next: IntervalSection | null
+  /** Seconds left in the current section (0 once finished). */
+  remainingSec: number
+  totalSec: number
+}
+
+export function timerSnapshot(draft: TimerDraft, nowMs: number): TimerSnapshot {
+  const elapsedMs = draft.paused
+    ? draft.pausedElapsedMs
+    : nowMs - draft.startEpoch + draft.skipOffsetMs
+  const elapsedSec = elapsedMs / 1000
+  let acc = 0
+  const cumEnd = draft.sections.map((s) => (acc += s.durationSec))
+  const stopwatch = draft.sections.length === 0
+  const idx = cumEnd.findIndex((end) => elapsedSec < end)
+  const finished = !stopwatch && idx === -1
+  const index = finished ? draft.sections.length - 1 : Math.max(idx, 0)
+  return {
+    elapsedMs,
+    stopwatch,
+    finished,
+    index,
+    section: draft.sections[index] ?? null,
+    next: finished ? null : (draft.sections[index + 1] ?? null),
+    remainingSec: finished || stopwatch ? 0 : cumEnd[index] - elapsedSec,
+    totalSec: acc,
+  }
+}
+
 const TIMER_KEY = 'fit.activeTimerDraft'
 
 export function loadTimerDraft(): TimerDraft | null {

@@ -39,8 +39,10 @@ import {
   type WorkoutKind,
   type WorkoutSet,
 } from '../lib/workouts'
+import { autoStartLockScreen } from '../lib/lockScreen'
 import { onResume, setInSession } from '../lib/sessionBus'
 import { IntervalSession } from './IntervalTimer'
+import { LockScreenToggle } from './LockScreenToggle'
 import { Manage } from './Manage'
 import { PlanFields, TemplateBuilder } from './TemplateBuilder'
 import { buttonClass, Card, inputClass } from './ui'
@@ -62,6 +64,9 @@ const secondaryButton =
 
 const YD = 0.9144
 const MILE = 1609.34
+
+/** Long histories render in pages — keeps the list DOM small offline too. */
+const PAGE = 20
 
 const KIND_STYLE: Record<WorkoutKind, string> = {
   strength: 'bg-teal-500/15 text-teal-300',
@@ -350,7 +355,8 @@ function ActiveWorkout({
 
   return (
     <div className="flex flex-col gap-4 pb-24">
-      <div className="sticky top-0 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
+      {/* top-16 tucks under the sticky app header */}
+      <div className="sticky top-16 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
         <button
           onClick={isNew ? onMinimize : onCancel}
           className="text-sm text-neutral-500 hover:text-neutral-300"
@@ -368,6 +374,8 @@ function ActiveWorkout({
           </span>
         )}
       </div>
+
+      {isNew && <LockScreenToggle className="-mt-2 flex justify-end" />}
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
@@ -933,7 +941,7 @@ export function Workouts({ api }: { api: Api }) {
   const [bodyWeightLb, setBodyWeightLb] = useState<number | undefined>(undefined)
   const [offline, setOffline] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [visibleCount, setVisibleCount] = useState(15)
+  const [visibleCount, setVisibleCount] = useState(PAGE)
   const [mode, setMode] = useState<Mode>(() => {
     const timer = loadTimerDraft()
     if (timer) return { m: 'timer', draft: timer }
@@ -1001,7 +1009,7 @@ export function Workouts({ api }: { api: Api }) {
   }, [api])
 
   useEffect(() => {
-    setVisibleCount(15)
+    setVisibleCount(PAGE)
   }, [segment])
 
   // Keep the session bus in sync so the resume bar knows when we're live
@@ -1098,6 +1106,8 @@ export function Workouts({ api }: { api: Api }) {
         sets: Array.from({ length: e.setCount }, () => ({})),
       }))
     }
+    // Still on the start click's call stack — autoplay needs the gesture
+    autoStartLockScreen()
     setMode({ m: 'strength', workout: w, isNew: true })
   }
 
@@ -1116,6 +1126,7 @@ export function Workouts({ api }: { api: Api }) {
       pausedElapsedMs: 0,
     }
     saveTimerDraft(draft)
+    autoStartLockScreen()
     setMode({ m: 'timer', draft })
   }
 
@@ -1305,7 +1316,7 @@ export function Workouts({ api }: { api: Api }) {
               Nothing logged yet — hit “Start workout” at the gym.
             </p>
           )}
-          {workouts.map((w) => (
+          {workouts.slice(0, visibleCount).map((w) => (
             <WorkoutCard
               key={w.id}
               workout={w}
@@ -1329,6 +1340,20 @@ export function Workouts({ api }: { api: Api }) {
               }
             />
           ))}
+          {workouts.length > PAGE && (
+            <p className="text-xs text-neutral-600">
+              Showing {Math.min(visibleCount, workouts.length)} of{' '}
+              {workouts.length}
+            </p>
+          )}
+          {visibleCount < workouts.length && (
+            <button
+              onClick={() => setVisibleCount((n) => n + PAGE)}
+              className={`${secondaryButton} w-full`}
+            >
+              Show more
+            </button>
+          )}
         </div>
       )}
 
@@ -1368,7 +1393,7 @@ export function Workouts({ api }: { api: Api }) {
               )}
               {visibleCount < sorted.length && (
                 <button
-                  onClick={() => setVisibleCount((n) => n + 15)}
+                  onClick={() => setVisibleCount((n) => n + PAGE)}
                   className={`${secondaryButton} w-full`}
                 >
                   Show more

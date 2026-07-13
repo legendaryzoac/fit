@@ -1,12 +1,14 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import type { Api } from '../lib/api'
+import { maybeResumeLockScreen } from '../lib/lockScreen'
 import {
   isInSession,
   requestResume,
   subscribeInSession,
 } from '../lib/sessionBus'
 import { storageKey } from '../lib/storage'
-import { loadDraft, loadTimerDraft } from '../lib/workouts'
+import { fmtSec } from '../lib/templates'
+import { loadDraft, loadTimerDraft, timerSnapshot } from '../lib/workouts'
 import { Workouts } from './Workouts'
 import { PulseMark } from './ui'
 
@@ -42,10 +44,13 @@ export function AppShell({
   useEffect(() => subscribeInSession(() => setInSession(isInSession())), [])
 
   useEffect(() => {
-    const check = () =>
-      setLiveKind(
-        loadTimerDraft() ? 'timer' : loadDraft() ? 'strength' : null,
-      )
+    const check = () => {
+      const kind = loadTimerDraft() ? 'timer' : loadDraft() ? 'strength' : null
+      setLiveKind(kind)
+      // A reload mid-session lands here with a live draft but no gesture —
+      // let the lock-screen widget try to come back up if it was on.
+      if (kind) maybeResumeLockScreen()
+    }
     check()
     const t = setInterval(check, 1000)
     return () => clearInterval(t)
@@ -74,36 +79,40 @@ export function AppShell({
 
   return (
     <div className="min-h-dvh bg-neutral-950 text-neutral-100">
-      <header className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
-        <div className="flex items-center gap-3">
-          <PulseMark className="h-8 w-8" />
-          <nav className="flex gap-1">
-            {TABS.map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`rounded-full px-3 py-1 text-sm capitalize ${
-                  tab === t
-                    ? 'bg-neutral-800 text-neutral-100'
-                    : 'text-neutral-500 hover:text-neutral-300'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </nav>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-neutral-500">
-          {demo ? (
-            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-medium text-amber-300">
-              demo
-            </span>
-          ) : (
-            <span className="hidden sm:inline">{email}</span>
-          )}
-          <button onClick={onSignOut} className="hover:text-neutral-300">
-            {demo ? 'Exit demo' : 'Sign out'}
-          </button>
+      {/* Sticky so the tab nav stays reachable mid-workout — sessions render
+          their own sticky sub-header just below (top-16 offsets). */}
+      <header className="sticky top-0 z-40 border-b border-neutral-800/60 bg-neutral-950/95 backdrop-blur">
+        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
+          <div className="flex items-center gap-3">
+            <PulseMark className="h-8 w-8" />
+            <nav className="flex gap-1">
+              {TABS.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`rounded-full px-3 py-1 text-sm capitalize ${
+                    tab === t
+                      ? 'bg-neutral-800 text-neutral-100'
+                      : 'text-neutral-500 hover:text-neutral-300'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </nav>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-neutral-500">
+            {demo ? (
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-medium text-amber-300">
+                demo
+              </span>
+            ) : (
+              <span className="hidden sm:inline">{email}</span>
+            )}
+            <button onClick={onSignOut} className="hover:text-neutral-300">
+              {demo ? 'Exit demo' : 'Sign out'}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -136,26 +145,78 @@ export function AppShell({
       </main>
 
       {liveKind && !inSession && (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-800/80 bg-neutral-950/95 backdrop-blur">
-          <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-2.5">
-            <span className="text-sm text-neutral-200">
-              <span className="animate-pulse text-teal-400">● </span>
-              {liveKind === 'strength'
-                ? 'Live strength session'
-                : 'Live timer session'}
-            </span>
-            <button
-              onClick={() => {
-                setTab('training')
-                requestResume()
-              }}
-              className="rounded-lg bg-teal-500 px-4 py-1.5 text-sm font-medium text-neutral-950 hover:bg-teal-400"
-            >
-              Resume
-            </button>
-          </div>
-        </div>
+        <ResumeBar
+          kind={liveKind}
+          onResume={() => {
+            setTab('training')
+            requestResume()
+          }}
+        />
       )}
+    </div>
+  )
+}
+
+/**
+ * Bottom bar for a session that's live but off-screen. Owns its own
+ * once-a-second tick so the timer readout doesn't force the whole shell
+ * (and whichever tab is open) to re-render every second.
+ */
+function ResumeBar({
+  kind,
+  onResume,
+}: {
+  kind: 'strength' | 'timer'
+  onResume: () => void
+}) {
+  const [label, setLabel] = useState('')
+
+  useEffect(() => {
+    const update = () => {
+      if (kind === 'timer') {
+        const d = loadTimerDraft()
+        if (!d) return
+        const snap = timerSnapshot(d, Date.now())
+        if (snap.finished) {
+          setLabel('Timer done — save your session')
+        } else if (snap.stopwatch) {
+          setLabel(
+            `Live ${d.kind} timer · ${fmtSec(snap.elapsedMs / 1000)}` +
+              (d.paused ? ' · paused' : ''),
+          )
+        } else {
+          setLabel(
+            `${snap.section?.label ?? 'Work'} ${snap.index + 1}/${d.sections.length}` +
+              ` · ${fmtSec(Math.ceil(snap.remainingSec))} left` +
+              (d.paused ? ' · paused' : ''),
+          )
+        }
+      } else {
+        const d = loadDraft()
+        if (!d) return
+        const elapsed = (Date.now() - new Date(d.start).getTime()) / 1000
+        setLabel(`Live strength · ${fmtSec(elapsed)}`)
+      }
+    }
+    update()
+    const t = setInterval(update, 1000)
+    return () => clearInterval(t)
+  }, [kind])
+
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-800/80 bg-neutral-950/95 backdrop-blur">
+      <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-2.5">
+        <span className="min-w-0 truncate text-sm tabular-nums text-neutral-200">
+          <span className="animate-pulse text-teal-400">● </span>
+          {label}
+        </span>
+        <button
+          onClick={onResume}
+          className="shrink-0 rounded-lg bg-teal-500 px-4 py-1.5 text-sm font-medium text-neutral-950 hover:bg-teal-400"
+        >
+          Resume
+        </button>
+      </div>
     </div>
   )
 }

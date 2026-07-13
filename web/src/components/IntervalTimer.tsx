@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { cue } from '../lib/cue'
 import { SPEED_DRILLS } from '../lib/exercises'
+import { registerTimerControls } from '../lib/lockScreen'
 import {
   fmtSec,
   sectionTone,
@@ -8,11 +10,13 @@ import {
 } from '../lib/templates'
 import {
   saveTimerDraft,
+  timerSnapshot,
   type SessionRecord,
   type TimerDraft,
   type Workout,
   type WorkoutExercise,
 } from '../lib/workouts'
+import { LockScreenToggle } from './LockScreenToggle'
 import { buttonClass, inputClass } from './ui'
 
 const MILE = 1609.34
@@ -169,35 +173,6 @@ const TONE: Record<SectionTone, { pill: string; text: string; bar: string }> = {
   other: { pill: 'bg-neutral-800 text-neutral-300', text: 'text-neutral-200', bar: 'bg-neutral-400' },
 }
 
-/** Best-effort chirp + vibration on section changes; silence is acceptable. */
-function cue(times: number) {
-  try {
-    navigator.vibrate?.(
-      Array.from({ length: times }, () => [150, 100]).flat(),
-    )
-  } catch {
-    /* no vibration support */
-  }
-  try {
-    const ctx = new AudioContext()
-    for (let i = 0; i < times; i++) {
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.frequency.value = 880
-      const t = ctx.currentTime + i * 0.25
-      gain.gain.setValueAtTime(0.001, t)
-      gain.gain.exponentialRampToValueAtTime(0.35, t + 0.02)
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2)
-      osc.start(t)
-      osc.stop(t + 0.22)
-    }
-  } catch {
-    /* autoplay policy — vibration already fired */
-  }
-}
-
 export function IntervalSession({
   initial,
   sessions,
@@ -221,6 +196,11 @@ export function IntervalSession({
   const [drills, setDrills] = useState<WorkoutExercise[]>([])
   const lastIdxRef = useRef(0)
   const doneElapsedRef = useRef(0)
+  // A timer that ran out while this screen was unmounted already announced
+  // itself (lock-screen driver) — resuming into it shouldn't beep again.
+  const finishedAtMount = useRef(
+    initial.sections.length > 0 && timerSnapshot(initial, Date.now()).finished,
+  )
 
   const sections = draft.sections
   const stopwatch = sections.length === 0
@@ -262,33 +242,67 @@ export function IntervalSession({
     if (finished) {
       doneElapsedRef.current = Math.min(elapsedMs, total * 1000)
       saveTimerDraft(null)
-      cue(3)
+      if (!finishedAtMount.current) cue(3)
       setPhase('done')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, finished, phase])
 
+  // Lock-screen media keys drive this screen while it's mounted. The ref
+  // keeps the handlers on the freshest closures without re-registering.
+  const controlsRef = useRef({ pause, resume, skip })
+  controlsRef.current = { pause, resume, skip }
+  useEffect(
+    () =>
+      registerTimerControls({
+        pause: () => controlsRef.current.pause(),
+        resume: () => controlsRef.current.resume(),
+        skip: () => controlsRef.current.skip(),
+      }),
+    [],
+  )
+
+  // These also fire from lock-screen media keys, which arrive in any state
+  // (a headset can send play while running) and possibly while the 250ms
+  // `now` state is stale from background throttling — so each one guards on
+  // the draft itself and reads the clock at call time, not from the render.
   function pause() {
-    setDraft((d) => ({ ...d, paused: true, pausedElapsedMs: elapsedMs }))
+    setDraft((d) =>
+      d.paused
+        ? d
+        : {
+            ...d,
+            paused: true,
+            pausedElapsedMs: Date.now() - d.startEpoch + d.skipOffsetMs,
+          },
+    )
   }
 
   function resume() {
-    setDraft((d) => ({
-      ...d,
-      paused: false,
-      startEpoch: Date.now(),
-      skipOffsetMs: d.pausedElapsedMs,
-    }))
+    setDraft((d) =>
+      d.paused
+        ? {
+            ...d,
+            paused: false,
+            startEpoch: Date.now(),
+            skipOffsetMs: d.pausedElapsedMs,
+          }
+        : d,
+    )
   }
 
   function skip() {
-    if (finished) return
-    const target = cumEnd[idx] * 1000
-    setDraft((d) =>
-      d.paused
-        ? { ...d, pausedElapsedMs: target }
-        : { ...d, skipOffsetMs: d.skipOffsetMs + (target - elapsedMs) },
-    )
+    if (stopwatch) return
+    setDraft((d) => {
+      const snap = timerSnapshot(d, Date.now())
+      if (snap.finished) return d
+      let acc = 0
+      for (let i = 0; i <= snap.index; i++) acc += d.sections[i].durationSec
+      const targetMs = acc * 1000
+      return d.paused
+        ? { ...d, pausedElapsedMs: targetMs }
+        : { ...d, skipOffsetMs: d.skipOffsetMs + (targetMs - snap.elapsedMs) }
+    })
   }
 
   function endEarly() {
@@ -398,7 +412,8 @@ export function IntervalSession({
   const tone = TONE[sectionTone(current.label)]
   return (
     <div className="flex min-h-[78dvh] flex-col">
-      <div className="sticky top-0 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
+      {/* top-16 tucks under the sticky app header */}
+      <div className="sticky top-16 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-4">
           <button
             onClick={() => {
@@ -431,6 +446,8 @@ export function IntervalSession({
           </span>
         )}
       </div>
+
+      <LockScreenToggle className="flex justify-end pt-2" />
 
       <div className="flex flex-1 flex-col items-center justify-center gap-5">
         {stopwatch ? (

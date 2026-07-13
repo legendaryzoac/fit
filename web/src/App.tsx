@@ -5,6 +5,7 @@ import { LoginCard, NewPasswordCard, type AuthState } from './components/Auth'
 import { Shell } from './components/ui'
 import { makeApi, type Api } from './lib/api'
 import { makeDemoApi } from './lib/demo'
+import { stopLockScreen } from './lib/lockScreen'
 import { setDemoStorage } from './lib/storage'
 
 type Phase = AuthState | { phase: 'demo'; api: Api }
@@ -34,6 +35,7 @@ export default function App() {
         api={api}
         email={auth.session.getIdToken().payload.email as string}
         onSignOut={() => {
+          stopLockScreen() // don't leave the widget ticking on the login page
           signOut()
           setAuth({ phase: 'signed-out' })
         }}
@@ -48,6 +50,7 @@ export default function App() {
         email="demo"
         demo
         onSignOut={() => {
+          stopLockScreen() // widget must not cross the storage namespace
           setDemoStorage(false)
           setAuth({ phase: 'signed-out' })
         }}
