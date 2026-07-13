@@ -90,5 +90,3 @@ npm run deploy   # deploy infra (web ships via CI on push)
 - [x] M4 — workout logger: offline-capable sessions, templates, interval timer
 - [x] M5 — training analytics: e1RM, volume, PRs, zones, load-vs-recovery
 - [x] M6 — portfolio polish: public demo mode, code-splitting, docs
-
-See `DEPLOYMENT.md` for the zero-to-production checklist.
