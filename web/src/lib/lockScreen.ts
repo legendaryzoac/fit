@@ -1,24 +1,30 @@
-// Lock-screen session widget. A PWA can't render a real iOS Live Activity,
-// but playing a silent looping track lets us own the system "Now Playing"
-// card: the current interval section (with a live countdown via position
-// state) or the strength elapsed time shows on the lock screen, and the
-// media keys pause/resume/skip the timer. Playing audio also keeps the page
-// alive while the phone is locked, so section-change beeps actually fire
-// mid-sprint instead of freezing with the JS clock.
+// Lock-screen session widget, tailored for Android. A PWA can't render a
+// real OS widget, but playing a silent looping track lets us own the media
+// notification: the countdown ticks in the notification title, the progress
+// bar tracks the WHOLE session (stable and monotonic — no per-section
+// resets), and prev/next drive the interval timer like track controls.
+// Playing audio also keeps the page alive while the phone is locked, so
+// section-change beeps actually fire mid-sprint instead of freezing with
+// the JS clock.
 //
 // The controller is module-scoped and reads the localStorage drafts (already
-// the source of truth for live sessions) once a second, so it keeps working
-// when the session UI unmounts — minimized sessions, other tabs, locked
-// phone. When the timer screen IS mounted it registers itself as a delegate
-// so media-key actions flow through React state instead of racing it.
+// the source of truth for live sessions) about once a second, so it keeps
+// working when the session UI unmounts — minimized sessions, other tabs,
+// locked phone. When the timer screen IS mounted it registers itself as a
+// delegate so media-key actions flow through React state instead of racing
+// it. Ticks ride on the audio element's `timeupdate` (media pipeline events
+// escape the background timer throttling that stalls setInterval), with the
+// interval kept as a fallback.
 
 import { cue, primeCue } from './cue'
 import { fmtSec } from './templates'
 import { storageKey } from './storage'
 import {
+  backSection,
   loadDraft,
   loadTimerDraft,
   saveTimerDraft,
+  skipSection,
   timerSnapshot,
 } from './workouts'
 
@@ -28,6 +34,7 @@ export interface TimerControls {
   pause(): void
   resume(): void
   skip(): void
+  back(): void
 }
 
 let delegate: TimerControls | null = null
@@ -58,7 +65,7 @@ function savePref(on: boolean): void {
 
 // ---- silent keep-alive track ----
 
-/** 10s of 8-bit mono silence — enough for iOS to treat us as real playback. */
+/** 10s of 8-bit mono silence — enough to register as real playback. */
 function silentWavUrl(): string {
   const rate = 8000
   const samples = rate * 10
@@ -94,7 +101,9 @@ let missingTicks = 0
 let lastIndex = -1
 let firedDone = false
 let lastMetaKey = ''
+let lastTickAt = 0
 let retryArmed = false
+let sectionKeysOn = false
 /**
  * Set when the user dismisses the widget with the media Stop control: keeps
  * the resume poll from resurrecting it a second later. Cleared when a new
@@ -151,17 +160,12 @@ function draftResume(): void {
 
 function draftSkip(): void {
   const d = loadTimerDraft()
-  if (!d || d.sections.length === 0) return
-  const snap = timerSnapshot(d, Date.now())
-  if (snap.finished) return
-  let acc = 0
-  for (let i = 0; i <= snap.index; i++) acc += d.sections[i].durationSec
-  const targetMs = acc * 1000
-  saveTimerDraft(
-    d.paused
-      ? { ...d, pausedElapsedMs: targetMs }
-      : { ...d, skipOffsetMs: d.skipOffsetMs + (targetMs - snap.elapsedMs) },
-  )
+  if (d) saveTimerDraft(skipSection(d, Date.now()))
+}
+
+function draftBack(): void {
+  const d = loadTimerDraft()
+  if (d) saveTimerDraft(backSection(d, Date.now()))
 }
 
 function onPlay(): void {
@@ -171,8 +175,8 @@ function onPlay(): void {
 }
 
 function onPause(): void {
-  // Deliberately keep the silent track rolling: pausing it would let iOS
-  // freeze the page and strand the widget. Only the countdown pauses.
+  // Deliberately keep the silent track rolling: pausing it would let the
+  // browser freeze the page and strand the widget. Only the countdown pauses.
   if (loadTimerDraft()) (delegate ?? { pause: draftPause }).pause()
   tick()
 }
@@ -180,6 +184,24 @@ function onPause(): void {
 function onSkip(): void {
   if (loadTimerDraft()) (delegate ?? { skip: draftSkip }).skip()
   tick()
+}
+
+function onBack(): void {
+  if (loadTimerDraft()) (delegate ?? { back: draftBack }).back()
+  tick()
+}
+
+/** Prev/next only make sense for sectioned timers; hide them otherwise. */
+function ensureSectionKeys(on: boolean): void {
+  if (on === sectionKeysOn) return
+  sectionKeysOn = on
+  try {
+    const ms = navigator.mediaSession
+    ms.setActionHandler('nexttrack', on ? onSkip : null)
+    ms.setActionHandler('previoustrack', on ? onBack : null)
+  } catch {
+    /* not every action is supported everywhere */
+  }
 }
 
 // ---- rendering ----
@@ -196,22 +218,50 @@ function setMeta(title: string, artist: string): void {
   })
 }
 
-function setPosition(durationSec: number, positionSec: number): void {
+/**
+ * Last position actually pushed to the OS. Re-pushing every tick makes the
+ * Android progress bar jitter (it interpolates on its own), so we only push
+ * when reality diverges from what the OS is already animating — a skip, a
+ * pause/resume, a new session.
+ */
+let lastPush: {
+  at: number
+  pos: number
+  dur: number
+  playing: boolean
+} | null = null
+
+function setPosition(
+  durationSec: number,
+  positionSec: number,
+  playing: boolean,
+): void {
   if (!('setPositionState' in navigator.mediaSession)) return
-  const duration = Math.max(0, durationSec)
+  const duration = Math.max(0, durationSec) // Infinity = live, no scrub bar
+  const position = Math.min(Math.max(0, positionSec), duration)
+  if (lastPush && lastPush.dur === duration && lastPush.playing === playing) {
+    const predicted =
+      lastPush.pos + (playing ? (Date.now() - lastPush.at) / 1000 : 0)
+    // While paused the OS should hold still, but re-sync it occasionally in
+    // case an implementation keeps interpolating past our paused state.
+    const fresh = playing || Date.now() - lastPush.at < 5000
+    if (Math.abs(predicted - position) < 1.25 && fresh) return
+  }
   try {
     navigator.mediaSession.setPositionState({
       duration,
-      position: Math.min(Math.max(0, positionSec), duration),
+      position,
       playbackRate: 1,
     })
+    lastPush = { at: Date.now(), pos: position, dur: duration, playing }
   } catch {
-    /* partial implementations reject some states — next tick resyncs */
+    /* partial implementations reject some states — next push resyncs */
   }
 }
 
 function tick(): void {
   if (!active) return
+  lastTickAt = Date.now()
   try {
     const timer = loadTimerDraft()
     const strength = timer ? null : loadDraft()
@@ -230,22 +280,24 @@ function tick(): void {
         lastIndex = timerSnapshot(timer, Date.now()).index
       }
       const snap = timerSnapshot(timer, Date.now())
+      ensureSectionKeys(!snap.stopwatch)
       if (snap.finished) {
         if (!firedDone) {
           firedDone = true
           if (!delegate) cue(3)
         }
         setMeta('Timer done', 'Open fit to save your session')
-        setPosition(snap.totalSec, snap.totalSec)
+        setPosition(snap.totalSec, snap.totalSec, false)
         navigator.mediaSession.playbackState = 'playing'
-      } else if (snap.stopwatch) {
-        setMeta(timer.title ?? 'Cardio timer', 'Elapsed time')
-        // Live-broadcast trick: duration rides along with position so the
-        // lock screen reads as a counting-up stopwatch.
-        setPosition(snap.elapsedMs / 1000, snap.elapsedMs / 1000)
-        navigator.mediaSession.playbackState = timer.paused
-          ? 'paused'
-          : 'playing'
+        return
+      }
+      firedDone = false // a media-key "back" can un-finish the timer
+      if (snap.stopwatch) {
+        setMeta(
+          `${timer.title ?? 'Cardio timer'} · ${fmtSec(snap.elapsedMs / 1000)}`,
+          'Elapsed time',
+        )
+        setPosition(Infinity, snap.elapsedMs / 1000, !timer.paused)
       } else {
         if (lastIndex !== -1 && snap.index !== lastIndex && !delegate) {
           cue(2) // the mounted screen cues for itself
@@ -254,24 +306,26 @@ function tick(): void {
         const section = snap.section
         if (section) {
           setMeta(
-            `${section.label} · ${snap.index + 1}/${timer.sections.length}`,
-            snap.next
-              ? `Next · ${snap.next.label} ${fmtSec(snap.next.durationSec)}`
-              : 'Final section',
+            `${section.label} · ${fmtSec(Math.ceil(snap.remainingSec))} left`,
+            `${snap.index + 1}/${timer.sections.length}` +
+              (snap.next
+                ? ` · Next: ${snap.next.label} ${fmtSec(snap.next.durationSec)}`
+                : ' · Final section') +
+              (timer.title ? ` · ${timer.title}` : ''),
           )
-          setPosition(
-            section.durationSec,
-            section.durationSec - snap.remainingSec,
-          )
+          // The bar spans the whole session — a skip reads as a seek
+          // forward instead of the bar snapping back to zero.
+          setPosition(snap.totalSec, snap.elapsedMs / 1000, !timer.paused)
         }
-        navigator.mediaSession.playbackState = timer.paused
-          ? 'paused'
-          : 'playing'
       }
+      navigator.mediaSession.playbackState = timer.paused
+        ? 'paused'
+        : 'playing'
       return
     }
 
     const w = strength!
+    ensureSectionKeys(false)
     const totals = w.exercises.reduce(
       (n, e) => {
         for (const s of e.sets) {
@@ -285,14 +339,14 @@ function tick(): void {
     const currentExercise = w.exercises.find((e) =>
       e.sets.some((s) => !s.done),
     )
+    const elapsedSec = (Date.now() - new Date(w.start).getTime()) / 1000
     setMeta(
-      currentExercise?.name ?? w.title ?? 'Strength session',
+      `${currentExercise?.name ?? w.title ?? 'Strength session'} · ${fmtSec(elapsedSec)}`,
       totals.total > 0
         ? `${totals.done}/${totals.total} sets done`
         : 'Live session',
     )
-    const elapsedSec = (Date.now() - new Date(w.start).getTime()) / 1000
-    setPosition(elapsedSec, elapsedSec)
+    setPosition(Infinity, elapsedSec, true)
     navigator.mediaSession.playbackState = 'playing'
   } catch {
     /* media session quirks must never take down the app */
@@ -301,6 +355,12 @@ function tick(): void {
 
 const onVisible = () => {
   if (document.visibilityState === 'visible') tick()
+}
+
+// The media pipeline keeps firing timeupdate (~4/s) even when background
+// throttling stalls setInterval — rate-limit it back down to ~1Hz.
+const onTimeUpdate = () => {
+  if (Date.now() - lastTickAt >= 900) tick()
 }
 
 // ---- lifecycle ----
@@ -329,13 +389,14 @@ export function startLockScreen(): Promise<boolean> {
 
 async function doStart(): Promise<boolean> {
   // Synchronously, while any user gesture is still on the stack: unlock the
-  // shared beep context, or iOS keeps it suspended and background cues mute.
+  // shared beep context, or the OS keeps it suspended and background cues mute.
   primeCue()
   if (!audio) {
     audioUrl = silentWavUrl()
     audio = new Audio(audioUrl)
     audio.loop = true
     audio.preload = 'auto'
+    audio.addEventListener('timeupdate', onTimeUpdate)
   }
   try {
     await audio.play()
@@ -346,13 +407,13 @@ async function doStart(): Promise<boolean> {
   missingTicks = 0
   firedDone = false
   lastMetaKey = ''
+  lastPush = null
   lastIndex = -1
   timerSig = null // first tick re-seeds cue state from the live draft
   try {
     const ms = navigator.mediaSession
     ms.setActionHandler('play', onPlay)
     ms.setActionHandler('pause', onPause)
-    ms.setActionHandler('nexttrack', onSkip)
     ms.setActionHandler('stop', () => {
       // An explicit dismissal — stay down for the rest of this session.
       dismissed = true
@@ -374,6 +435,7 @@ export function stopLockScreen(): void {
   ticker = null
   document.removeEventListener('visibilitychange', onVisible)
   if (audio) {
+    audio.removeEventListener('timeupdate', onTimeUpdate)
     audio.pause()
     audio.src = ''
     audio = null
@@ -390,12 +452,16 @@ export function stopLockScreen(): void {
       ms.setActionHandler('play', null)
       ms.setActionHandler('pause', null)
       ms.setActionHandler('nexttrack', null)
+      ms.setActionHandler('previoustrack', null)
       ms.setActionHandler('stop', null)
+      if ('setPositionState' in ms) ms.setPositionState()
     } catch {
       /* best effort */
     }
   }
   lastMetaKey = ''
+  lastPush = null
+  sectionKeysOn = false
   active = false
   notify()
 }
@@ -422,9 +488,10 @@ export function autoStartLockScreen(): void {
 
 /**
  * Reload-with-a-live-draft case (no gesture available): try anyway, and if
- * autoplay blocks us, arm a one-shot retry on the next tap. `click` rather
- * than pointerdown — touch browsers don't grant user activation until the
- * tap completes, so play() inside a pointerdown handler would still reject.
+ * autoplay blocks us, arm a one-shot retry on the next interaction. `click`
+ * rather than pointerdown — touch browsers don't grant user activation until
+ * the tap completes, so play() inside a pointerdown handler would still
+ * reject; `keydown` covers keyboard users.
  */
 export function maybeResumeLockScreen(): void {
   if (

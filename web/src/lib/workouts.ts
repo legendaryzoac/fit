@@ -169,6 +169,41 @@ export function timerSnapshot(draft: TimerDraft, nowMs: number): TimerSnapshot {
   }
 }
 
+/** Move the running clock so overall elapsed lands on targetMs. */
+function jumpTo(d: TimerDraft, elapsedMs: number, targetMs: number): TimerDraft {
+  return d.paused
+    ? { ...d, pausedElapsedMs: targetMs }
+    : { ...d, skipOffsetMs: d.skipOffsetMs + (targetMs - elapsedMs) }
+}
+
+/** Jump to the start of the next section (no-op for stopwatch/finished). */
+export function skipSection(d: TimerDraft, nowMs: number): TimerDraft {
+  if (d.sections.length === 0) return d
+  const snap = timerSnapshot(d, nowMs)
+  if (snap.finished) return d
+  let end = 0
+  for (let i = 0; i <= snap.index; i++) end += d.sections[i].durationSec
+  return jumpTo(d, snap.elapsedMs, end * 1000)
+}
+
+/**
+ * Restart the current section — or, within its first 3 seconds, go one
+ * section back (music-player prev-track semantics). No-op for stopwatches.
+ */
+export function backSection(d: TimerDraft, nowMs: number): TimerDraft {
+  if (d.sections.length === 0) return d
+  const snap = timerSnapshot(d, nowMs)
+  let start = 0
+  for (let i = 0; i < snap.index; i++) start += d.sections[i].durationSec
+  // Never double-back on a finished timer: elapsed is past the last
+  // section's END there, so the "first 3 seconds" test would pass for any
+  // final section shorter than 3s and overshoot by a whole section.
+  if (!snap.finished && snap.elapsedMs / 1000 - start <= 3 && snap.index > 0) {
+    start -= d.sections[snap.index - 1].durationSec
+  }
+  return jumpTo(d, snap.elapsedMs, start * 1000)
+}
+
 const TIMER_KEY = 'fit.activeTimerDraft'
 
 export function loadTimerDraft(): TimerDraft | null {

@@ -17,7 +17,7 @@ import {
   type Template,
 } from '../lib/templates'
 import type { WorkoutKind } from '../lib/workouts'
-import { buttonClass, inputClass } from './ui'
+import { buttonClass, inputClass, NumberField } from './ui'
 
 export const KIND_STYLE: Record<WorkoutKind, string> = {
   strength: 'bg-teal-500/15 text-teal-300',
@@ -28,12 +28,14 @@ export const KIND_STYLE: Record<WorkoutKind, string> = {
 const PLAN_FIELDS: Array<{
   key: keyof QuickIntervalPlan
   label: string
+  min: number
+  max: number
 }> = [
-  { key: 'warmupSec', label: 'Warm up (sec)' },
-  { key: 'workSec', label: 'Work (sec)' },
-  { key: 'restSec', label: 'Rest (sec)' },
-  { key: 'sets', label: 'Sets' },
-  { key: 'cooldownSec', label: 'Cool down (sec)' },
+  { key: 'warmupSec', label: 'Warm up (sec)', min: 0, max: 7200 },
+  { key: 'workSec', label: 'Work (sec)', min: 1, max: 7200 },
+  { key: 'restSec', label: 'Rest (sec)', min: 0, max: 7200 },
+  { key: 'sets', label: 'Sets', min: 1, max: 99 },
+  { key: 'cooldownSec', label: 'Cool down (sec)', min: 0, max: 7200 },
 ]
 
 export function PlanFields({
@@ -47,20 +49,17 @@ export function PlanFields({
   return (
     <div className="flex flex-col gap-2">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {PLAN_FIELDS.map(({ key, label }) => (
+        {PLAN_FIELDS.map(({ key, label, min, max }) => (
           <label key={key} className="flex flex-col gap-1">
             <span className="text-[11px] uppercase tracking-wide text-neutral-600">
               {label}
             </span>
-            <input
-              className={inputClass}
-              type="number"
-              inputMode="numeric"
-              min={0}
+            <NumberField
+              aria-label={label}
+              min={min}
+              max={max}
               value={plan[key]}
-              onChange={(e) =>
-                onChange({ ...plan, [key]: Math.max(0, Number(e.target.value)) })
-              }
+              onCommit={(n) => onChange({ ...plan, [key]: n })}
             />
           </label>
         ))}
@@ -110,11 +109,6 @@ export function TemplateBuilder({
   const dragFrom = useRef<number | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
 
-  // Sets-count inputs hold a transient string while focused so the user can
-  // clear the field and retype without it snapping back to 1; the committed
-  // number is only parsed and clamped on blur.
-  const [draftCounts, setDraftCounts] = useState<Record<number, string>>({})
-
   const lookup = useMemo(() => makeMuscleLookup(customs), [customs])
 
   const names = useMemo(() => {
@@ -148,6 +142,13 @@ export function TemplateBuilder({
 
   function onHandlePointerDown(ei: number, ev: React.PointerEvent) {
     ev.preventDefault()
+    // preventDefault also suppresses the focus change a press would cause,
+    // so end any in-progress field edit explicitly — a NumberField draft is
+    // keyed to a list POSITION and must not attach to whichever row lands
+    // there after the reorder.
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
     try {
       // Capture keeps move events flowing to the handle once the finger
       // wanders off it; if capture is unavailable the drag still works
@@ -193,23 +194,6 @@ export function TemplateBuilder({
     }
     dragFrom.current = null
     setDragIndex(null)
-  }
-
-  function commitSetCount(i: number, raw: string) {
-    const parsed = Math.round(Number(raw))
-    const fallback = exercises[i]?.setCount ?? 1
-    const clamped =
-      raw.trim() !== '' && Number.isFinite(parsed)
-        ? Math.max(1, Math.min(30, parsed))
-        : fallback
-    setExercises(
-      exercises.map((x, j) => (j === i ? { ...x, setCount: clamped } : x)),
-    )
-    setDraftCounts((prev) => {
-      const next = { ...prev }
-      delete next[i]
-      return next
-    })
   }
 
   async function save() {
@@ -312,20 +296,19 @@ export function TemplateBuilder({
               </span>
               <label className="flex items-center gap-1.5 text-xs text-neutral-500">
                 sets
-                <input
+                <NumberField
                   className={`${inputClass} w-16 text-center`}
-                  type="number"
-                  inputMode="numeric"
+                  aria-label={`sets for ${e.name}`}
                   min={1}
                   max={30}
-                  value={draftCounts[i] ?? e.setCount}
-                  onChange={(ev) =>
-                    setDraftCounts((prev) => ({ ...prev, [i]: ev.target.value }))
+                  value={e.setCount}
+                  onCommit={(n) =>
+                    setExercises((prev) =>
+                      prev.map((x, j) =>
+                        j === i ? { ...x, setCount: n } : x,
+                      ),
+                    )
                   }
-                  onBlur={(ev) => commitSetCount(i, ev.target.value)}
-                  onKeyDown={(ev) => {
-                    if (ev.key === 'Enter') ev.currentTarget.blur()
-                  }}
                 />
               </label>
               <button

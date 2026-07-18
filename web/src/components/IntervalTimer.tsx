@@ -9,7 +9,9 @@ import {
   type SectionTone,
 } from '../lib/templates'
 import {
+  backSection,
   saveTimerDraft,
+  skipSection,
   timerSnapshot,
   type SessionRecord,
   type TimerDraft,
@@ -17,7 +19,13 @@ import {
   type WorkoutExercise,
 } from '../lib/workouts'
 import { LockScreenToggle } from './LockScreenToggle'
-import { buttonClass, inputClass } from './ui'
+import {
+  buttonClass,
+  ChevronDownIcon,
+  iconButtonClass,
+  inputClass,
+  XIcon,
+} from './ui'
 
 const MILE = 1609.34
 const YD = 0.9144
@@ -250,14 +258,15 @@ export function IntervalSession({
 
   // Lock-screen media keys drive this screen while it's mounted. The ref
   // keeps the handlers on the freshest closures without re-registering.
-  const controlsRef = useRef({ pause, resume, skip })
-  controlsRef.current = { pause, resume, skip }
+  const controlsRef = useRef({ pause, resume, skip, back })
+  controlsRef.current = { pause, resume, skip, back }
   useEffect(
     () =>
       registerTimerControls({
         pause: () => controlsRef.current.pause(),
         resume: () => controlsRef.current.resume(),
         skip: () => controlsRef.current.skip(),
+        back: () => controlsRef.current.back(),
       }),
     [],
   )
@@ -292,17 +301,11 @@ export function IntervalSession({
   }
 
   function skip() {
-    if (stopwatch) return
-    setDraft((d) => {
-      const snap = timerSnapshot(d, Date.now())
-      if (snap.finished) return d
-      let acc = 0
-      for (let i = 0; i <= snap.index; i++) acc += d.sections[i].durationSec
-      const targetMs = acc * 1000
-      return d.paused
-        ? { ...d, pausedElapsedMs: targetMs }
-        : { ...d, skipOffsetMs: d.skipOffsetMs + (targetMs - snap.elapsedMs) }
-    })
+    setDraft((d) => skipSection(d, Date.now()))
+  }
+
+  function back() {
+    setDraft((d) => backSection(d, Date.now()))
   }
 
   function endEarly() {
@@ -414,21 +417,27 @@ export function IntervalSession({
     <div className="-mt-4 flex min-h-[78dvh] flex-col">
       {/* top-16 tucks under the sticky app header */}
       <div className="sticky top-16 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
-        <div className="flex items-center gap-4">
+        {/* icon-only: two labeled buttons + the clock don't fit at 375px.
+            gap-3 + 40px squares keep the unconfirmed Cancel mis-tap-safe. */}
+        <div className="flex items-center gap-3">
           <button
             onClick={() => {
               saveTimerDraft(null)
               onCancel()
             }}
-            className="text-sm text-neutral-500 hover:text-neutral-300"
+            aria-label="cancel session"
+            title="Cancel session"
+            className={`${iconButtonClass} min-h-10 min-w-10 justify-center`}
           >
-            ✕ Cancel
+            <XIcon />
           </button>
           <button
             onClick={onMinimize}
-            className="text-sm text-neutral-500 hover:text-neutral-300"
+            aria-label="minimize session"
+            title="Minimize"
+            className={`${iconButtonClass} min-h-10 min-w-10 justify-center`}
           >
-            ⌄ Minimize
+            <ChevronDownIcon />
           </button>
         </div>
         {stopwatch ? (

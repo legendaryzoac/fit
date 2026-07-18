@@ -45,7 +45,14 @@ import { IntervalSession } from './IntervalTimer'
 import { LockScreenToggle } from './LockScreenToggle'
 import { Manage } from './Manage'
 import { PlanFields, TemplateBuilder } from './TemplateBuilder'
-import { buttonClass, Card, inputClass } from './ui'
+import {
+  buttonClass,
+  Card,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  iconButtonClass,
+  inputClass,
+} from './ui'
 
 // Analytics carries the recharts dependency — split it out of the logger path
 const Analytics = lazy(() =>
@@ -298,6 +305,13 @@ function ActiveWorkout({
 
   function onHandlePointerDown(ei: number, ev: React.PointerEvent) {
     ev.preventDefault()
+    // preventDefault also suppresses the focus change a press would cause,
+    // so end any in-progress set-field edit explicitly — inputs are keyed
+    // to list positions and an edit must not follow the wrong exercise
+    // through a reorder.
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
     try {
       // Capture keeps move events flowing to the handle once the finger
       // wanders off it; if capture is unavailable the drag still works
@@ -359,9 +373,10 @@ function ActiveWorkout({
       <div className="sticky top-16 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
         <button
           onClick={isNew ? onMinimize : onCancel}
-          className="text-sm text-neutral-500 hover:text-neutral-300"
+          className={`${iconButtonClass} px-3`}
         >
-          {isNew ? '⌄ Minimize' : '← Back'}
+          {isNew ? <ChevronDownIcon /> : <ChevronLeftIcon />}
+          {isNew ? 'Minimize' : 'Back'}
         </button>
         {isNew && (
           <span className="font-mono text-sm tabular-nums text-teal-300">
