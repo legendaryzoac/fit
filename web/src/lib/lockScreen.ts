@@ -111,6 +111,16 @@ let sectionKeysOn = false
  */
 let dismissed = false
 /**
+ * Set while the app is between "workout ended" and "save committed" (the
+ * feedback modal) — the draft still exists for crash-safety, so without
+ * this the resume poll would re-advertise a session the lifter just ended.
+ */
+let suppressed = false
+
+export function setLockScreenSuppressed(v: boolean): void {
+  suppressed = v
+}
+/**
  * startEpoch of the timer draft the cue state (lastIndex/firedDone) belongs
  * to — a new timer starting while the widget is still up must not inherit
  * the old one's "already cued" flags. Resume-from-pause also changes
@@ -292,10 +302,14 @@ function tick(): void {
         return
       }
       firedDone = false // a media-key "back" can un-finish the timer
+      // Metadata stays STATIC between section/minute boundaries: replacing
+      // MediaMetadata rebuilds the whole Android notification (artwork and
+      // all), so a per-second countdown in the title reads as constant
+      // flicker. The OS animates the time itself from position state.
       if (snap.stopwatch) {
         setMeta(
-          `${timer.title ?? 'Cardio timer'} · ${fmtSec(snap.elapsedMs / 1000)}`,
-          'Elapsed time',
+          timer.title ?? 'Cardio timer',
+          `${Math.floor(snap.elapsedMs / 60_000)} min elapsed`,
         )
         setPosition(Infinity, snap.elapsedMs / 1000, !timer.paused)
       } else {
@@ -306,12 +320,10 @@ function tick(): void {
         const section = snap.section
         if (section) {
           setMeta(
-            `${section.label} · ${fmtSec(Math.ceil(snap.remainingSec))} left`,
-            `${snap.index + 1}/${timer.sections.length}` +
-              (snap.next
-                ? ` · Next: ${snap.next.label} ${fmtSec(snap.next.durationSec)}`
-                : ' · Final section') +
-              (timer.title ? ` · ${timer.title}` : ''),
+            `${section.label} ${fmtSec(section.durationSec)} · ${snap.index + 1}/${timer.sections.length}`,
+            (snap.next
+              ? `Next: ${snap.next.label} ${fmtSec(snap.next.durationSec)}`
+              : 'Final section') + (timer.title ? ` · ${timer.title}` : ''),
           )
           // The bar spans the whole session — a skip reads as a seek
           // forward instead of the bar snapping back to zero.
@@ -340,11 +352,12 @@ function tick(): void {
       e.sets.some((s) => !s.done),
     )
     const elapsedSec = (Date.now() - new Date(w.start).getTime()) / 1000
+    // Static title per exercise; elapsed at minute granularity in the
+    // artist line — see the churn note in the timer branch above.
     setMeta(
-      `${currentExercise?.name ?? w.title ?? 'Strength session'} · ${fmtSec(elapsedSec)}`,
-      totals.total > 0
-        ? `${totals.done}/${totals.total} sets done`
-        : 'Live session',
+      currentExercise?.name ?? w.title ?? 'Strength session',
+      (totals.total > 0 ? `${totals.done}/${totals.total} sets · ` : '') +
+        `${Math.max(0, Math.floor(elapsedSec / 60))} min in`,
     )
     setPosition(Infinity, elapsedSec, true)
     navigator.mediaSession.playbackState = 'playing'
@@ -483,6 +496,7 @@ export async function setLockScreenEnabled(on: boolean): Promise<boolean> {
  */
 export function autoStartLockScreen(): void {
   dismissed = false // new session, fresh choice
+  suppressed = false
   if (getLockScreenPref()) void startLockScreen()
 }
 
@@ -499,7 +513,8 @@ export function maybeResumeLockScreen(): void {
     !lockScreenSupported() ||
     active ||
     retryArmed ||
-    dismissed
+    dismissed ||
+    suppressed
   ) {
     return
   }
@@ -516,6 +531,7 @@ export function maybeResumeLockScreen(): void {
       if (
         getLockScreenPref() &&
         !dismissed &&
+        !suppressed &&
         (loadTimerDraft() || loadDraft())
       ) {
         void startLockScreen()

@@ -14,6 +14,7 @@ import {
   buildIntervals,
   DEFAULT_PLAN,
   fmtSec,
+  hasSlots,
   loadTemplateCache,
   saveTemplateCache,
   totalSec,
@@ -39,11 +40,23 @@ import {
   type WorkoutKind,
   type WorkoutSet,
 } from '../lib/workouts'
-import { autoStartLockScreen } from '../lib/lockScreen'
+import {
+  autoStartLockScreen,
+  setLockScreenSuppressed,
+  stopLockScreen,
+} from '../lib/lockScreen'
+import {
+  applyRecommendations,
+  feedbackMuscles,
+  recommendations,
+  type Recommendation,
+} from '../lib/progression'
 import { onResume, setInSession } from '../lib/sessionBus'
+import { FeedbackModal } from './Feedback'
 import { IntervalSession } from './IntervalTimer'
 import { LockScreenToggle } from './LockScreenToggle'
 import { Manage } from './Manage'
+import { SlotFill } from './SlotFill'
 import { PlanFields, TemplateBuilder } from './TemplateBuilder'
 import {
   buttonClass,
@@ -164,6 +177,27 @@ function ActiveWorkout({
   const [exerciseName, setExerciseName] = useState('')
   const [newMuscle, setNewMuscle] = useState<string>('other')
   const [now, setNow] = useState(Date.now())
+  const [coachHidden, setCoachHidden] = useState(false)
+
+  // Computed at mount (session start), so the 7-day windows are fresh
+  const recs = useMemo(
+    () =>
+      isNew
+        ? recommendations(history, lookup)
+        : ({} as Record<string, Recommendation>),
+    [isNew, history, lookup],
+  )
+
+  // Coach lines for the muscle groups this session actually trains
+  const coach = useMemo(() => {
+    if (!isNew) return []
+    const muscles: string[] = []
+    for (const e of w.exercises) {
+      const m = lookup(e.name)
+      if (m && recs[m] && !muscles.includes(m)) muscles.push(m)
+    }
+    return muscles.map((m) => recs[m])
+  }, [isNew, recs, w.exercises, lookup])
 
   // Bodyweight moves default to the athlete's WHOOP-measured mass (whole lb).
   const roundedBodyWeight =
@@ -252,14 +286,16 @@ function ActiveWorkout({
       patchSet(ei, si, { done: false })
       return
     }
-    // Checking an empty row adopts last time's numbers — RP-style "same again"
-    const exerciseName = w.exercises[ei].name
+    // Checking an empty row adopts last time's numbers — RP-style "same
+    // again". Bodyweight moves are the exception: they track TODAY's
+    // measured mass (losing a pound must show), falling back to last
+    // session's weight only when no measurement exists.
+    const bw = w.kind !== 'speed' && isBodyweight(w.exercises[ei].name)
     patchSet(ei, si, {
       done: true,
       weight:
         current.weight ??
-        prev?.weight ??
-        (isBodyweight(exerciseName) ? roundedBodyWeight : undefined),
+        (bw ? (roundedBodyWeight ?? prev?.weight) : prev?.weight),
       reps: current.reps ?? prev?.reps,
       durationSec: current.durationSec ?? prev?.durationSec,
       distanceM: current.distanceM ?? prev?.distanceM,
@@ -369,28 +405,74 @@ function ActiveWorkout({
 
   return (
     <div className="-mt-4 flex flex-col gap-4 pb-24">
-      {/* top-16 tucks under the sticky app header */}
-      <div className="sticky top-16 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
-        <button
-          onClick={isNew ? onMinimize : onCancel}
-          className={`${iconButtonClass} px-3`}
-        >
-          {isNew ? <ChevronDownIcon /> : <ChevronLeftIcon />}
-          {isNew ? 'Minimize' : 'Back'}
-        </button>
-        {isNew && (
-          <span className="font-mono text-sm tabular-nums text-teal-300">
+      {/* top-16 tucks under the sticky app header; 1fr_auto_1fr keeps the
+          clock dead-centre no matter how wide the flanking cells are */}
+      <div className="sticky top-16 z-20 -mx-4 grid grid-cols-[1fr_auto_1fr] items-center border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
+        <div className="justify-self-start">
+          {isNew ? (
+            <button
+              onClick={onMinimize}
+              aria-label="minimize session"
+              title="Minimize"
+              className={`${iconButtonClass} min-h-10 min-w-10 justify-center`}
+            >
+              <ChevronDownIcon />
+            </button>
+          ) : (
+            <button onClick={onCancel} className={`${iconButtonClass} px-3`}>
+              <ChevronLeftIcon />
+              Back
+            </button>
+          )}
+        </div>
+        {isNew ? (
+          <span className="justify-self-center font-mono text-sm tabular-nums text-teal-300">
             {fmtElapsed(now - new Date(w.start).getTime())}
           </span>
+        ) : (
+          <span />
         )}
-        {totalCount > 0 && (
-          <span className="text-xs text-neutral-500">
+        {totalCount > 0 ? (
+          <span className="justify-self-end text-xs text-neutral-500">
             {doneCount}/{totalCount} sets
           </span>
+        ) : (
+          <span />
         )}
       </div>
 
       {isNew && <LockScreenToggle className="-mt-2 flex justify-end" />}
+
+      {coach.length > 0 && !coachHidden && (
+        <div className="rounded-xl border border-teal-500/25 bg-teal-500/5 p-3">
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">
+              coach — from last time’s ratings
+            </p>
+            <button
+              onClick={() => setCoachHidden(true)}
+              aria-label="dismiss coach suggestions"
+              className="px-1 text-neutral-600 hover:text-neutral-300"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex flex-col gap-1 text-sm">
+            {coach.map((r) => (
+              <p key={r.muscle} className="text-neutral-300">
+                <span className="font-medium capitalize text-neutral-100">
+                  {r.muscle}
+                </span>
+                {' — '}
+                {r.summary}
+                <span className="block text-xs text-neutral-500">
+                  {r.reason}
+                </span>
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
@@ -571,10 +653,11 @@ function ActiveWorkout({
                         type="number"
                         inputMode="decimal"
                         placeholder={
-                          ghost?.weight != null
-                            ? String(ghost.weight)
-                            : bw && roundedBodyWeight !== undefined
-                              ? String(roundedBodyWeight)
+                          // bodyweight ghosts follow today's measurement
+                          bw && roundedBodyWeight !== undefined
+                            ? String(roundedBodyWeight)
+                            : ghost?.weight != null
+                              ? String(ghost.weight)
                               : ''
                         }
                         value={s.weight ?? ''}
@@ -942,6 +1025,8 @@ type Mode =
   | { m: 'build'; initial?: Template }
   | { m: 'strength'; workout: Workout; isNew: boolean }
   | { m: 'timer'; draft: TimerDraft }
+  | { m: 'slots'; template: Template }
+  | { m: 'feedback'; workout: Workout }
 
 export function Workouts({ api }: { api: Api }) {
   const [segment, setSegment] = useState<'workouts' | 'analytics' | 'whoop'>(
@@ -1046,7 +1131,27 @@ export function Workouts({ api }: { api: Api }) {
     })
   }, [])
 
-  function finish(raw: Workout) {
+  /**
+   * Strength sessions detour through the how-did-it-feel modal before the
+   * save lands; timer saves and edits go straight through.
+   */
+  function finish(raw: Workout, opts?: { isNew?: boolean }) {
+    if (
+      raw.kind === 'strength' &&
+      opts?.isNew &&
+      feedbackMuscles(raw, muscleLookup).length > 0
+    ) {
+      // The draft stays (crash-safety) but the session is over — keep the
+      // lock-screen widget from re-advertising it while the modal is up.
+      setLockScreenSuppressed(true)
+      stopLockScreen()
+      setMode({ m: 'feedback', workout: raw })
+      return
+    }
+    commitFinish(raw)
+  }
+
+  function commitFinish(raw: Workout) {
     const w = finalizeWorkout(raw)
     enqueue(w)
     setPendingCount(loadPending().length)
@@ -1059,6 +1164,7 @@ export function Workouts({ api }: { api: Api }) {
     })
     saveDraft(null)
     saveTimerDraft(null)
+    setLockScreenSuppressed(false) // drafts are gone; nothing to resurrect
     setMode({ m: 'list' })
     void sync()
   }
@@ -1112,18 +1218,39 @@ export function Workouts({ api }: { api: Api }) {
     }
   }
 
+  function beginStrength(w: Workout) {
+    // Still on a click's call stack — autoplay needs the gesture
+    autoStartLockScreen()
+    setMode({ m: 'strength', workout: w, isNew: true })
+  }
+
+  /** Template entries -> session exercises, with coach set-deltas applied.
+   * Recommendations are computed here, at start time, so the 7-day volume
+   * window can't go stale in a long-lived tab. */
+  function buildExercises(entries: Array<{ name: string; setCount: number }>) {
+    const recs = recommendations(workouts, muscleLookup)
+    return applyRecommendations(entries, recs, muscleLookup).map((e) => ({
+      name: e.name,
+      sets: Array.from({ length: e.setCount }, () => ({})),
+    }))
+  }
+
   function startStrength(template?: Template) {
+    if (template && hasSlots(template)) {
+      setMode({ m: 'slots', template })
+      return
+    }
     const w = newWorkout('strength')
     if (template) {
       w.title = template.name
-      w.exercises = (template.exercises ?? []).map((e) => ({
-        name: e.name,
-        sets: Array.from({ length: e.setCount }, () => ({})),
-      }))
+      w.exercises = buildExercises(
+        (template.exercises ?? []).map((e) => ({
+          name: e.name,
+          setCount: e.setCount,
+        })),
+      )
     }
-    // Still on the start click's call stack — autoplay needs the gesture
-    autoStartLockScreen()
-    setMode({ m: 'strength', workout: w, isNew: true })
+    beginStrength(w)
   }
 
   function startTimer(
@@ -1175,6 +1302,7 @@ export function Workouts({ api }: { api: Api }) {
             !mode.isNew && w.start !== originalStart
               ? { ...w, previousStart: originalStart }
               : w,
+            { isNew: mode.isNew },
           )
         }
         onCancel={() => cancelStrength(mode.workout, mode.isNew)}
@@ -1192,6 +1320,43 @@ export function Workouts({ api }: { api: Api }) {
         onSave={finish}
         onCancel={() => setMode({ m: 'list' })}
         onMinimize={() => setMode({ m: 'list' })}
+      />
+    )
+  }
+
+  if (mode.m === 'slots') {
+    return (
+      <SlotFill
+        template={mode.template}
+        customs={customs}
+        lookup={muscleLookup}
+        history={workouts}
+        onStart={(entries) => {
+          // A free-typed pick inherits its slot's muscle group, otherwise
+          // feedback and progression would never see the exercise.
+          const slotEntries = mode.template.exercises ?? []
+          entries.forEach((e, i) => {
+            const muscle = slotEntries[i]?.muscle
+            if (muscle && muscleLookup(e.name) === undefined) {
+              saveCustomExercise(e.name, muscle)
+            }
+          })
+          const w = newWorkout('strength')
+          w.title = mode.template.name
+          w.exercises = buildExercises(entries)
+          beginStrength(w)
+        }}
+        onCancel={() => setMode({ m: 'pick' })}
+      />
+    )
+  }
+
+  if (mode.m === 'feedback') {
+    return (
+      <FeedbackModal
+        muscles={feedbackMuscles(mode.workout, muscleLookup)}
+        onSubmit={(fb) => commitFinish({ ...mode.workout, feedback: fb })}
+        onSkip={() => commitFinish(mode.workout)}
       />
     )
   }
@@ -1346,6 +1511,9 @@ export function Workouts({ api }: { api: Api }) {
                     start: new Date().toISOString(),
                     end: undefined,
                     updatedAt: undefined,
+                    // Ratings belong to the session they rated — a repeat
+                    // starts clean (Skip must not persist stale feedback).
+                    feedback: undefined,
                     exercises: w.exercises.map((e) => ({
                       ...e,
                       sets: e.sets.map((s) => ({ ...s, done: false })),

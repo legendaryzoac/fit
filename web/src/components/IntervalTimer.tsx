@@ -415,11 +415,12 @@ export function IntervalSession({
   const tone = TONE[sectionTone(current.label)]
   return (
     <div className="-mt-4 flex min-h-[78dvh] flex-col">
-      {/* top-16 tucks under the sticky app header */}
-      <div className="sticky top-16 z-20 -mx-4 flex items-center justify-between border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
+      {/* top-16 tucks under the sticky app header; 1fr_auto_1fr keeps the
+          clock dead-centre no matter how wide the flanking cells are */}
+      <div className="sticky top-16 z-20 -mx-4 grid grid-cols-[1fr_auto_1fr] items-center border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
         {/* icon-only: two labeled buttons + the clock don't fit at 375px.
             gap-3 + 40px squares keep the unconfirmed Cancel mis-tap-safe. */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 justify-self-start">
           <button
             onClick={() => {
               saveTimerDraft(null)
@@ -441,18 +442,20 @@ export function IntervalSession({
           </button>
         </div>
         {stopwatch ? (
-          <span className="font-mono text-sm tabular-nums text-neutral-400">
+          <span className="justify-self-center font-mono text-sm tabular-nums text-neutral-400">
             {fmtSec(elapsedSec)}
           </span>
         ) : (
-          <span className="font-mono text-sm tabular-nums text-neutral-400">
+          <span className="justify-self-center font-mono text-sm tabular-nums text-neutral-400">
             {fmtSec(Math.min(elapsedSec, total))} / {fmtSec(total)}
           </span>
         )}
-        {!stopwatch && (
-          <span className="text-xs tabular-nums text-neutral-600">
+        {!stopwatch ? (
+          <span className="justify-self-end text-xs tabular-nums text-neutral-600">
             {idx + 1}/{sections.length}
           </span>
+        ) : (
+          <span />
         )}
       </div>
 

@@ -15,7 +15,8 @@ interface Template {
   id: string
   name: string
   kind: 'strength' | 'speed' | 'cardio'
-  exercises?: Array<{ name: string; setCount: number }>
+  /** `muscle` marks a generic slot filled at workout start. */
+  exercises?: Array<{ name: string; setCount: number; muscle?: string }>
   sections?: IntervalSection[]
 }
 
@@ -46,7 +47,12 @@ function parseTemplate(raw: unknown): Template | null {
       if (!exName || setCount == null || setCount < 1 || setCount > 30) {
         return null
       }
-      exercises.push({ name: exName, setCount: Math.round(setCount) })
+      const muscle = str((e as Record<string, unknown>)?.muscle, 40)
+      exercises.push({
+        name: exName,
+        setCount: Math.round(setCount),
+        ...(muscle !== undefined && { muscle }),
+      })
     }
   }
 

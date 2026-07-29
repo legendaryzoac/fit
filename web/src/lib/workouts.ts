@@ -23,6 +23,22 @@ export interface IntervalSection {
   durationSec: number
 }
 
+/** "How did it feel" — RP-style autoregulation input. */
+export type DifficultyRating = 'easy' | 'right' | 'hard'
+/** "How was the volume" for the muscle group this session. */
+export type VolumeRating = 'low' | 'right' | 'high'
+
+export interface MuscleFeedback {
+  difficulty: DifficultyRating
+  volume: VolumeRating
+}
+
+export interface WorkoutFeedback {
+  overall?: DifficultyRating
+  /** Keyed by muscle group (as resolved by the exercise lookup). */
+  muscles: Record<string, MuscleFeedback>
+}
+
 export interface Workout {
   id: string
   start: string
@@ -36,6 +52,8 @@ export interface Workout {
   linkedSessionSk?: string
   durationMin?: number
   distanceM?: number
+  /** End-of-session ratings driving next-session recommendations. */
+  feedback?: WorkoutFeedback
   updatedAt?: string
   /** Set when an edit changes start: tells the API to move, not duplicate. */
   previousStart?: string

@@ -15,6 +15,7 @@ import {
   totalSec,
   type QuickIntervalPlan,
   type Template,
+  type TemplateExercise,
 } from '../lib/templates'
 import type { WorkoutKind } from '../lib/workouts'
 import { buttonClass, inputClass, NumberField } from './ui'
@@ -89,11 +90,12 @@ export function TemplateBuilder({
 }) {
   const [kind, setKind] = useState<WorkoutKind>(initial?.kind ?? 'strength')
   const [name, setName] = useState(initial?.name ?? '')
-  const [exercises, setExercises] = useState<
-    Array<{ name: string; setCount: number }>
-  >(initial?.exercises ?? [])
+  const [exercises, setExercises] = useState<TemplateExercise[]>(
+    initial?.exercises ?? [],
+  )
   const [exName, setExName] = useState('')
   const [newMuscle, setNewMuscle] = useState<string>('other')
+  const [slotMuscle, setSlotMuscle] = useState<string>('quads')
   const [plan, setPlan] = useState<QuickIntervalPlan>(
     initial?.sections ? planFromSections(initial.sections) : DEFAULT_PLAN,
   )
@@ -128,6 +130,23 @@ export function TemplateBuilder({
     setExercises([...exercises, { name: trimmed, setCount: 3 }])
     setExName('')
     setNewMuscle('other')
+  }
+
+  /** Generic slot — the concrete exercise gets picked at workout start. */
+  function addSlot() {
+    // Number from the max surviving suffix — a plain count would mint a
+    // duplicate label after a slot is removed.
+    const prefix = `${slotMuscle} exercise `
+    let top = 0
+    for (const e of exercises) {
+      if (e.muscle !== slotMuscle || !e.name.startsWith(prefix)) continue
+      const n = Number(e.name.slice(prefix.length))
+      if (Number.isFinite(n)) top = Math.max(top, n)
+    }
+    setExercises([
+      ...exercises,
+      { name: `${prefix}${top + 1}`, setCount: 3, muscle: slotMuscle },
+    ])
   }
 
   function moveExercise(from: number, to: number) {
@@ -292,6 +311,11 @@ export function TemplateBuilder({
                 ≡
               </button>
               <span className="flex-1 truncate text-sm text-neutral-200">
+                {e.muscle !== undefined && (
+                  <span className="mr-1.5 rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-300">
+                    slot
+                  </span>
+                )}
                 {e.name}
               </span>
               <label className="flex items-center gap-1.5 text-xs text-neutral-500">
@@ -354,6 +378,26 @@ export function TemplateBuilder({
               </select>
             </label>
           )}
+          <label className="flex items-center gap-2 text-xs text-neutral-500">
+            or a generic slot:
+            <select
+              className={`${inputClass} w-auto py-1.5`}
+              value={slotMuscle}
+              onChange={(e) => setSlotMuscle(e.target.value)}
+            >
+              {MUSCLE_GROUPS.filter((m) => m !== 'other').map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={addSlot}
+              className="rounded-lg border border-neutral-700 px-3 py-1.5 text-neutral-300 hover:border-neutral-500"
+            >
+              Add slot
+            </button>
+          </label>
         </>
       ) : (
         <PlanFields plan={plan} onChange={setPlan} />

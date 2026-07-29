@@ -1,13 +1,26 @@
 import { storageKey } from './storage'
 import type { IntervalSection, WorkoutKind } from './workouts'
 
+export interface TemplateExercise {
+  /** Display label; for slots an auto-label like "quads exercise 1". */
+  name: string
+  setCount: number
+  /** Present = generic slot: the lifter picks a concrete exercise of this
+   * muscle group when starting a workout from the template. */
+  muscle?: string
+}
+
 export interface Template {
   id: string
   name: string
   kind: WorkoutKind
-  exercises?: Array<{ name: string; setCount: number }>
+  exercises?: TemplateExercise[]
   sections?: IntervalSection[]
   updatedAt?: string
+}
+
+export function hasSlots(t: Template): boolean {
+  return (t.exercises ?? []).some((e) => e.muscle !== undefined)
 }
 
 export interface QuickIntervalPlan {

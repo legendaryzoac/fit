@@ -32,6 +32,16 @@ interface IntervalSection {
 const KINDS = ['strength', 'speed', 'cardio'] as const
 type WorkoutKind = (typeof KINDS)[number]
 
+const DIFFICULTIES = ['easy', 'right', 'hard'] as const
+const VOLUMES = ['low', 'right', 'high'] as const
+type Difficulty = (typeof DIFFICULTIES)[number]
+type VolumeRating = (typeof VOLUMES)[number]
+
+interface WorkoutFeedback {
+  overall?: Difficulty
+  muscles: Record<string, { difficulty: Difficulty; volume: VolumeRating }>
+}
+
 interface Workout {
   id: string
   start: string
@@ -45,8 +55,40 @@ interface Workout {
   linkedSessionSk?: string
   durationMin?: number
   distanceM?: number
+  /** End-of-session autoregulation ratings (per muscle group). */
+  feedback?: WorkoutFeedback
   /** When an edit changed the start time: the old start whose row must go. */
   previousStart?: string
+}
+
+/** Optional enhancement field: malformed feedback is dropped, not a 400. */
+function parseFeedback(raw: unknown): WorkoutFeedback | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const r = raw as Record<string, unknown>
+  const overall = DIFFICULTIES.includes(r.overall as Difficulty)
+    ? (r.overall as Difficulty)
+    : undefined
+  const muscles: WorkoutFeedback['muscles'] = {}
+  if (typeof r.muscles === 'object' && r.muscles !== null) {
+    for (const [key, value] of Object.entries(r.muscles)) {
+      if (key.length === 0 || key.length > 40) continue
+      const m = value as Record<string, unknown>
+      if (
+        DIFFICULTIES.includes(m?.difficulty as Difficulty) &&
+        VOLUMES.includes(m?.volume as VolumeRating)
+      ) {
+        muscles[key] = {
+          difficulty: m.difficulty as Difficulty,
+          volume: m.volume as VolumeRating,
+        }
+      }
+      if (Object.keys(muscles).length >= 20) break
+    }
+  }
+  if (overall === undefined && Object.keys(muscles).length === 0) {
+    return undefined
+  }
+  return { ...(overall && { overall }), muscles }
 }
 
 const num = (v: unknown): number | undefined =>
@@ -116,6 +158,7 @@ function parseWorkout(raw: unknown): Workout | null {
         : undefined,
     durationMin: num(r.durationMin),
     distanceM: num(r.distanceM),
+    feedback: parseFeedback(r.feedback),
     previousStart:
       str(r.previousStart, 40) && !Number.isNaN(Date.parse(r.previousStart as string))
         ? new Date(r.previousStart as string).toISOString()
