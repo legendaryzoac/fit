@@ -76,6 +76,39 @@ weight and chases a rep.
 - Muscles with no ratings yet get volume-only guidance (a set added while
   under MEV), so the coach is useful before any feedback exists.
 
+## 6. Mesocycles (`web/src/lib/mesocycle.ts`)
+
+Opt-in blocks layered on the engine above; ad-hoc training is untouched.
+
+- **Shape**: N weeks (4–6 recommended, user-controlled), last week is the
+  deload. Focus muscles (up to 3) ramp +1 set/week through accumulation
+  (capped at +3); set additions freeze in the final accumulation week
+  (new volume before a deload has nowhere to be adapted to). The same
+  feedback engine, scoped to the meso's own sessions, modulates the ramp
+  — only downward in the frozen week.
+- **RIR ramp** (length-aware, conservative): descends to 0 in the final
+  accumulation week from a cap of 3 — 4-week meso: 2→1→0; 5-week:
+  3→2→1→0; 6-week: 3,3,2,1,0. Barbell compounds floor at 1 RIR.
+  Surfaced as an RPE placeholder (RPE ≈ 10 − RIR).
+- **Prescriptions anchor to logged actuals, unconditionally**: each
+  exercise's next target builds on the lifter's last logged top set
+  within the meso (overrides are absorbed, never corrected — log-anchored
+  loading beat fixed plans in Graham & Cleather 2021). Double progression
+  against the rep window; increments +5 lb upper / +10 lb lower, but
+  never a jump over ~5% of the load — coarse-increment lifts hold weight
+  and chase reps instead (evidence-equivalent for hypertrophy, Plotkin
+  2022). Week 1 falls back to overall history, then body weight for BW
+  moves, then "find a working weight at ~3 RIR".
+- **Deload week**: half the sets, half the reps, ~90% load, explicit
+  "stop far from failure" note. Overdue mesos clamp to deload
+  prescriptions until wrapped up.
+- **Documented divergences from the research spec**: non-focus muscles
+  hold the volume the lifter authored in their template rather than being
+  auto-cut to maintenance (the app never silently rewrites what the user
+  programmed — feedback can still trim them); the deload keeps a flat 90%
+  load rather than the spec's split-week 100%/50%; between-meso carryover
+  and missed-session policies are future work.
+
 ## Key sources
 
 - RP volume-landmark guides (Israetel):

@@ -6,6 +6,7 @@ import { Shell } from './components/ui'
 import { makeApi, type Api } from './lib/api'
 import { makeDemoApi } from './lib/demo'
 import { stopLockScreen } from './lib/lockScreen'
+import { saveMesoCache } from './lib/mesocycle'
 import { setDemoStorage } from './lib/storage'
 
 type Phase = AuthState | { phase: 'demo'; api: Api }
@@ -67,6 +68,9 @@ export default function App() {
           <button
             onClick={() => {
               setDemoStorage(true)
+              // The demo API regenerates from scratch — a meso cached by
+              // a previous demo visit would flash back then vanish.
+              saveMesoCache([])
               setAuth({ phase: 'demo', api: makeDemoApi() })
             }}
             className="text-sm text-teal-400 underline-offset-4 hover:text-teal-300 hover:underline"

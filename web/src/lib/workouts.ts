@@ -54,6 +54,10 @@ export interface Workout {
   distanceM?: number
   /** End-of-session ratings driving next-session recommendations. */
   feedback?: WorkoutFeedback
+  /** Ties the workout to the mesocycle that prescribed it. */
+  mesoId?: string
+  /** Which microcycle day this session was (index into the meso's days). */
+  mesoDayIndex?: number
   updatedAt?: string
   /** Set when an edit changes start: tells the API to move, not duplicate. */
   previousStart?: string

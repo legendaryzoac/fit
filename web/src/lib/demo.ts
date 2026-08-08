@@ -3,6 +3,7 @@
  * seam the real backend serves. No network, no accounts, nothing to abuse.
  */
 import type { Api } from './api'
+import type { Mesocycle } from './mesocycle'
 import type { Template } from './templates'
 import type { SessionRecord, Workout } from './workouts'
 
@@ -31,6 +32,7 @@ interface DemoStore {
   workouts: Workout[]
   templates: Template[]
   exercises: Array<{ name: string; muscle: string }>
+  mesos: Mesocycle[]
 }
 
 function generate(): DemoStore {
@@ -46,6 +48,7 @@ function generate(): DemoStore {
     workouts: [],
     templates: [],
     exercises: [{ name: 'Sled drag', muscle: 'full body' }],
+    mesos: [],
   }
 
   const DAYS = 200
@@ -371,6 +374,7 @@ export function makeDemoApi(): Api {
     }
     if (pathname === '/api/templates') return respond({ templates: store.templates })
     if (pathname === '/api/exercises') return respond({ exercises: store.exercises })
+    if (pathname === '/api/mesos') return respond({ mesos: store.mesos })
     return respond({ error: 'not found in demo' })
   }
 
@@ -403,6 +407,16 @@ export function makeDemoApi(): Api {
       }
       const id = new URL(path, 'http://demo').searchParams.get('id')
       store.templates = store.templates.filter((t) => t.id !== id)
+      return respond({ deleted: id })
+    }
+    if (path.startsWith('/api/mesos')) {
+      if (method === 'POST') {
+        const m = body as Mesocycle
+        store.mesos = [...store.mesos.filter((x) => x.id !== m.id), m]
+        return respond({ saved: m.id })
+      }
+      const id = new URL(path, 'http://demo').searchParams.get('id')
+      store.mesos = store.mesos.filter((m) => m.id !== id)
       return respond({ deleted: id })
     }
     if (path.startsWith('/api/exercises')) {

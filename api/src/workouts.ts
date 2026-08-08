@@ -57,6 +57,10 @@ interface Workout {
   distanceM?: number
   /** End-of-session autoregulation ratings (per muscle group). */
   feedback?: WorkoutFeedback
+  /** Ties the workout to the mesocycle that prescribed it. */
+  mesoId?: string
+  /** Which microcycle day this session was (index into the meso's days). */
+  mesoDayIndex?: number
   /** When an edit changed the start time: the old start whose row must go. */
   previousStart?: string
 }
@@ -159,6 +163,14 @@ function parseWorkout(raw: unknown): Workout | null {
     durationMin: num(r.durationMin),
     distanceM: num(r.distanceM),
     feedback: parseFeedback(r.feedback),
+    mesoId: str(r.mesoId, 64),
+    mesoDayIndex:
+      num(r.mesoDayIndex) !== undefined &&
+      Number.isInteger(r.mesoDayIndex) &&
+      (r.mesoDayIndex as number) >= 0 &&
+      (r.mesoDayIndex as number) <= 6
+        ? (r.mesoDayIndex as number)
+        : undefined,
     previousStart:
       str(r.previousStart, 40) && !Number.isNaN(Date.parse(r.previousStart as string))
         ? new Date(r.previousStart as string).toISOString()

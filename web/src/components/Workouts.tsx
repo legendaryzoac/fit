@@ -46,6 +46,17 @@ import {
   stopLockScreen,
 } from '../lib/lockScreen'
 import {
+  activeMeso,
+  loadMesoCache,
+  mesoWeek,
+  plannedSets,
+  prescribeExercises,
+  saveMesoCache,
+  type Mesocycle,
+  type Prescription,
+} from '../lib/mesocycle'
+import { MesoCard, MesoSetup } from './Mesocycle'
+import {
   applyRecommendations,
   feedbackMuscles,
   recommendations,
@@ -155,6 +166,7 @@ function ActiveWorkout({
   customs,
   lookup,
   bodyWeightLb,
+  prescriptions,
   onSaveCustom,
   onFinish,
   onCancel,
@@ -167,6 +179,8 @@ function ActiveWorkout({
   customs: CustomExercise[]
   lookup: (name: string) => string | undefined
   bodyWeightLb?: number
+  /** Meso targets per exercise — ghosts and check-offs adopt these. */
+  prescriptions?: Record<string, Prescription>
   onSaveCustom: (name: string, muscle: string) => void
   onFinish: (w: Workout) => void
   onCancel: () => void
@@ -179,13 +193,15 @@ function ActiveWorkout({
   const [now, setNow] = useState(Date.now())
   const [coachHidden, setCoachHidden] = useState(false)
 
-  // Computed at mount (session start), so the 7-day windows are fresh
+  // Computed at mount (session start), so the 7-day windows are fresh.
+  // Meso sessions get no global coach — the meso prescription IS the
+  // coaching, and the two would contradict each other.
   const recs = useMemo(
     () =>
-      isNew
+      isNew && !initial.mesoId
         ? recommendations(history, lookup)
         : ({} as Record<string, Recommendation>),
-    [isNew, history, lookup],
+    [isNew, initial.mesoId, history, lookup],
   )
 
   // Coach lines for the muscle groups this session actually trains
@@ -286,17 +302,24 @@ function ActiveWorkout({
       patchSet(ei, si, { done: false })
       return
     }
-    // Checking an empty row adopts last time's numbers — RP-style "same
-    // again". Bodyweight moves are the exception: they track TODAY's
-    // measured mass (losing a pound must show), falling back to last
-    // session's weight only when no measurement exists.
-    const bw = w.kind !== 'speed' && isBodyweight(w.exercises[ei].name)
+    // Checking an empty row adopts the target numbers — the meso
+    // prescription when there is one, else last time's (RP-style "same
+    // again"). Bodyweight moves track TODAY's measured mass. A typed
+    // value always wins, and whatever lands here anchors the next meso
+    // prescription — enter 355 where the plan said 335 and next session
+    // builds on 355.
+    const exName = w.exercises[ei].name
+    const bw = w.kind !== 'speed' && isBodyweight(exName)
+    const presc = prescriptions?.[exName]
     patchSet(ei, si, {
       done: true,
+      // BW moves always follow today's measurement, even inside a meso
       weight:
         current.weight ??
-        (bw ? (roundedBodyWeight ?? prev?.weight) : prev?.weight),
-      reps: current.reps ?? prev?.reps,
+        (bw
+          ? (roundedBodyWeight ?? presc?.weight ?? prev?.weight)
+          : (presc?.weight ?? prev?.weight)),
+      reps: current.reps ?? presc?.targetReps ?? prev?.reps,
       durationSec: current.durationSec ?? prev?.durationSec,
       distanceM: current.distanceM ?? prev?.distanceM,
     })
@@ -529,6 +552,7 @@ function ActiveWorkout({
         const prev = prevSetsFor(e.name)
         const muscle = lookup(e.name)
         const bw = w.kind !== 'speed' && isBodyweight(e.name)
+        const presc = prescriptions?.[e.name]
         return (
           <div
             key={ei}
@@ -572,6 +596,12 @@ function ActiveWorkout({
                 remove
               </button>
             </div>
+
+            {presc && (
+              <p className="-mt-1 mb-1.5 text-xs font-medium text-violet-300">
+                meso target: {presc.note}
+              </p>
+            )}
 
             <div className="mb-1 grid grid-cols-[1.25rem_2.75rem_1fr_1fr_2.4rem_2rem_1.5rem] items-center gap-1 text-[11px] uppercase tracking-wide text-neutral-600">
               <span>set</span>
@@ -653,12 +683,15 @@ function ActiveWorkout({
                         type="number"
                         inputMode="decimal"
                         placeholder={
-                          // bodyweight ghosts follow today's measurement
+                          // today's body weight rules BW moves (even in
+                          // a meso), then the meso target, then history
                           bw && roundedBodyWeight !== undefined
                             ? String(roundedBodyWeight)
-                            : ghost?.weight != null
-                              ? String(ghost.weight)
-                              : ''
+                            : presc?.weight != null
+                              ? String(presc.weight)
+                              : ghost?.weight != null
+                                ? String(ghost.weight)
+                                : ''
                         }
                         value={s.weight ?? ''}
                         onChange={(ev) =>
@@ -670,7 +703,11 @@ function ActiveWorkout({
                         type="number"
                         inputMode="numeric"
                         placeholder={
-                          ghost?.reps != null ? String(ghost.reps) : ''
+                          presc?.targetReps != null
+                            ? String(presc.targetReps)
+                            : ghost?.reps != null
+                              ? String(ghost.reps)
+                              : ''
                         }
                         value={s.reps ?? ''}
                         onChange={(ev) =>
@@ -681,7 +718,11 @@ function ActiveWorkout({
                         className={setInput}
                         type="number"
                         inputMode="decimal"
-                        placeholder="rpe"
+                        placeholder={
+                          presc && presc.rir != null
+                            ? String(10 - presc.rir) // RIR n ≈ RPE 10-n
+                            : 'rpe'
+                        }
                         value={s.rpe ?? ''}
                         onChange={(ev) =>
                           patchSet(ei, si, { rpe: numeric(ev.target.value) })
@@ -1027,6 +1068,7 @@ type Mode =
   | { m: 'timer'; draft: TimerDraft }
   | { m: 'slots'; template: Template }
   | { m: 'feedback'; workout: Workout }
+  | { m: 'meso-setup' }
 
 export function Workouts({ api }: { api: Api }) {
   const [segment, setSegment] = useState<'workouts' | 'analytics' | 'whoop'>(
@@ -1035,6 +1077,7 @@ export function Workouts({ api }: { api: Api }) {
   const [workouts, setWorkouts] = useState<Workout[]>(loadWorkoutCache)
   const [sessions, setSessions] = useState<SessionRecord[]>([])
   const [templates, setTemplates] = useState<Template[]>(loadTemplateCache)
+  const [mesos, setMesos] = useState<Mesocycle[]>(loadMesoCache)
   const [customs, setCustoms] = useState<CustomExercise[]>(loadCustomExercises)
   const muscleLookup = useMemo(() => makeMuscleLookup(customs), [customs])
   const [pendingCount, setPendingCount] = useState(() => loadPending().length)
@@ -1052,12 +1095,13 @@ export function Workouts({ api }: { api: Api }) {
 
   async function refresh() {
     try {
-      const [wRes, sRes, tRes, eRes, meRes] = await Promise.all([
+      const [wRes, sRes, tRes, eRes, meRes, mRes] = await Promise.all([
         api.get('/api/workouts?days=365'),
         api.get('/api/sessions?days=365'),
         api.get('/api/templates'),
         api.get('/api/exercises'),
         api.get('/api/me'),
+        api.get('/api/mesos'),
       ])
       if (wRes.ok) {
         const body = await wRes.json()
@@ -1087,6 +1131,13 @@ export function Workouts({ api }: { api: Api }) {
       if (meRes.ok) {
         const body = await meRes.json()
         setBodyWeightLb(body?.whoop?.bodyWeightLb)
+      }
+      if (mRes.ok) {
+        const body = await mRes.json()
+        if (Array.isArray(body.mesos)) {
+          setMesos(body.mesos)
+          saveMesoCache(body.mesos)
+        }
       }
       setOffline(false)
     } catch {
@@ -1118,9 +1169,14 @@ export function Workouts({ api }: { api: Api }) {
     return () => setInSession(false)
   }, [mode])
 
-  // Resume from the persistent bar while already mounted: re-enter the draft
+  // Resume from the persistent bar while already mounted: re-enter the
+  // draft — unless the user is mid-way through planning a mesocycle,
+  // which a mode swap would silently destroy.
+  const modeRef = useRef(mode)
+  modeRef.current = mode
   useEffect(() => {
     return onResume(() => {
+      if (modeRef.current.m === 'meso-setup') return
       const timer = loadTimerDraft()
       if (timer) {
         setMode({ m: 'timer', draft: timer })
@@ -1218,7 +1274,50 @@ export function Workouts({ api }: { api: Api }) {
     }
   }
 
+  function upsertMeso(meso: Mesocycle) {
+    // Optimistic — the card keeps working offline; refresh() reconciles.
+    setMesos((prev) => {
+      const next = [...prev.filter((m) => m.id !== meso.id), meso]
+      saveMesoCache(next)
+      return next
+    })
+    void api
+      .send('POST', '/api/mesos', meso)
+      .then((res) => {
+        if (!res.ok) throw new Error(`API responded ${res.status}`)
+      })
+      .catch(() => setError('Syncing the mesocycle needs a connection.'))
+  }
+
+  /** Start the given microcycle day with this week's prescriptions. */
+  function startMesoDay(meso: Mesocycle, dayIndex: number) {
+    const day = meso.days[dayIndex]
+    if (!day) return
+    const now = Date.now()
+    // Overdue mesos clamp to the deload week's (gentle) prescriptions
+    const week = Math.min(mesoWeek(meso, now), meso.weeks - 1)
+    const mesoWorkouts = workouts.filter((w) => w.mesoId === meso.id)
+    const planned = plannedSets(meso, day, week, mesoWorkouts, muscleLookup, now)
+    const w = newWorkout('strength')
+    w.mesoId = meso.id
+    w.mesoDayIndex = dayIndex
+    w.title = `${day.label} · wk ${week + 1}`
+    w.exercises = planned.map((e) => ({
+      name: e.name,
+      sets: Array.from({ length: e.setCount }, () => ({})),
+    }))
+    beginStrength(w)
+  }
+
   function beginStrength(w: Workout) {
+    // A minimized live session's draft must not be silently clobbered
+    if (
+      (loadDraft() || loadTimerDraft()) &&
+      !window.confirm('A session is already live — discard it and start this one?')
+    ) {
+      return
+    }
+    saveTimerDraft(null)
     // Still on a click's call stack — autoplay needs the gesture
     autoStartLockScreen()
     setMode({ m: 'strength', workout: w, isNew: true })
@@ -1286,6 +1385,30 @@ export function Workouts({ api }: { api: Api }) {
 
   if (mode.m === 'strength') {
     const originalStart = mode.workout.start
+    // Meso sessions carry per-exercise targets anchored to this meso's
+    // logged actuals; recomputed here so minimize/resume keeps them.
+    const meso = mode.workout.mesoId
+      ? mesos.find((x) => x.id === mode.workout.mesoId)
+      : undefined
+    let prescriptions: Record<string, Prescription> | undefined
+    if (meso && mode.isNew) {
+      const now = Date.now()
+      const week = Math.min(mesoWeek(meso, now), meso.weeks - 1)
+      prescriptions = prescribeExercises(
+        meso,
+        mode.workout.exercises.map((e) => e.name),
+        week,
+        workouts.filter(
+          (w) => w.mesoId === meso.id && w.id !== mode.workout.id,
+        ),
+        workouts,
+        Object.fromEntries(
+          mode.workout.exercises.map((e) => [e.name, e.sets.length]),
+        ),
+        muscleLookup,
+        bodyWeightLb,
+      )
+    }
     return (
       <ActiveWorkout
         initial={mode.workout}
@@ -1294,6 +1417,7 @@ export function Workouts({ api }: { api: Api }) {
         customs={customs}
         lookup={muscleLookup}
         bodyWeightLb={bodyWeightLb}
+        prescriptions={prescriptions}
         onSaveCustom={saveCustomExercise}
         onFinish={(w) =>
           finish(
@@ -1357,6 +1481,32 @@ export function Workouts({ api }: { api: Api }) {
         muscles={feedbackMuscles(mode.workout, muscleLookup)}
         onSubmit={(fb) => commitFinish({ ...mode.workout, feedback: fb })}
         onSkip={() => commitFinish(mode.workout)}
+      />
+    )
+  }
+
+  if (mode.m === 'meso-setup') {
+    return (
+      <MesoSetup
+        templates={templates}
+        customs={customs}
+        lookup={muscleLookup}
+        history={workouts}
+        onSave={(m) => {
+          // Slot-derived rows carry a muscle — register free-typed names
+          // so feedback/volume/prescriptions can resolve them (the same
+          // convention SlotFill established).
+          for (const day of m.days) {
+            for (const e of day.exercises) {
+              if (e.muscle && muscleLookup(e.name) === undefined) {
+                saveCustomExercise(e.name, e.muscle)
+              }
+            }
+          }
+          upsertMeso(m)
+          setMode({ m: 'list' })
+        }}
+        onCancel={() => setMode({ m: 'list' })}
       />
     )
   }
@@ -1491,6 +1641,19 @@ export function Workouts({ api }: { api: Api }) {
 
       {segment === 'workouts' && (
         <div className="flex flex-col gap-3">
+          <MesoCard
+            meso={activeMeso(mesos)}
+            workouts={workouts}
+            onStartDay={(i) => {
+              const m = activeMeso(mesos)
+              if (m) startMesoDay(m, i)
+            }}
+            onEnd={(status) => {
+              const m = activeMeso(mesos)
+              if (m) upsertMeso({ ...m, status })
+            }}
+            onPlan={() => setMode({ m: 'meso-setup' })}
+          />
           {workouts.length === 0 && (
             <p className="py-8 text-center text-sm text-neutral-600">
               Nothing logged yet — hit “Start workout” at the gym.
@@ -1502,23 +1665,23 @@ export function Workouts({ api }: { api: Api }) {
               workout={w}
               onEdit={() => setMode({ m: 'strength', workout: w, isNew: false })}
               onRepeat={() =>
-                setMode({
-                  m: 'strength',
-                  isNew: true,
-                  workout: {
-                    ...w,
-                    id: crypto.randomUUID(),
-                    start: new Date().toISOString(),
-                    end: undefined,
-                    updatedAt: undefined,
-                    // Ratings belong to the session they rated — a repeat
-                    // starts clean (Skip must not persist stale feedback).
-                    feedback: undefined,
-                    exercises: w.exercises.map((e) => ({
-                      ...e,
-                      sets: e.sets.map((s) => ({ ...s, done: false })),
-                    })),
-                  },
+                // Through beginStrength: guards a live draft like every
+                // other session start.
+                beginStrength({
+                  ...w,
+                  id: crypto.randomUUID(),
+                  start: new Date().toISOString(),
+                  end: undefined,
+                  updatedAt: undefined,
+                  // Ratings and meso membership belong to the session
+                  // they came from — a repeat is a plain ad-hoc workout.
+                  feedback: undefined,
+                  mesoId: undefined,
+                  mesoDayIndex: undefined,
+                  exercises: w.exercises.map((e) => ({
+                    ...e,
+                    sets: e.sets.map((s) => ({ ...s, done: false })),
+                  })),
                 })
               }
             />

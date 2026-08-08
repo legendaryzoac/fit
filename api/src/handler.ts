@@ -11,6 +11,11 @@ import {
   handleSaveExercise,
 } from './exercises'
 import { json } from './http'
+import {
+  handleDeleteMeso,
+  handleListMesos,
+  handleSaveMeso,
+} from './mesos'
 import { handleMetrics, handleSessions } from './metrics'
 import {
   handleDeleteTemplate,
@@ -102,6 +107,9 @@ export async function handler(
   if (route === 'GET /api/templates') return handleListTemplates(userId)
   if (route === 'POST /api/templates') return handleSaveTemplate(userId, event)
   if (route === 'DELETE /api/templates') return handleDeleteTemplate(userId, event)
+  if (route === 'GET /api/mesos') return handleListMesos(userId)
+  if (route === 'POST /api/mesos') return handleSaveMeso(userId, event)
+  if (route === 'DELETE /api/mesos') return handleDeleteMeso(userId, event)
   if (route === 'GET /api/exercises') return handleListExercises(userId)
   if (route === 'POST /api/exercises') return handleSaveExercise(userId, event)
   if (route === 'DELETE /api/exercises') return handleDeleteExercise(userId, event)
