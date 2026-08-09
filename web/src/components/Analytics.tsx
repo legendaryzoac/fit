@@ -46,13 +46,16 @@ const tooltipStyle = {
 const tooltipLabelStyle = { color: '#201e1d' }
 const GRID_STROKE = 'rgba(32,30,29,.18)'
 const dateTick = (d: string) => d.slice(5)
+// Focus muscle stays red; the rest cascade through the warm family
+// (burnt orange, mustard) before falling into the ink ramp.
 const MUSCLE_COLORS = [
   '#ec3013',
+  '#d96a10',
+  '#e0a112',
   '#201e1d',
   '#605d5d',
   '#9b9797',
   '#bab6b6',
-  '#d7d3d3',
 ]
 
 const squareDot =
@@ -190,7 +193,7 @@ export function Analytics({
               <Bar
                 yAxisId="strain"
                 dataKey="strain"
-                fill="#201e1d"
+                fill="#e0a112"
                 name="strain"
               />
               <Line
@@ -361,7 +364,7 @@ export function Analytics({
                     <Bar
                       yAxisId="volume"
                       dataKey="volume"
-                      fill="#9b9797"
+                      fill="#e0a112"
                       name="session volume"
                     />
                     <Line
@@ -466,9 +469,9 @@ export function Analytics({
                 <Line
                   type="monotone"
                   dataKey="bestSec"
-                  stroke="#ec3013"
+                  stroke="#d96a10"
                   strokeWidth={2}
-                  dot={squareDot('#ec3013')}
+                  dot={squareDot('#d96a10')}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -525,7 +528,7 @@ export function Analytics({
                 yAxisId="hr"
                 type="monotone"
                 dataKey="avgHr"
-                stroke="#201e1d"
+                stroke="#d96a10"
                 strokeWidth={1.5}
                 dot={false}
                 connectNulls
@@ -559,10 +562,10 @@ export function Analytics({
                 formatter={(value, name) => [`${value} h`, String(name)]}
               />
               <Bar dataKey="z1" stackId="z" fill="#d7d3d3" name="zone 1" />
-              <Bar dataKey="z2" stackId="z" fill="#bab6b6" name="zone 2" />
-              <Bar dataKey="z3" stackId="z" fill="#9b9797" name="zone 3" />
-              <Bar dataKey="z4" stackId="z" fill="#605d5d" name="zone 4" />
-              <Bar dataKey="z5" stackId="z" fill="#ec3013" name="zone 5" />
+              <Bar dataKey="z2" stackId="z" fill="#e0a112" name="zone 2" />
+              <Bar dataKey="z3" stackId="z" fill="#d96a10" name="zone 3" />
+              <Bar dataKey="z4" stackId="z" fill="#ec3013" name="zone 4" />
+              <Bar dataKey="z5" stackId="z" fill="#ae1800" name="zone 5" />
             </BarChart>
           </ResponsiveContainer>
           <p className="mt-1 text-xs text-ink/45">

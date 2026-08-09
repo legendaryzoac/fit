@@ -160,8 +160,8 @@ export function SleepStagesChart({ data }: { data: SleepPoint[] }) {
           ]}
         />
         <Bar dataKey="deep" stackId="s" fill="#ec3013" name="deep" />
-        <Bar dataKey="rem" stackId="s" fill="#201e1d" name="REM" />
-        <Bar dataKey="light" stackId="s" fill="#9b9797" name="light" />
+        <Bar dataKey="rem" stackId="s" fill="#d96a10" name="REM" />
+        <Bar dataKey="light" stackId="s" fill="#e0a112" name="light" />
         <Bar dataKey="awake" stackId="s" fill="#d7d3d3" name="awake" />
       </BarChart>
     </ResponsiveContainer>

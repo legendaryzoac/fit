@@ -605,21 +605,33 @@ export function MesoSetup({
                     >
                       Stopwatch
                     </button>
-                    {timerTemplates.map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() =>
-                          patchDay(di, {
-                            sections: (t.sections ?? []).map((s) => ({
-                              ...s,
-                            })),
-                          })
-                        }
-                        className="border border-ink/40 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink/60 hover:bg-ink/5"
-                      >
-                        {t.name}
-                      </button>
-                    ))}
+                    {timerTemplates.map((t) => {
+                      // sections are copied on pick, so match by content
+                      const selected =
+                        !!day.sections &&
+                        day.sections.length > 0 &&
+                        JSON.stringify(day.sections) ===
+                          JSON.stringify(t.sections ?? [])
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() =>
+                            patchDay(di, {
+                              sections: (t.sections ?? []).map((s) => ({
+                                ...s,
+                              })),
+                            })
+                          }
+                          className={`border px-2.5 py-1 text-[10px] uppercase tracking-wider ${
+                            selected
+                              ? 'border-accent bg-accent font-extrabold text-paper'
+                              : 'border-ink/40 font-semibold text-ink/60 hover:bg-ink/5'
+                          }`}
+                        >
+                          {t.name}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               ) : (

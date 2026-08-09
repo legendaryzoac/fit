@@ -41,6 +41,15 @@
   --color-accent2-700: #9e3526;
   --color-accent2-100: #fff2ef;
   --color-accent2-800: #71261b;
+
+  /* Warm companions to the red — chart series variety that stays in the
+     Modernist family (burnt orange, mustard gold). */
+  --color-orange-500: #f57d1f;
+  --color-orange-600: #d96a10;
+  --color-orange-700: #a34e08;
+  --color-gold-500: #e0a112;
+  --color-gold-600: #c08c0e;
+  --color-gold-700: #8f6807;
 }
 
 @layer base {

@@ -10,6 +10,7 @@ import {
 } from '../lib/sessionBus'
 import { fmtSec } from '../lib/templates'
 import { loadDraft, loadTimerDraft, timerSnapshot } from '../lib/workouts'
+import { PulseMark } from './ui'
 import { Workouts, type WorkoutsTab } from './Workouts'
 
 // Recharts only loads when someone opens a chart view — keeps the login
@@ -87,7 +88,7 @@ export function AppShell({
       <header className="sticky top-0 z-40 border-b-2 border-ink/40 bg-paper">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
           <div className="flex items-center gap-2">
-            <div className="h-2.5 w-2.5 bg-accent" />
+            <PulseMark className="h-6 w-6" />
             <span className="text-base font-extrabold tracking-wide">FIT</span>
           </div>
           <div className="flex items-center gap-3">

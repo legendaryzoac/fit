@@ -1,12 +1,15 @@
 import { useState } from 'react'
 
-/** The Modernist mark: a red square. Pairs with the FIT wordmark. */
+/** The Modernist mark: a geometric barbell — red plates on an ink bar.
+ * Pairs with the FIT wordmark. */
 export function PulseMark({ className = 'h-10 w-10' }: { className?: string }) {
   return (
     <svg viewBox="0 0 64 64" className={className} aria-hidden="true">
-      <rect width="64" height="64" className="fill-paper" />
-      <rect x="14" y="12" width="24" height="24" fill="#ec3013" />
-      <rect x="14" y="44" width="36" height="5" fill="#201e1d" />
+      <rect x="4" y="29" width="56" height="6" fill="#201e1d" />
+      <rect x="10" y="16" width="9" height="32" fill="#ec3013" />
+      <rect x="21" y="22" width="6" height="20" fill="#201e1d" />
+      <rect x="45" y="16" width="9" height="32" fill="#ec3013" />
+      <rect x="37" y="22" width="6" height="20" fill="#201e1d" />
     </svg>
   )
 }
@@ -15,7 +18,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-paper px-6 text-ink">
       <div className="flex items-center gap-3">
-        <div className="h-5 w-5 bg-accent" />
+        <PulseMark className="h-12 w-12" />
         <h1 className="text-5xl font-extrabold tracking-tight">FIT</h1>
       </div>
       {children}

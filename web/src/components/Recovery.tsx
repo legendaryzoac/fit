@@ -367,13 +367,13 @@ export function Recovery({ api }: { api: Api }) {
             title="Heart-rate variability"
             subtitle="RMSSD, ms · dashed 30-day baseline"
           >
-            <TrendChart data={hrvSeries} color="#ec3013" unit="ms" />
+            <TrendChart data={hrvSeries} color="#d96a10" unit="ms" />
           </Card>
           <Card
             title="Resting heart rate"
             subtitle="bpm · dashed 30-day baseline"
           >
-            <TrendChart data={rhrSeries} color="#ec3013" unit="bpm" />
+            <TrendChart data={rhrSeries} color="#ae1800" unit="bpm" />
           </Card>
           <Card title="Sleep stages" subtitle="hours per night">
             <SleepStagesChart data={sleepSeries} />
@@ -418,9 +418,9 @@ export function Recovery({ api }: { api: Api }) {
                   <Line
                     type="monotone"
                     dataKey="bed"
-                    stroke="#ec3013"
+                    stroke="#d96a10"
                     strokeWidth={2}
-                    dot={squareDot('#ec3013')}
+                    dot={squareDot('#d96a10')}
                     activeDot={false}
                     name="bedtime"
                   />
