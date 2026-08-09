@@ -29,15 +29,17 @@ function Segmented<T extends string>({
   onChange: (v: T) => void
 }) {
   return (
-    <div className="flex w-full rounded-full border border-neutral-800 p-0.5 text-sm">
-      {options.map((o) => (
+    <div className="flex w-full border border-ink/40">
+      {options.map((o, i) => (
         <button
           key={o.value}
           onClick={() => onChange(o.value)}
-          className={`flex-1 rounded-full py-1.5 ${
+          className={`flex-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider ${
+            i > 0 ? 'border-l border-ink/40 ' : ''
+          }${
             value === o.value
-              ? 'bg-teal-500/20 font-medium text-teal-200'
-              : 'text-neutral-500 hover:text-neutral-300'
+              ? 'bg-accent font-extrabold text-paper'
+              : 'text-ink/60 hover:bg-ink/5'
           }`}
         >
           {o.label}
@@ -77,12 +79,12 @@ export function FeedbackModal({
   )
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-neutral-950/80 backdrop-blur-sm sm:items-center">
-      <div className="max-h-[88dvh] w-full max-w-md overflow-y-auto rounded-t-2xl border border-neutral-800 bg-neutral-900 p-5 sm:rounded-2xl">
-        <h2 className="text-base font-semibold text-neutral-100">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-neutral-900/50 sm:items-center">
+      <div className="max-h-[88dvh] w-full max-w-md overflow-y-auto border-2 border-ink bg-paper p-5">
+        <h2 className="text-xl font-extrabold tracking-tight text-ink">
           How did it go?
         </h2>
-        <p className="mb-4 mt-1 text-xs text-neutral-500">
+        <p className="mb-4 mt-1 text-xs text-ink/55">
           30 seconds of honesty — this steers your next session’s sets and
           weights.
         </p>
@@ -90,9 +92,7 @@ export function FeedbackModal({
         <div className="flex flex-col gap-5">
           {muscles.map((muscle) => (
             <section key={muscle} className="flex flex-col gap-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-teal-300">
-                {muscle}
-              </h3>
+              <h3 className="kicker">{muscle}</h3>
               <Segmented
                 options={DIFFICULTY}
                 value={ratings[muscle]?.difficulty}
@@ -106,10 +106,8 @@ export function FeedbackModal({
             </section>
           ))}
 
-          <section className="flex flex-col gap-2 border-t border-neutral-800 pt-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
-              whole workout
-            </h3>
+          <section className="flex flex-col gap-2 border-t-2 border-ink/40 pt-2.5">
+            <h3 className="kicker-muted">whole workout</h3>
             <Segmented
               options={DIFFICULTY}
               value={overall}
@@ -135,7 +133,7 @@ export function FeedbackModal({
           </button>
           <button
             onClick={onSkip}
-            className="text-sm text-neutral-500 hover:text-neutral-300"
+            className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
           >
             Skip
           </button>

@@ -12,7 +12,7 @@ export default defineConfig({
       // We ship our own public/manifest.webmanifest
       manifest: false,
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,svg,webmanifest,woff2}'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         // Never cache API responses in the SW — the app layer handles

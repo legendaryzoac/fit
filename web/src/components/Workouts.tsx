@@ -62,13 +62,14 @@ import {
   recommendations,
   type Recommendation,
 } from '../lib/progression'
-import { onResume, setInSession } from '../lib/sessionBus'
+import { onResume, setInSession, setOverlay } from '../lib/sessionBus'
 import { FeedbackModal } from './Feedback'
 import { IntervalSession } from './IntervalTimer'
 import { LockScreenToggle } from './LockScreenToggle'
 import { Manage } from './Manage'
 import { SlotFill } from './SlotFill'
 import { PlanFields, TemplateBuilder } from './TemplateBuilder'
+import { Today } from './Today'
 import {
   buttonClass,
   Card,
@@ -83,15 +84,15 @@ const Analytics = lazy(() =>
   import('./Analytics').then((m) => ({ default: m.Analytics })),
 )
 
-// 16px font so iOS doesn't zoom on focus; big touch targets for gym thumbs
+// 16px font so iOS doesn't zoom on focus; big touch targets for gym thumbs.
+// Ledger cell: surface fill, square, bold tabular numerals.
 const setInput =
-  'w-full rounded-lg border border-neutral-800 bg-neutral-900 px-1 py-2.5 ' +
-  'text-center text-base text-neutral-100 placeholder-neutral-600 outline-none ' +
-  'focus:border-teal-500'
+  'w-full border border-ink/40 bg-surface px-1 py-2.5 text-center text-base ' +
+  'font-semibold text-ink placeholder:font-normal placeholder:text-ink/35 ' +
+  'outline-none focus:border-accent'
 
 const secondaryButton =
-  'rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-300 ' +
-  'hover:border-neutral-500'
+  'border border-ink/40 px-4 py-2 text-sm font-semibold text-ink hover:bg-ink/5'
 
 const YD = 0.9144
 const MILE = 1609.34
@@ -99,16 +100,18 @@ const MILE = 1609.34
 /** Long histories render in pages — keeps the list DOM small offline too. */
 const PAGE = 20
 
+// Kind identity in a monochrome+red system: strength=red, speed=ink,
+// cardio=salmon.
 const KIND_STYLE: Record<WorkoutKind, string> = {
-  strength: 'bg-teal-500/15 text-teal-300',
-  speed: 'bg-violet-500/15 text-violet-300',
-  cardio: 'bg-sky-500/15 text-sky-300',
+  strength: 'bg-accent-100 text-accent-800',
+  speed: 'bg-ink text-paper',
+  cardio: 'bg-accent2-100 text-accent2-800',
 }
 
 function KindPill({ kind }: { kind: WorkoutKind }) {
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${KIND_STYLE[kind]}`}
+      className={`px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${KIND_STYLE[kind]}`}
     >
       {kind}
     </span>
@@ -428,9 +431,9 @@ function ActiveWorkout({
 
   return (
     <div className="-mt-4 flex flex-col gap-4 pb-24">
-      {/* top-16 tucks under the sticky app header; 1fr_auto_1fr keeps the
+      {/* top-[58px] (header 56px + 2px rule) tucks under the sticky app header; 1fr_auto_1fr keeps the
           clock dead-centre no matter how wide the flanking cells are */}
-      <div className="sticky top-16 z-20 -mx-4 grid grid-cols-[1fr_auto_1fr] items-center border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-[58px] z-20 -mx-4 grid grid-cols-[1fr_auto_1fr] items-center border-b-2 border-ink/40 bg-paper px-4 py-2.5">
         <div className="justify-self-start">
           {isNew ? (
             <button
@@ -449,48 +452,52 @@ function ActiveWorkout({
           )}
         </div>
         {isNew ? (
-          <span className="justify-self-center font-mono text-sm tabular-nums text-teal-300">
+          <span className="justify-self-center text-2xl font-extrabold leading-none tabular-nums">
             {fmtElapsed(now - new Date(w.start).getTime())}
           </span>
         ) : (
           <span />
         )}
         {totalCount > 0 ? (
-          <span className="justify-self-end text-xs text-neutral-500">
-            {doneCount}/{totalCount} sets
+          <span className="justify-self-end text-[10px] font-semibold tracking-widest text-ink/55">
+            {doneCount} / {totalCount} SETS
           </span>
         ) : (
           <span />
         )}
       </div>
+      {isNew && totalCount > 0 && (
+        <div className="-mx-4 -mt-4 h-1 bg-ink/15">
+          <div
+            className="h-full bg-accent"
+            style={{ width: `${Math.round((doneCount / totalCount) * 100)}%` }}
+          />
+        </div>
+      )}
 
       {isNew && <LockScreenToggle className="-mt-2 flex justify-end" />}
 
       {coach.length > 0 && !coachHidden && (
-        <div className="rounded-xl border border-teal-500/25 bg-teal-500/5 p-3">
+        <div className="border-y-2 border-ink/40 py-2.5">
           <div className="mb-1.5 flex items-center justify-between">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-teal-300">
-              coach — from last time’s ratings
-            </p>
+            <p className="kicker">coach — from last time’s ratings</p>
             <button
               onClick={() => setCoachHidden(true)}
               aria-label="dismiss coach suggestions"
-              className="px-1 text-neutral-600 hover:text-neutral-300"
+              className="px-1 text-ink/40 hover:text-ink"
             >
               ✕
             </button>
           </div>
           <div className="flex flex-col gap-1 text-sm">
             {coach.map((r) => (
-              <p key={r.muscle} className="text-neutral-300">
-                <span className="font-medium capitalize text-neutral-100">
+              <p key={r.muscle} className="text-ink/80">
+                <span className="font-extrabold capitalize text-ink">
                   {r.muscle}
                 </span>
                 {' — '}
                 {r.summary}
-                <span className="block text-xs text-neutral-500">
-                  {r.reason}
-                </span>
+                <span className="block text-xs text-ink/50">{r.reason}</span>
               </p>
             ))}
           </div>
@@ -559,51 +566,49 @@ function ActiveWorkout({
             ref={(el) => {
               cardRefs.current[ei] = el
             }}
-            className={`rounded-xl border bg-neutral-900/60 p-3 ${
-              dragIndex === ei
-                ? 'border-teal-500 opacity-60'
-                : 'border-neutral-800/60'
+            className={`border-t-2 border-ink/40 pt-2.5 ${
+              dragIndex === ei ? 'bg-accent-100/70 outline outline-2 outline-accent' : ''
             }`}
           >
-            <div className="mb-2 flex items-baseline justify-between gap-2">
-              <p className="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-100">
+            <div className="mb-1 flex items-baseline justify-between gap-2">
+              <p className="min-w-0 flex-1 truncate text-xl font-extrabold tracking-tight text-ink">
                 {e.name}
-                {muscle && (
-                  <span className="ml-2 text-[11px] font-normal uppercase tracking-wide text-neutral-600">
-                    {muscle}
-                  </span>
-                )}
                 {bw && (
-                  <span className="ml-2 text-[10px] uppercase tracking-wide text-neutral-600">
+                  <span className="ml-2 align-middle text-[9px] font-semibold uppercase tracking-wider text-ink/45">
                     BW
                   </span>
                 )}
               </p>
+              {muscle && (
+                <span className="shrink-0 bg-surface px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-neutral-800">
+                  {muscle}
+                </span>
+              )}
               <button
                 onPointerDown={(ev) => onHandlePointerDown(ei, ev)}
                 onPointerMove={onHandlePointerMove}
                 onPointerUp={onHandlePointerUp}
                 onPointerCancel={onHandlePointerUp}
                 aria-label={`reorder ${e.name}`}
-                className="touch-none cursor-grab select-none px-1 text-base leading-none text-neutral-600 hover:text-neutral-300"
+                className="touch-none cursor-grab select-none px-1 text-base leading-none text-ink/40 hover:text-ink"
               >
                 ≡
               </button>
               <button
                 onClick={() => removeExercise(ei)}
-                className="text-xs text-neutral-600 hover:text-red-400"
+                className="text-[10px] font-semibold uppercase tracking-widest text-ink/40 hover:text-accent-700"
               >
                 remove
               </button>
             </div>
 
             {presc && (
-              <p className="-mt-1 mb-1.5 text-xs font-medium text-violet-300">
-                meso target: {presc.note}
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-accent-700">
+                target {presc.note}
               </p>
             )}
 
-            <div className="mb-1 grid grid-cols-[1.25rem_2.75rem_1fr_1fr_2.4rem_2rem_1.5rem] items-center gap-1 text-[11px] uppercase tracking-wide text-neutral-600">
+            <div className="grid grid-cols-[1.25rem_2.75rem_1fr_1fr_2.4rem_2rem_1.5rem] items-center gap-1 border-b-2 border-ink/40 pb-1 text-[9px] font-semibold uppercase tracking-widest text-ink/50">
               <span>set</span>
               <span>prev</span>
               {w.kind === 'speed' ? (
@@ -628,10 +633,12 @@ function ActiveWorkout({
               return (
                 <div
                   key={si}
-                  className="mb-1.5 grid grid-cols-[1.25rem_2.75rem_1fr_1fr_2.4rem_2rem_1.5rem] items-center gap-1"
+                  className="grid grid-cols-[1.25rem_2.75rem_1fr_1fr_2.4rem_2rem_1.5rem] items-center gap-1 border-b border-ink/20 py-1.5"
                 >
-                  <span className="text-sm text-neutral-500">{si + 1}</span>
-                  <span className="truncate text-[11px] text-neutral-600">
+                  <span className="text-sm font-extrabold text-ink">
+                    {si + 1}
+                  </span>
+                  <span className="truncate text-[11px] text-ink/50">
                     {ghost ? prevSummary(w.kind, ghost) : '—'}
                   </span>
                   {w.kind === 'speed' ? (
@@ -733,10 +740,10 @@ function ActiveWorkout({
                   <button
                     onClick={() => toggleDone(ei, si, ghost)}
                     aria-label={s.done ? 'set done' : 'mark set done'}
-                    className={`flex h-10 items-center justify-center rounded-lg border text-sm font-bold ${
+                    className={`flex h-10 items-center justify-center text-base font-extrabold ${
                       s.done
-                        ? 'border-teal-500 bg-teal-500 text-neutral-950'
-                        : 'border-neutral-700 text-neutral-600 hover:border-teal-500/60'
+                        ? 'bg-accent text-paper'
+                        : 'border border-ink/40 text-ink/35 hover:border-accent'
                     }`}
                   >
                     ✓
@@ -744,7 +751,7 @@ function ActiveWorkout({
                   <button
                     onClick={() => removeSet(ei, si)}
                     aria-label="remove set"
-                    className="flex h-10 items-center justify-center text-sm text-neutral-600 hover:text-red-400"
+                    className="flex h-10 items-center justify-center text-sm text-ink/35 hover:text-accent-700"
                   >
                     ✕
                   </button>
@@ -754,7 +761,7 @@ function ActiveWorkout({
 
             <button
               onClick={() => addSet(ei)}
-              className="mt-1 text-xs font-medium text-teal-400 hover:text-teal-300"
+              className="py-2 text-[10px] font-extrabold uppercase tracking-widest text-accent-700 hover:text-accent-600"
             >
               + add set
             </button>
@@ -783,7 +790,7 @@ function ActiveWorkout({
             </button>
           </div>
           {typedUnknown && (
-            <label className="flex items-center gap-2 text-xs text-neutral-500">
+            <label className="flex items-center gap-2 text-xs text-ink/55">
               new exercise — muscle group:
               <select
                 className={`${inputClass} w-auto py-1.5`}
@@ -808,20 +815,21 @@ function ActiveWorkout({
         onChange={(e) => setW({ ...w, notes: e.target.value || undefined })}
       />
 
-      <div className="fixed inset-x-0 bottom-0 border-t border-neutral-800/80 bg-neutral-950/95 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t-2 border-ink/40 bg-paper pb-[env(safe-area-inset-bottom)]">
+        <div className="mx-auto flex max-w-3xl items-center gap-4 px-4 py-3">
           <button
             onClick={() =>
               onFinish({ ...w, end: isNew ? new Date().toISOString() : w.end })
             }
-            className={`${buttonClass} flex-1`}
+            className={`${buttonClass} flex-1 justify-between`}
           >
             {isNew ? 'Finish workout' : 'Save changes'}
+            <span>→</span>
           </button>
           {isNew && (
             <button
               onClick={onCancel}
-              className="text-sm text-red-400/80 hover:text-red-400"
+              className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-accent-700"
             >
               Discard
             </button>
@@ -829,7 +837,7 @@ function ActiveWorkout({
           {onDelete && (
             <button
               onClick={() => onDelete(w)}
-              className="text-sm text-red-400/80 hover:text-red-400"
+              className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-accent-700"
             >
               Delete
             </button>
@@ -888,12 +896,12 @@ function StartPicker({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-medium text-neutral-300">
-          {kind === null ? 'What are you training?' : `Start ${kind}`}
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
+          {kind === null ? 'Start' : `Start ${kind}`}
         </h1>
         <button
           onClick={() => (kind === null ? onCancel() : setKind(null))}
-          className="text-sm text-neutral-500 hover:text-neutral-300"
+          className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
         >
           {kind === null ? 'Cancel' : '← Back'}
         </button>
@@ -904,14 +912,14 @@ function StartPicker({
           <button
             key={k}
             onClick={() => setKind(k)}
-            className="rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-4 text-left hover:border-neutral-600"
+            className="border border-ink/40 p-4 text-left hover:bg-ink/5"
           >
             <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${KIND_STYLE[k]}`}
+              className={`px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${KIND_STYLE[k]}`}
             >
               {k}
             </span>
-            <p className="mt-1.5 text-sm text-neutral-400">{KIND_BLURB[k]}</p>
+            <p className="mt-1.5 text-sm text-ink/70">{KIND_BLURB[k]}</p>
           </button>
         ))}
 
@@ -920,20 +928,18 @@ function StartPicker({
           {matching.map((t) => (
             <div
               key={t.id}
-              className="flex items-center gap-2 rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3"
+              className="flex items-center gap-2 border border-ink/40 p-3"
             >
               <button
                 onClick={() => startTemplate(t)}
                 className="flex-1 text-left"
               >
-                <p className="text-sm font-semibold text-neutral-100">
-                  {t.name}
-                </p>
-                <p className="text-xs text-neutral-500">{templateMeta(t)}</p>
+                <p className="text-base font-extrabold text-ink">{t.name}</p>
+                <p className="text-xs text-ink/55">{templateMeta(t)}</p>
               </button>
               <button
                 onClick={() => onDeleteTemplate(t)}
-                className="px-2 text-neutral-600 hover:text-red-400"
+                className="px-2 text-ink/35 hover:text-accent-700"
                 aria-label={`delete template ${t.name}`}
               >
                 ✕
@@ -941,30 +947,33 @@ function StartPicker({
             </div>
           ))}
           {matching.length === 0 && (
-            <p className="text-sm text-neutral-600">
-              No {kind} templates yet — build one from “Manage”.
+            <p className="text-sm text-ink/45">
+              No {kind} templates yet — build one from the Plan tab.
             </p>
           )}
 
           {kind === 'strength' ? (
-            <button onClick={() => onStrength()} className={`${buttonClass} w-full`}>
-              Blank strength session
+            <button
+              onClick={() => onStrength()}
+              className={`${buttonClass} w-full justify-between`}
+            >
+              Blank strength session<span>→</span>
             </button>
           ) : kind === 'cardio' ? (
             <button
               onClick={() => onTimer('cardio', [], undefined)}
-              className={`${buttonClass} w-full`}
+              className={`${buttonClass} w-full justify-between`}
             >
-              Start timer
+              Start timer<span>→</span>
             </button>
           ) : showCustom ? (
-            <div className="flex flex-col gap-3 rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3">
+            <div className="flex flex-col gap-3 border border-ink/40 p-3">
               <PlanFields plan={plan} onChange={setPlan} />
               <button
                 onClick={() => onTimer(kind, buildIntervals(plan))}
-                className={`${buttonClass} w-full`}
+                className={`${buttonClass} w-full justify-between`}
               >
-                Start timer
+                Start timer<span>→</span>
               </button>
             </div>
           ) : (
@@ -1012,44 +1021,45 @@ function WorkoutCard({
   if (workout.linkedSessionSk) metaParts.push('WHOOP linked')
 
   return (
-    <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-4">
-      <div className="mb-1 flex items-center gap-2">
-        <KindPill kind={workout.kind} />
-        <p className="text-sm font-semibold text-neutral-100">
+    <div className="border-t-2 border-ink/40 pt-2.5">
+      <div className="mb-0.5 flex items-baseline justify-between gap-2">
+        <p className="min-w-0 truncate text-lg font-extrabold tracking-tight text-ink">
           {workout.title ??
             `${workout.kind[0].toUpperCase()}${workout.kind.slice(1)} session`}
         </p>
+        <KindPill kind={workout.kind} />
       </div>
-      <p className="mb-2 text-xs text-neutral-500">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
         {fmtDateTime(workout.start)}
         {metaParts.map((part) => ` · ${part}`).join('')}
       </p>
-      <div className="flex flex-col gap-0.5 text-sm text-neutral-400">
+      <div className="flex flex-col gap-0.5 text-sm text-ink/80">
         {workout.exercises.slice(0, 4).map((e, i) => (
           <p key={i} className="truncate">
-            <span className="text-neutral-200">{e.name}</span>{' '}
-            <span className="text-neutral-500">
+            <span className="font-semibold text-ink">{e.name}</span>{' '}
+            <span className="text-ink/50">
               {e.sets.map((s) => prevSummary(workout.kind, s) ?? '—').join(', ')}
             </span>
           </p>
         ))}
         {workout.exercises.length > 4 && (
-          <p className="text-xs text-neutral-600">
+          <p className="text-xs text-ink/45">
             +{workout.exercises.length - 4} more
           </p>
         )}
-        {workout.notes && (
-          <p className="text-xs text-neutral-500">{workout.notes}</p>
-        )}
+        {workout.notes && <p className="text-xs text-ink/55">{workout.notes}</p>}
       </div>
-      <div className="mt-2 flex gap-4 text-xs font-medium">
-        <button onClick={onEdit} className="text-teal-400 hover:text-teal-300">
+      <div className="mt-2 flex gap-4">
+        <button
+          onClick={onEdit}
+          className="text-[10px] font-extrabold uppercase tracking-widest text-accent-700 hover:text-accent-600"
+        >
           Edit
         </button>
         {workout.kind === 'strength' && (
           <button
             onClick={onRepeat}
-            className="text-teal-400 hover:text-teal-300"
+            className="text-[10px] font-extrabold uppercase tracking-widest text-accent-700 hover:text-accent-600"
           >
             Repeat
           </button>
@@ -1062,7 +1072,6 @@ function WorkoutCard({
 type Mode =
   | { m: 'list' }
   | { m: 'pick' }
-  | { m: 'manage' }
   | { m: 'build'; initial?: Template }
   | { m: 'strength'; workout: Workout; isNew: boolean }
   | { m: 'timer'; draft: TimerDraft }
@@ -1070,10 +1079,13 @@ type Mode =
   | { m: 'feedback'; workout: Workout }
   | { m: 'meso-setup' }
 
-export function Workouts({ api }: { api: Api }) {
-  const [segment, setSegment] = useState<'workouts' | 'analytics' | 'whoop'>(
-    'workouts',
-  )
+/** Which bottom-nav tab this instance is rendering (Recovery lives in its
+ * own component). One Workouts instance persists across all four so live
+ * sessions, drafts, and caches survive tab hops. */
+export type WorkoutsTab = 'today' | 'history' | 'plan' | 'progress'
+
+export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
+  const [segment, setSegment] = useState<'log' | 'captured'>('log')
   const [workouts, setWorkouts] = useState<Workout[]>(loadWorkoutCache)
   const [sessions, setSessions] = useState<SessionRecord[]>([])
   const [templates, setTemplates] = useState<Template[]>(loadTemplateCache)
@@ -1161,12 +1173,17 @@ export function Workouts({ api }: { api: Api }) {
 
   useEffect(() => {
     setVisibleCount(PAGE)
-  }, [segment])
+  }, [segment, tab])
 
-  // Keep the session bus in sync so the resume bar knows when we're live
+  // Keep the session bus in sync so the resume bar knows when we're live,
+  // and tell the shell to yield the tab bar to full-screen flows.
   useEffect(() => {
     setInSession(mode.m === 'strength' || mode.m === 'timer')
-    return () => setInSession(false)
+    setOverlay(mode.m !== 'list')
+    return () => {
+      setInSession(false)
+      setOverlay(false)
+    }
   }, [mode])
 
   // Resume from the persistent bar while already mounted: re-enter the
@@ -1536,72 +1553,134 @@ export function Workouts({ api }: { api: Api }) {
             saveTemplateCache(next)
             return next
           })
-          setMode({ m: 'manage' })
+          setMode({ m: 'list' })
         }}
-        onCancel={() => setMode({ m: 'manage' })}
+        onCancel={() => setMode({ m: 'list' })}
       />
     )
   }
 
-  if (mode.m === 'manage') {
+  // ---- tabbed list content (mode 'list') ----
+
+  if (tab === 'today') {
     return (
-      <Manage
+      <Today
         api={api}
-        templates={templates}
-        customs={customs}
         workouts={workouts}
-        onNewTemplate={() => setMode({ m: 'build' })}
-        onEditTemplate={(t) => setMode({ m: 'build', initial: t })}
-        onDeleteTemplate={removeTemplate}
-        onCustomsChange={(next) => {
-          setCustoms(next)
-          saveCustomExercises(next)
+        meso={activeMeso(mesos)}
+        lookup={muscleLookup}
+        bodyWeightLb={bodyWeightLb}
+        onStartMesoDay={(i) => {
+          const m = activeMeso(mesos)
+          if (m) startMesoDay(m, i)
         }}
-        onTemplatesChange={(next) => {
-          setTemplates(next)
-          saveTemplateCache(next)
+        onStartWorkout={() => setMode({ m: 'pick' })}
+        onPlan={() => setMode({ m: 'meso-setup' })}
+        onEndMeso={() => {
+          const m = activeMeso(mesos)
+          if (m) upsertMeso({ ...m, status: 'completed' })
         }}
-        onWorkoutsChange={(next) => {
-          setWorkouts(next)
-          saveWorkoutCache(next)
-        }}
-        onClose={() => setMode({ m: 'list' })}
       />
     )
   }
 
+  if (tab === 'progress') {
+    return (
+      <Suspense
+        fallback={
+          <p className="py-12 text-center text-sm text-ink/45">Loading…</p>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <h1 className="text-2xl font-extrabold tracking-tight text-ink">
+            Progress
+          </h1>
+          <Analytics
+            api={api}
+            workouts={workouts}
+            sessions={sessions}
+            customs={customs}
+          />
+        </div>
+      </Suspense>
+    )
+  }
+
+  if (tab === 'plan') {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
+          Plan
+        </h1>
+        <MesoCard
+          meso={activeMeso(mesos)}
+          workouts={workouts}
+          onStartDay={(i) => {
+            const m = activeMeso(mesos)
+            if (m) startMesoDay(m, i)
+          }}
+          onEnd={(status) => {
+            const m = activeMeso(mesos)
+            if (m) upsertMeso({ ...m, status })
+          }}
+          onPlan={() => setMode({ m: 'meso-setup' })}
+        />
+        {error && (
+          <p className="text-sm font-semibold text-accent-700">{error}</p>
+        )}
+        <Manage
+          api={api}
+          templates={templates}
+          customs={customs}
+          workouts={workouts}
+          onNewTemplate={() => setMode({ m: 'build' })}
+          onEditTemplate={(t) => setMode({ m: 'build', initial: t })}
+          onDeleteTemplate={removeTemplate}
+          onCustomsChange={(next) => {
+            setCustoms(next)
+            saveCustomExercises(next)
+          }}
+          onTemplatesChange={(next) => {
+            setTemplates(next)
+            saveTemplateCache(next)
+          }}
+          onWorkoutsChange={(next) => {
+            setWorkouts(next)
+            saveWorkoutCache(next)
+          }}
+        />
+      </div>
+    )
+  }
+
+  // tab === 'history'
   return (
     <>
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-medium text-neutral-300">Training</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setMode({ m: 'manage' })}
-            className={secondaryButton}
-          >
-            Manage
-          </button>
-          <button onClick={() => setMode({ m: 'pick' })} className={buttonClass}>
-            Start workout
-          </button>
-        </div>
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
+          History
+        </h1>
+        <button onClick={() => setMode({ m: 'pick' })} className={buttonClass}>
+          Start workout
+        </button>
       </div>
 
-      <div className="flex w-full rounded-full border border-neutral-800 p-0.5 text-sm">
+      <div className="flex border border-ink/40">
         {(
           [
-            ['workouts', 'Workouts'],
-            ['analytics', 'Analytics'],
-            ['whoop', 'Captured'],
+            ['log', 'Logged'],
+            ['captured', 'Captured'],
           ] as const
-        ).map(([value, label]) => (
+        ).map(([value, label], i) => (
           <button
             key={value}
             onClick={() => setSegment(value)}
-            className={`flex-1 rounded-full py-1.5 ${
+            className={`flex-1 py-1.5 text-[10px] uppercase tracking-wider ${
+              i > 0 ? 'border-l border-ink/40' : ''
+            } ${
               segment === value
-                ? 'bg-neutral-800 text-neutral-100'
-                : 'text-neutral-500 hover:text-neutral-300'
+                ? 'bg-accent font-extrabold text-paper'
+                : 'font-semibold text-ink/60 hover:bg-ink/5'
             }`}
           >
             {label}
@@ -1610,52 +1689,24 @@ export function Workouts({ api }: { api: Api }) {
       </div>
 
       {offline && (
-        <p className="text-sm text-amber-400/90">
+        <p className="bg-accent-200 px-2 py-1 text-xs font-semibold text-accent-800">
           Offline — showing cached workouts.
           {pendingCount > 0 && ` ${pendingCount} pending sync.`}
         </p>
       )}
       {!offline && pendingCount > 0 && (
-        <p className="text-sm text-amber-400/90">
+        <p className="bg-accent-200 px-2 py-1 text-xs font-semibold text-accent-800">
           {pendingCount} workout(s) pending sync…
         </p>
       )}
-      {error && <p className="text-sm text-red-400">{error}</p>}
-
-      {segment === 'analytics' && (
-        <Suspense
-          fallback={
-            <p className="py-12 text-center text-sm text-neutral-600">
-              Loading…
-            </p>
-          }
-        >
-          <Analytics
-            api={api}
-            workouts={workouts}
-            sessions={sessions}
-            customs={customs}
-          />
-        </Suspense>
+      {error && (
+        <p className="text-sm font-semibold text-accent-700">{error}</p>
       )}
 
-      {segment === 'workouts' && (
+      {segment === 'log' && (
         <div className="flex flex-col gap-3">
-          <MesoCard
-            meso={activeMeso(mesos)}
-            workouts={workouts}
-            onStartDay={(i) => {
-              const m = activeMeso(mesos)
-              if (m) startMesoDay(m, i)
-            }}
-            onEnd={(status) => {
-              const m = activeMeso(mesos)
-              if (m) upsertMeso({ ...m, status })
-            }}
-            onPlan={() => setMode({ m: 'meso-setup' })}
-          />
           {workouts.length === 0 && (
-            <p className="py-8 text-center text-sm text-neutral-600">
+            <p className="py-8 text-center text-sm text-ink/45">
               Nothing logged yet — hit “Start workout” at the gym.
             </p>
           )}
@@ -1687,7 +1738,7 @@ export function Workouts({ api }: { api: Api }) {
             />
           ))}
           {workouts.length > PAGE && (
-            <p className="text-xs text-neutral-600">
+            <p className="text-xs text-ink/45">
               Showing {Math.min(visibleCount, workouts.length)} of{' '}
               {workouts.length}
             </p>
@@ -1703,7 +1754,7 @@ export function Workouts({ api }: { api: Api }) {
         </div>
       )}
 
-      {segment === 'whoop' &&
+      {segment === 'captured' &&
         (() => {
           const sorted = sessions
             .slice()
@@ -1712,7 +1763,7 @@ export function Workouts({ api }: { api: Api }) {
           return (
             <div className="flex flex-col gap-3">
               {sessions.length === 0 && (
-                <p className="py-8 text-center text-sm text-neutral-600">
+                <p className="py-8 text-center text-sm text-ink/45">
                   No captured activity yet — data from connected wearables lands
                   here automatically.
                 </p>
@@ -1723,7 +1774,7 @@ export function Workouts({ api }: { api: Api }) {
                   title={s.sport ?? 'Activity'}
                   subtitle={fmtDateTime(s.start)}
                 >
-                  <p className="text-sm text-neutral-400">
+                  <p className="text-sm text-ink/70">
                     {s.strain != null && `strain ${Math.round(s.strain * 10) / 10}`}
                     {s.avgHr != null && ` · ${Math.round(s.avgHr)} bpm avg`}
                     {s.maxHr != null && ` · ${Math.round(s.maxHr)} max`}
@@ -1733,7 +1784,7 @@ export function Workouts({ api }: { api: Api }) {
                 </Card>
               ))}
               {sorted.length > 0 && (
-                <p className="text-xs text-neutral-600">
+                <p className="text-xs text-ink/45">
                   Showing {visible.length} of {sorted.length}
                 </p>
               )}

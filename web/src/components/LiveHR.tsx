@@ -50,15 +50,21 @@ function parseHeartRate(value: DataView): number | null {
 
 // Copied from Workouts.tsx to keep this card self-contained.
 const secondaryButton =
-  'rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-300 ' +
-  'hover:border-neutral-500'
+  'border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink ' +
+  'hover:bg-ink/5'
 
-const tickStyle = { fill: '#737373', fontSize: 11 }
+const tickStyle = {
+  fill: '#7d7979',
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '.06em',
+}
 const tooltipStyle = {
-  backgroundColor: '#171717',
-  border: '1px solid #404040',
-  borderRadius: 8,
+  backgroundColor: '#f3f2f2',
+  border: '1px solid #201e1d',
+  borderRadius: 0,
   fontSize: 12,
+  color: '#201e1d',
 }
 
 const WINDOW_MS = 3 * 60 * 1000 // rolling ~3-minute chart window
@@ -76,7 +82,7 @@ export function LiveHR() {
   if (!supported) {
     return (
       <Card title="Live heart rate">
-        <p className="text-sm text-neutral-500">
+        <p className="text-sm text-ink/55">
           Live HR needs Web Bluetooth — use Chrome or Edge on desktop or
           Android, and turn on your strap&rsquo;s Broadcast Heart Rate mode.
           This browser doesn&rsquo;t support it.
@@ -203,21 +209,23 @@ function LiveHRConnected() {
               Connect HR monitor
             </button>
             {status === 'disconnected' && (
-              <span className="text-xs text-neutral-500">disconnected</span>
+              <span className="text-xs text-ink/55">disconnected</span>
             )}
           </div>
-          <p className="text-xs text-neutral-600">
+          <p className="text-xs text-ink/45">
             Pairs with any BLE chest strap, or a WHOOP with Broadcast Heart
             Rate enabled.
           </p>
-          {error && <p className="text-xs text-neutral-500">{error}</p>}
+          {error && (
+            <p className="text-xs font-semibold text-accent-700">{error}</p>
+          )}
         </div>
       ) : status === 'connecting' ? (
-        <p className="py-6 text-center text-sm text-neutral-500">Connecting…</p>
+        <p className="py-6 text-center text-sm text-ink/55">Connecting…</p>
       ) : (
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-neutral-500">
+            <span className="text-xs text-ink/55">
               {deviceName ?? 'Heart rate monitor'}
             </span>
             <button className={secondaryButton} onClick={disconnect}>
@@ -225,10 +233,10 @@ function LiveHRConnected() {
             </button>
           </div>
           <div className="text-center">
-            <span className="font-mono text-6xl tabular-nums text-teal-300">
+            <span className="text-6xl font-extrabold leading-none tracking-tight tabular-nums text-accent-700">
               {bpm ?? '—'}
             </span>
-            <span className="ml-2 text-sm text-neutral-500">bpm</span>
+            <span className="ml-2 text-sm text-ink/55">bpm</span>
           </div>
           {chartData.length > 1 ? (
             <ResponsiveContainer width="100%" height={180}>
@@ -236,11 +244,7 @@ function LiveHRConnected() {
                 data={chartData}
                 margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
               >
-                <CartesianGrid
-                  stroke="#262626"
-                  strokeDasharray="3 3"
-                  vertical={false}
-                />
+                <CartesianGrid stroke="rgba(32,30,29,.18)" vertical={false} />
                 <XAxis
                   dataKey="ago"
                   type="number"
@@ -260,22 +264,22 @@ function LiveHRConnected() {
                 />
                 <Tooltip
                   contentStyle={tooltipStyle}
-                  labelStyle={{ color: '#d4d4d4' }}
+                  labelStyle={{ color: '#201e1d' }}
                   formatter={(value) => [`${value} bpm`, 'HR']}
                   labelFormatter={(label) => `${label}s`}
                 />
                 <Line
                   type="monotone"
                   dataKey="bpm"
-                  stroke="#2dd4bf"
-                  strokeWidth={1.5}
+                  stroke="#ec3013"
+                  strokeWidth={2}
                   dot={false}
                   isAnimationActive={false}
                 />
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <p className="py-4 text-center text-sm text-neutral-600">
+            <p className="py-4 text-center text-sm text-ink/45">
               Waiting for beats…
             </p>
           )}

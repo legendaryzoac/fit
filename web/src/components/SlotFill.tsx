@@ -68,12 +68,12 @@ export function SlotFill({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-medium text-neutral-300">
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
           {template.name} — pick today’s exercises
         </h1>
         <button
           onClick={onCancel}
-          className="text-sm text-neutral-500 hover:text-neutral-300"
+          className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
         >
           Cancel
         </button>
@@ -83,21 +83,19 @@ export function SlotFill({
         entry.muscle === undefined ? (
           <div
             key={i}
-            className="flex items-baseline justify-between rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3"
+            className="flex items-baseline justify-between border border-ink/40 p-3"
           >
-            <span className="text-sm text-neutral-200">{entry.name}</span>
-            <span className="text-xs text-neutral-500">
-              {entry.setCount} sets
-            </span>
+            <span className="text-sm font-semibold text-ink">{entry.name}</span>
+            <span className="text-xs text-ink/55">{entry.setCount} sets</span>
           </div>
         ) : (
           <label
             key={i}
-            className="flex flex-col gap-1.5 rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3"
+            className="flex flex-col gap-1.5 border border-ink/40 p-3"
           >
-            <span className="flex items-baseline justify-between text-xs text-neutral-500">
+            <span className="flex items-baseline justify-between text-xs text-ink/55">
               <span>
-                <span className="mr-1.5 rounded-full bg-violet-500/15 px-2 py-0.5 font-medium text-violet-300">
+                <span className="mr-1.5 bg-accent-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent-800">
                   {entry.muscle}
                 </span>
                 {entry.name}
@@ -134,9 +132,9 @@ export function SlotFill({
             })),
           )
         }
-        className={`${buttonClass} w-full`}
+        className={`${buttonClass} w-full justify-between`}
       >
-        Start workout
+        Start workout<span>→</span>
       </button>
     </div>
   )

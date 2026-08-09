@@ -7,8 +7,8 @@ import { KIND_STYLE } from './TemplateBuilder'
 import { buttonClass, inputClass } from './ui'
 
 const secondaryButton =
-  'rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-300 ' +
-  'hover:border-neutral-500'
+  'border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink ' +
+  'hover:bg-ink/5'
 
 function templateMeta(t: Template): string {
   if (t.kind === 'strength' && t.exercises) {
@@ -44,7 +44,8 @@ export function Manage({
   onCustomsChange: (next: CustomExercise[]) => void
   onTemplatesChange: (next: Template[]) => void
   onWorkoutsChange: (next: Workout[]) => void
-  onClose: () => void
+  /** Absent when Manage renders inline as the Plan tab. */
+  onClose?: () => void
 }) {
   const [editing, setEditing] = useState<CustomExercise | null>(null)
   const [editName, setEditName] = useState('')
@@ -159,51 +160,51 @@ export function Manage({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-medium text-neutral-300">Manage</h1>
-        <button
-          onClick={onClose}
-          className="text-sm text-neutral-500 hover:text-neutral-300"
-        >
-          ← Back
-        </button>
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink">Manage</h1>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
+          >
+            ← Back
+          </button>
+        )}
       </div>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm font-semibold text-accent-700">{error}</p>}
 
-      <section className="flex flex-col gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-neutral-600">
-          Templates
-        </p>
+      <section className="flex flex-col gap-2 border-t-2 border-ink/40 pt-2.5">
+        <p className="kicker">Templates</p>
         {templates.length === 0 && (
-          <p className="text-sm text-neutral-600">
+          <p className="text-sm text-ink/45">
             No templates yet — they make starting a workout one tap.
           </p>
         )}
         {templates.map((t) => (
           <div
             key={t.id}
-            className="flex items-center gap-3 rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3"
+            className="flex items-center gap-3 border border-ink/40 p-3"
           >
             <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${KIND_STYLE[t.kind as WorkoutKind]}`}
+              className={`px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${KIND_STYLE[t.kind as WorkoutKind]}`}
             >
               {t.kind}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-neutral-100">
+              <p className="truncate text-sm font-semibold text-ink">
                 {t.name}
               </p>
-              <p className="text-xs text-neutral-500">{templateMeta(t)}</p>
+              <p className="text-xs text-ink/55">{templateMeta(t)}</p>
             </div>
             <button
               onClick={() => onEditTemplate(t)}
-              className="text-xs font-medium text-teal-400 hover:text-teal-300"
+              className="text-xs font-semibold text-accent-700 hover:text-accent"
             >
               Edit
             </button>
             <button
               onClick={() => onDeleteTemplate(t)}
-              className="px-1 text-neutral-600 hover:text-red-400"
+              className="px-1 text-ink/45 hover:text-accent-700"
               aria-label={`delete template ${t.name}`}
             >
               ✕
@@ -215,12 +216,10 @@ export function Manage({
         </button>
       </section>
 
-      <section className="flex flex-col gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-neutral-600">
-          Custom exercises
-        </p>
+      <section className="flex flex-col gap-2 border-t-2 border-ink/40 pt-2.5">
+        <p className="kicker">Custom exercises</p>
         {customs.length === 0 && (
-          <p className="text-sm text-neutral-600">
+          <p className="text-sm text-ink/45">
             Exercises you type in during a session are saved here for
             renaming or muscle-group fixes.
           </p>
@@ -232,7 +231,7 @@ export function Manage({
             editing && matches(editing.name, c.name) ? (
               <div
                 key={c.name}
-                className="flex flex-col gap-2 rounded-xl border border-teal-500/40 bg-neutral-900/60 p-3"
+                className="flex flex-col gap-2 border-2 border-accent p-3"
               >
                 <div className="flex gap-2">
                   <input
@@ -255,7 +254,7 @@ export function Manage({
                   </select>
                 </div>
                 {affectedCount > 0 && (
-                  <p className="text-xs text-amber-400/90">
+                  <p className="bg-accent-200 px-2 py-1 text-xs font-semibold text-accent-800">
                     Also renames it in {affectedCount} logged workout
                     {affectedCount === 1 ? '' : 's'}.
                   </p>
@@ -270,7 +269,7 @@ export function Manage({
                   </button>
                   <button
                     onClick={() => setEditing(null)}
-                    className="text-sm text-neutral-500 hover:text-neutral-300"
+                    className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
                   >
                     Cancel
                   </button>
@@ -279,23 +278,23 @@ export function Manage({
             ) : (
               <div
                 key={c.name}
-                className="flex items-center gap-3 rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3"
+                className="flex items-center gap-3 border border-ink/40 p-3"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-neutral-100">{c.name}</p>
-                  <p className="text-xs uppercase tracking-wide text-neutral-600">
+                  <p className="truncate text-sm text-ink">{c.name}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink/45">
                     {c.muscle}
                   </p>
                 </div>
                 <button
                   onClick={() => startEdit(c)}
-                  className="text-xs font-medium text-teal-400 hover:text-teal-300"
+                  className="text-xs font-semibold text-accent-700 hover:text-accent"
                 >
                   Edit
                 </button>
                 <button
                   onClick={() => deleteExercise(c)}
-                  className="px-1 text-neutral-600 hover:text-red-400"
+                  className="px-1 text-ink/45 hover:text-accent-700"
                   aria-label={`delete exercise ${c.name}`}
                 >
                   ✕

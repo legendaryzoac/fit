@@ -41,7 +41,7 @@ export function LoginCard({
 
   return (
     <form onSubmit={submit} className="flex w-full max-w-xs flex-col gap-3">
-      <p className="text-center text-sm text-neutral-400">
+      <p className="text-center text-sm text-ink/70">
         Training &amp; recovery, tracked properly. Accounts are invite-only.
       </p>
       <input
@@ -62,9 +62,10 @@ export function LoginCard({
         onChange={(e) => setPassword(e.target.value)}
         required
       />
-      {error && <p className="text-sm text-red-400">{error}</p>}
-      <button className={`${buttonClass} w-full`} disabled={busy}>
+      {error && <p className="text-sm font-semibold text-accent-700">{error}</p>}
+      <button className={`${buttonClass} w-full justify-between`} disabled={busy}>
         {busy ? 'Signing in…' : 'Sign in'}
+        <span>→</span>
       </button>
     </form>
   )
@@ -95,7 +96,7 @@ export function NewPasswordCard({
 
   return (
     <form onSubmit={submit} className="flex w-full max-w-xs flex-col gap-3">
-      <p className="text-center text-sm text-neutral-400">
+      <p className="text-center text-sm text-ink/70">
         Welcome — choose a password to finish setting up your account
         (12+ characters).
       </p>
@@ -109,9 +110,10 @@ export function NewPasswordCard({
         minLength={12}
         required
       />
-      {error && <p className="text-sm text-red-400">{error}</p>}
-      <button className={`${buttonClass} w-full`} disabled={busy}>
+      {error && <p className="text-sm font-semibold text-accent-700">{error}</p>}
+      <button className={`${buttonClass} w-full justify-between`} disabled={busy}>
         {busy ? 'Saving…' : 'Set password'}
+        <span>→</span>
       </button>
     </form>
   )

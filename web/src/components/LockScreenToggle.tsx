@@ -25,10 +25,10 @@ export function LockScreenToggle({ className }: { className?: string }) {
         onClick={() => void setLockScreenEnabled(!on)}
         aria-pressed={on}
         title="Show this session on the lock screen (plays a silent track, so it pauses other audio)"
-        className={`rounded-full border px-3 py-1 text-xs font-medium ${
+        className={`border px-3 py-1 text-xs font-semibold ${
           on
-            ? 'border-teal-500/60 bg-teal-500/10 text-teal-300'
-            : 'border-neutral-700 text-neutral-500 hover:text-neutral-300'
+            ? 'border-accent bg-accent text-paper'
+            : 'border-ink/40 text-ink/55 hover:bg-ink/5 hover:text-ink'
         }`}
       >
         {on ? '● Lock screen on' : '○ Lock screen'}

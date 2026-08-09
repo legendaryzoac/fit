@@ -30,22 +30,43 @@ import type { SessionRecord, Workout } from '../lib/workouts'
 import { LiveHR } from './LiveHR'
 import { Card } from './ui'
 
-const tickStyle = { fill: '#737373', fontSize: 11 }
-const tooltipStyle = {
-  backgroundColor: '#171717',
-  border: '1px solid #404040',
-  borderRadius: 8,
-  fontSize: 12,
+const tickStyle = {
+  fill: '#7d7979',
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '.06em',
 }
+const tooltipStyle = {
+  backgroundColor: '#f3f2f2',
+  border: '1px solid #201e1d',
+  borderRadius: 0,
+  fontSize: 12,
+  color: '#201e1d',
+}
+const tooltipLabelStyle = { color: '#201e1d' }
+const GRID_STROKE = 'rgba(32,30,29,.18)'
 const dateTick = (d: string) => d.slice(5)
 const MUSCLE_COLORS = [
-  '#2dd4bf',
-  '#a78bfa',
-  '#38bdf8',
-  '#f59e0b',
-  '#f87171',
-  '#737373',
+  '#ec3013',
+  '#201e1d',
+  '#605d5d',
+  '#9b9797',
+  '#bab6b6',
+  '#d7d3d3',
 ]
+
+const squareDot =
+  (color: string) =>
+  (props: { cx?: number; cy?: number; key?: React.Key | null }) => (
+    <rect
+      key={props.key ?? undefined}
+      x={(props.cx ?? 0) - 3}
+      y={(props.cy ?? 0) - 3}
+      width={6}
+      height={6}
+      fill={color}
+    />
+  )
 
 function axisProps() {
   return { tick: tickStyle, tickLine: false, axisLine: false } as const
@@ -63,10 +84,10 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 rounded-full px-3 py-1 text-xs ${
+      className={`shrink-0 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider ${
         active
-          ? 'bg-teal-500/15 text-teal-300'
-          : 'text-neutral-500 hover:text-neutral-300'
+          ? 'border border-ink bg-ink text-paper'
+          : 'border border-ink/40 text-ink/70 hover:bg-ink/5'
       }`}
     >
       {label}
@@ -150,7 +171,7 @@ export function Analytics({
               data={overlay}
               margin={{ top: 4, right: -14, bottom: 0, left: -18 }}
             >
-              <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid stroke={GRID_STROKE} vertical={false} />
               <XAxis
                 dataKey="date"
                 {...axisProps()}
@@ -165,20 +186,19 @@ export function Analytics({
                 width={40}
                 {...axisProps()}
               />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#d4d4d4' }} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
               <Bar
                 yAxisId="strain"
                 dataKey="strain"
-                fill="#6366f1"
+                fill="#201e1d"
                 name="strain"
-                radius={[2, 2, 0, 0]}
               />
               <Line
                 yAxisId="recovery"
                 type="monotone"
                 dataKey="recovery"
-                stroke="#2dd4bf"
-                strokeWidth={1.5}
+                stroke="#ec3013"
+                strokeWidth={2}
                 dot={false}
                 connectNulls
                 name="recovery %"
@@ -186,7 +206,7 @@ export function Analytics({
             </ComposedChart>
           </ResponsiveContainer>
         ) : (
-          <p className="py-6 text-center text-sm text-neutral-600">
+          <p className="py-6 text-center text-sm text-ink/45">
             {metricsError
               ? 'Could not load recovery data.'
               : metrics
@@ -198,7 +218,7 @@ export function Analytics({
 
       <Card title="Strength" subtitle="estimated 1RM (Epley) per training day">
         {exercises.length === 0 ? (
-          <p className="py-6 text-center text-sm text-neutral-600">
+          <p className="py-6 text-center text-sm text-ink/45">
             Log strength workouts with weight × reps to see e1RM trends and PRs.
           </p>
         ) : (
@@ -214,12 +234,12 @@ export function Analytics({
               ))}
             </div>
             {currentPr && (
-              <p className="text-sm text-neutral-400">
+              <p className="text-sm text-ink/70">
                 PR{' '}
-                <span className="font-semibold text-teal-300">
+                <span className="font-semibold text-accent-700">
                   {currentPr.bestE1rm} lb e1RM
                 </span>{' '}
-                <span className="text-neutral-500">
+                <span className="text-ink/55">
                   ({currentPr.bestSet} on {currentPr.date})
                 </span>
               </p>
@@ -230,11 +250,7 @@ export function Analytics({
                   data={e1rm}
                   margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
                 >
-                  <CartesianGrid
-                    stroke="#262626"
-                    strokeDasharray="3 3"
-                    vertical={false}
-                  />
+                  <CartesianGrid stroke={GRID_STROKE} vertical={false} />
                   <XAxis
                     dataKey="date"
                     {...axisProps()}
@@ -244,7 +260,7 @@ export function Analytics({
                   <YAxis width={46} domain={['auto', 'auto']} {...axisProps()} />
                   <Tooltip
                     contentStyle={tooltipStyle}
-                    labelStyle={{ color: '#d4d4d4' }}
+                    labelStyle={tooltipLabelStyle}
                     formatter={(value, _name, item) => [
                       `${value} lb (${(item?.payload as { bestSet?: string })?.bestSet ?? ''})`,
                       'e1RM',
@@ -253,14 +269,14 @@ export function Analytics({
                   <Line
                     type="monotone"
                     dataKey="e1rm"
-                    stroke="#2dd4bf"
-                    strokeWidth={1.5}
-                    dot={{ r: 2.5, fill: '#2dd4bf' }}
+                    stroke="#ec3013"
+                    strokeWidth={2}
+                    dot={squareDot('#ec3013')}
                   />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <p className="py-4 text-center text-sm text-neutral-600">
+              <p className="py-4 text-center text-sm text-ink/45">
                 One session logged — the trend appears after the next one.
               </p>
             )}
@@ -276,9 +292,9 @@ export function Analytics({
                 key={pr.exercise}
                 className="flex items-baseline justify-between text-sm"
               >
-                <span className="text-neutral-200">{pr.exercise}</span>
-                <span className="text-neutral-400">
-                  <span className="font-semibold text-teal-300">
+                <span className="text-ink">{pr.exercise}</span>
+                <span className="text-ink/70">
+                  <span className="font-semibold text-accent-700">
                     {pr.bestE1rm} lb
                   </span>{' '}
                   · {pr.bestSet} · {pr.date}
@@ -297,7 +313,7 @@ export function Analytics({
           {!deepDiveOpen ? (
             <button
               onClick={() => setDeepDiveOpen(true)}
-              className="w-full rounded-lg border border-neutral-700 px-4 py-2.5 text-sm text-neutral-300 hover:border-neutral-500"
+              className="w-full border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5"
             >
               Show exercise breakdown
             </button>
@@ -319,11 +335,7 @@ export function Analytics({
                     data={detail}
                     margin={{ top: 4, right: -14, bottom: 0, left: -10 }}
                   >
-                    <CartesianGrid
-                      stroke="#262626"
-                      strokeDasharray="3 3"
-                      vertical={false}
-                    />
+                    <CartesianGrid stroke={GRID_STROKE} vertical={false} />
                     <XAxis
                       dataKey="date"
                       {...axisProps()}
@@ -340,7 +352,7 @@ export function Analytics({
                     />
                     <Tooltip
                       contentStyle={tooltipStyle}
-                      labelStyle={{ color: '#d4d4d4' }}
+                      labelStyle={tooltipLabelStyle}
                       formatter={(value, name) => [
                         `${Number(value).toLocaleString()} lb`,
                         String(name),
@@ -349,33 +361,32 @@ export function Analytics({
                     <Bar
                       yAxisId="volume"
                       dataKey="volume"
-                      fill="#134e4a"
+                      fill="#9b9797"
                       name="session volume"
-                      radius={[2, 2, 0, 0]}
                     />
                     <Line
                       yAxisId="weight"
                       type="monotone"
                       dataKey="topWeight"
-                      stroke="#2dd4bf"
-                      strokeWidth={1.5}
-                      dot={{ r: 2.5, fill: '#2dd4bf' }}
+                      stroke="#ec3013"
+                      strokeWidth={2}
+                      dot={squareDot('#ec3013')}
                       name="top set"
                     />
                     <Line
                       yAxisId="weight"
                       type="monotone"
                       dataKey="e1rm"
-                      stroke="#a78bfa"
+                      stroke="#201e1d"
                       strokeWidth={1}
-                      strokeDasharray="4 4"
+                      strokeDasharray="2 3"
                       dot={false}
                       name="e1RM"
                     />
                   </ComposedChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="py-4 text-center text-sm text-neutral-600">
+                <p className="py-4 text-center text-sm text-ink/45">
                   No weighted sets logged for {activeExercise} yet.
                 </p>
               )}
@@ -391,12 +402,12 @@ export function Analytics({
               data={volume.rows}
               margin={{ top: 4, right: 4, bottom: 0, left: -10 }}
             >
-              <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid stroke={GRID_STROKE} vertical={false} />
               <XAxis dataKey="week" {...axisProps()} minTickGap={24} />
               <YAxis width={52} {...axisProps()} />
               <Tooltip
                 contentStyle={tooltipStyle}
-                labelStyle={{ color: '#d4d4d4' }}
+                labelStyle={tooltipLabelStyle}
                 formatter={(value, name) => [
                   `${Number(value).toLocaleString()} lb`,
                   String(name),
@@ -434,7 +445,7 @@ export function Analytics({
                 data={sprints}
                 margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
               >
-                <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+                <CartesianGrid stroke={GRID_STROKE} vertical={false} />
                 <XAxis
                   dataKey="date"
                   {...axisProps()}
@@ -449,20 +460,20 @@ export function Analytics({
                 />
                 <Tooltip
                   contentStyle={tooltipStyle}
-                  labelStyle={{ color: '#d4d4d4' }}
+                  labelStyle={tooltipLabelStyle}
                   formatter={(value) => [`${value}s`, 'best']}
                 />
                 <Line
                   type="monotone"
                   dataKey="bestSec"
-                  stroke="#a78bfa"
-                  strokeWidth={1.5}
-                  dot={{ r: 2.5, fill: '#a78bfa' }}
+                  stroke="#ec3013"
+                  strokeWidth={2}
+                  dot={squareDot('#ec3013')}
                 />
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <p className="py-4 text-center text-sm text-neutral-600">
+            <p className="py-4 text-center text-sm text-ink/45">
               Two timed sessions of a drill unlock the trend.
             </p>
           )}
@@ -479,7 +490,7 @@ export function Analytics({
               data={runs}
               margin={{ top: 4, right: -14, bottom: 0, left: -18 }}
             >
-              <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid stroke={GRID_STROKE} vertical={false} />
               <XAxis
                 dataKey="date"
                 {...axisProps()}
@@ -500,21 +511,21 @@ export function Analytics({
                 domain={['auto', 'auto']}
                 {...axisProps()}
               />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#d4d4d4' }} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
               <Line
                 yAxisId="pace"
                 type="monotone"
                 dataKey="paceMinMi"
-                stroke="#38bdf8"
-                strokeWidth={1.5}
-                dot={{ r: 2.5, fill: '#38bdf8' }}
+                stroke="#ec3013"
+                strokeWidth={2}
+                dot={squareDot('#ec3013')}
                 name="pace min/mi"
               />
               <Line
                 yAxisId="hr"
                 type="monotone"
                 dataKey="avgHr"
-                stroke="#f87171"
+                stroke="#201e1d"
                 strokeWidth={1.5}
                 dot={false}
                 connectNulls
@@ -522,7 +533,7 @@ export function Analytics({
               />
             </ComposedChart>
           </ResponsiveContainer>
-          <p className="mt-1 text-xs text-neutral-600">
+          <p className="mt-1 text-xs text-ink/45">
             Faster pace at the same heart rate = improving aerobic fitness.
             (Pace axis is reversed so up means faster.)
           </p>
@@ -539,28 +550,22 @@ export function Analytics({
               data={zones}
               margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
             >
-              <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid stroke={GRID_STROKE} vertical={false} />
               <XAxis dataKey="week" {...axisProps()} minTickGap={24} />
               <YAxis width={46} unit="h" {...axisProps()} />
               <Tooltip
                 contentStyle={tooltipStyle}
-                labelStyle={{ color: '#d4d4d4' }}
+                labelStyle={tooltipLabelStyle}
                 formatter={(value, name) => [`${value} h`, String(name)]}
               />
-              <Bar dataKey="z1" stackId="z" fill="#525252" name="zone 1" />
-              <Bar dataKey="z2" stackId="z" fill="#38bdf8" name="zone 2" />
-              <Bar dataKey="z3" stackId="z" fill="#2dd4bf" name="zone 3" />
-              <Bar dataKey="z4" stackId="z" fill="#f59e0b" name="zone 4" />
-              <Bar
-                dataKey="z5"
-                stackId="z"
-                fill="#f87171"
-                name="zone 5"
-                radius={[2, 2, 0, 0]}
-              />
+              <Bar dataKey="z1" stackId="z" fill="#d7d3d3" name="zone 1" />
+              <Bar dataKey="z2" stackId="z" fill="#bab6b6" name="zone 2" />
+              <Bar dataKey="z3" stackId="z" fill="#9b9797" name="zone 3" />
+              <Bar dataKey="z4" stackId="z" fill="#605d5d" name="zone 4" />
+              <Bar dataKey="z5" stackId="z" fill="#ec3013" name="zone 5" />
             </BarChart>
           </ResponsiveContainer>
-          <p className="mt-1 text-xs text-neutral-600">
+          <p className="mt-1 text-xs text-ink/45">
             Polarized training shows as tall grey/blue bases with thin red
             caps — big moderate middles mean junk-mileage risk.
           </p>

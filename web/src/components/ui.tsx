@@ -1,28 +1,25 @@
 import { useState } from 'react'
 
-export function PulseMark({ className = 'h-14 w-14' }: { className?: string }) {
+/** The Modernist mark: a red square. Pairs with the FIT wordmark. */
+export function PulseMark({ className = 'h-10 w-10' }: { className?: string }) {
   return (
     <svg viewBox="0 0 64 64" className={className} aria-hidden="true">
-      <rect width="64" height="64" rx="14" className="fill-neutral-900" />
-      <polyline
-        points="8,34 20,34 26,20 34,46 40,28 44,34 56,34"
-        fill="none"
-        stroke="#2dd4bf"
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <rect width="64" height="64" className="fill-paper" />
+      <rect x="14" y="12" width="24" height="24" fill="#ec3013" />
+      <rect x="14" y="44" width="36" height="5" fill="#201e1d" />
     </svg>
   )
 }
 
 export function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-neutral-950 px-6 text-neutral-100">
-      <PulseMark />
-      <h1 className="text-5xl font-semibold tracking-tight">fit</h1>
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-paper px-6 text-ink">
+      <div className="flex items-center gap-3">
+        <div className="h-5 w-5 bg-accent" />
+        <h1 className="text-5xl font-extrabold tracking-tight">FIT</h1>
+      </div>
       {children}
-      <footer className="fixed bottom-6 text-xs text-neutral-600">
+      <footer className="fixed bottom-6 text-xs font-semibold uppercase tracking-widest text-ink/40">
         a zackwithers.com project
       </footer>
     </main>
@@ -30,14 +27,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
 }
 
 export const inputClass =
-  'w-full rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm ' +
-  'text-neutral-100 placeholder-neutral-500 outline-none focus:border-teal-500'
+  'w-full border border-ink/40 bg-surface px-3 py-2 text-sm text-ink ' +
+  'placeholder:text-ink/35 outline-none hover:border-ink/60 focus:border-accent'
 
 // Width intentionally unset — callers add w-full/flex-1 where needed
 // (mixing w-full here with a w-auto override loses to stylesheet order)
 export const buttonClass =
-  'rounded-lg bg-teal-500 px-4 py-2 text-sm font-medium text-neutral-950 ' +
-  'hover:bg-teal-400 disabled:opacity-50'
+  'inline-flex items-center justify-center gap-1.5 bg-accent px-4 py-2.5 ' +
+  'text-sm font-extrabold text-paper hover:bg-accent-600 active:bg-accent-700 ' +
+  'disabled:opacity-45'
 
 /**
  * Number input that's pleasant to edit on a phone: while focused it holds
@@ -90,19 +88,17 @@ export function NumberField({
 
 // Compact bordered control for header actions — a visible button, not a
 // bare glyph (gym thumbs need an obvious target). Horizontal padding
-// intentionally unset — callers add px-3 (labeled) or sizing (icon-only);
-// baking in px-3 here would win or lose against overrides by stylesheet
-// order, not by intent.
+// intentionally unset — callers add px-3 (labeled) or sizing (icon-only).
 export const iconButtonClass =
-  'flex items-center gap-1.5 rounded-lg border border-neutral-700 py-1.5 ' +
-  'text-sm text-neutral-300 hover:border-neutral-500 hover:text-neutral-100'
+  'flex items-center gap-1.5 border border-ink/40 py-1.5 text-sm ' +
+  'font-semibold text-ink hover:bg-ink/5 active:bg-ink/10'
 
 const iconStroke = {
   fill: 'none',
   stroke: 'currentColor',
   strokeWidth: 2.5,
-  strokeLinecap: 'round',
-  strokeLinejoin: 'round',
+  strokeLinecap: 'square',
+  strokeLinejoin: 'miter',
 } as const
 
 export function ChevronDownIcon({ className = 'h-3.5 w-3.5' }) {
@@ -129,6 +125,11 @@ export function XIcon({ className = 'h-3.5 w-3.5' }) {
   )
 }
 
+/**
+ * Ruled section — the Modernist replacement for the boxed card: a 2px
+ * ink rule on top, red uppercase kicker title, content below. Same props
+ * API as the old Card so call sites don't change shape.
+ */
 export function Card({
   title,
   subtitle,
@@ -139,10 +140,14 @@ export function Card({
   children: React.ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-4">
-      <div className="mb-3">
-        <h2 className="text-sm font-medium text-neutral-200">{title}</h2>
-        {subtitle && <p className="text-xs text-neutral-500">{subtitle}</p>}
+    <section className="border-t-2 border-ink/40 pt-2.5">
+      <div className="mb-2.5">
+        <h2 className="kicker">{title}</h2>
+        {subtitle && (
+          <p className="mt-0.5 text-xs font-semibold text-ink/50">
+            {subtitle}
+          </p>
+        )}
       </div>
       {children}
     </section>

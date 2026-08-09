@@ -10,14 +10,46 @@ import {
   YAxis,
 } from 'recharts'
 
-const tickStyle = { fill: '#737373', fontSize: 11 }
-const tooltipStyle = {
-  backgroundColor: '#171717',
-  border: '1px solid #404040',
-  borderRadius: 8,
-  fontSize: 12,
+const tickStyle = {
+  fill: '#7d7979',
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '.06em',
 }
+const tooltipStyle = {
+  backgroundColor: '#f3f2f2',
+  border: '1px solid #201e1d',
+  borderRadius: 0,
+  fontSize: 12,
+  color: '#201e1d',
+}
+const gridStroke = 'rgba(32,30,29,.18)'
 const dateTick = (d: string) => d.slice(5)
+
+/** Square 6x6 data-point mark — the Modernist replacement for round dots. */
+export const squareDot =
+  (fill: string) =>
+  ({
+    cx,
+    cy,
+    key,
+  }: {
+    cx?: number
+    cy?: number
+    key?: React.Key | null
+  }) => {
+    if (cx == null || cy == null) return <g key={key ?? undefined} />
+    return (
+      <rect
+        key={key ?? undefined}
+        x={cx - 3}
+        y={cy - 3}
+        width={6}
+        height={6}
+        fill={fill}
+      />
+    )
+  }
 
 export interface TrendPoint {
   date: string
@@ -41,7 +73,7 @@ export function TrendChart({
   return (
     <ResponsiveContainer width="100%" height={180}>
       <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -18 }}>
-        <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+        <CartesianGrid stroke={gridStroke} vertical={false} />
         <XAxis
           dataKey="date"
           tick={tickStyle}
@@ -59,7 +91,7 @@ export function TrendChart({
         />
         <Tooltip
           contentStyle={tooltipStyle}
-          labelStyle={{ color: '#d4d4d4' }}
+          labelStyle={{ color: '#201e1d', fontWeight: 600 }}
           formatter={(value, name) => [
             `${Math.round(Number(value) * 10) / 10} ${unit}`,
             String(name) === 'baseline' ? baselineLabel : unit,
@@ -69,18 +101,20 @@ export function TrendChart({
           type="monotone"
           dataKey="value"
           stroke={color}
-          strokeWidth={1.5}
-          dot={false}
+          strokeWidth={2}
+          dot={squareDot(color)}
+          activeDot={false}
           connectNulls
           name="value"
         />
         <Line
           type="monotone"
           dataKey="baseline"
-          stroke="#737373"
+          stroke="#201e1d"
           strokeWidth={1}
-          strokeDasharray="4 4"
+          strokeDasharray="2 3"
           dot={false}
+          activeDot={false}
           connectNulls
           name="baseline"
         />
@@ -101,7 +135,7 @@ export function SleepStagesChart({ data }: { data: SleepPoint[] }) {
   return (
     <ResponsiveContainer width="100%" height={200}>
       <BarChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -18 }}>
-        <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+        <CartesianGrid stroke={gridStroke} vertical={false} />
         <XAxis
           dataKey="date"
           tick={tickStyle}
@@ -119,16 +153,16 @@ export function SleepStagesChart({ data }: { data: SleepPoint[] }) {
         />
         <Tooltip
           contentStyle={tooltipStyle}
-          labelStyle={{ color: '#d4d4d4' }}
+          labelStyle={{ color: '#201e1d', fontWeight: 600 }}
           formatter={(value, name) => [
             `${Math.round(Number(value) * 10) / 10} h`,
             String(name),
           ]}
         />
-        <Bar dataKey="deep" stackId="s" fill="#0f766e" name="deep" />
-        <Bar dataKey="rem" stackId="s" fill="#2dd4bf" name="REM" />
-        <Bar dataKey="light" stackId="s" fill="#99f6e4" name="light" />
-        <Bar dataKey="awake" stackId="s" fill="#525252" name="awake" />
+        <Bar dataKey="deep" stackId="s" fill="#ec3013" name="deep" />
+        <Bar dataKey="rem" stackId="s" fill="#201e1d" name="REM" />
+        <Bar dataKey="light" stackId="s" fill="#9b9797" name="light" />
+        <Bar dataKey="awake" stackId="s" fill="#d7d3d3" name="awake" />
       </BarChart>
     </ResponsiveContainer>
   )
@@ -146,16 +180,20 @@ export function StatCard({
   tone?: 'good' | 'warn' | 'bad' | 'neutral'
 }) {
   const toneClass = {
-    good: 'text-teal-300',
-    warn: 'text-amber-300',
-    bad: 'text-red-400',
-    neutral: 'text-neutral-100',
+    good: 'text-accent-700',
+    warn: 'text-ink/55',
+    bad: 'text-accent-600',
+    neutral: 'text-ink',
   }[tone]
   return (
-    <div className="rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3">
-      <p className="text-xs text-neutral-500">{label}</p>
-      <p className={`text-xl font-semibold ${toneClass}`}>{value}</p>
-      {sub && <p className="text-xs text-neutral-500">{sub}</p>}
+    <div className="border border-ink/40 p-3">
+      <p className="kicker-muted">{label}</p>
+      <p
+        className={`mt-1.5 text-2xl font-extrabold leading-none tracking-tight ${toneClass}`}
+      >
+        {value}
+      </p>
+      {sub && <p className="mt-1 text-xs font-semibold text-ink/45">{sub}</p>}
     </div>
   )
 }

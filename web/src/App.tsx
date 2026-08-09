@@ -73,7 +73,7 @@ export default function App() {
               saveMesoCache([])
               setAuth({ phase: 'demo', api: makeDemoApi() })
             }}
-            className="text-sm text-teal-400 underline-offset-4 hover:text-teal-300 hover:underline"
+            className="text-sm font-semibold text-accent-700 underline-offset-4 hover:text-accent-600 hover:underline"
           >
             No account? Explore the live demo →
           </button>

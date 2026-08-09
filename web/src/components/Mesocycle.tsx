@@ -43,7 +43,7 @@ export function MesoCard({
     return (
       <button
         onClick={onPlan}
-        className="rounded-xl border border-dashed border-neutral-700 p-3 text-left text-sm text-neutral-500 hover:border-neutral-500 hover:text-neutral-300"
+        className="border border-dashed border-ink/40 p-3 text-left text-sm font-semibold text-ink/55 hover:bg-ink/5 hover:text-ink"
       >
         + Plan a mesocycle — focused block with per-session prescriptions
       </button>
@@ -61,12 +61,12 @@ export function MesoCard({
   const wrapUp = overdue || deload
 
   return (
-    <div className="rounded-xl border border-violet-500/25 bg-violet-500/5 p-3">
+    <div className="border-t-2 border-ink/40 pt-2.5">
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <p className="min-w-0 truncate text-sm font-semibold text-neutral-100">
+        <p className="kicker min-w-0 truncate">
           {meso.name}
         </p>
-        <span className="shrink-0 rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-300">
+        <span className="shrink-0 bg-accent-200 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent-800">
           {overdue
             ? 'finished — wrap up'
             : deload
@@ -75,7 +75,7 @@ export function MesoCard({
         </span>
       </div>
       {meso.focus.length > 0 && (
-        <p className="mb-2 text-xs text-neutral-500">
+        <p className="mb-2 text-xs text-ink/55">
           focus: {meso.focus.join(', ')}
         </p>
       )}
@@ -85,10 +85,10 @@ export function MesoCard({
             <button
               key={i}
               onClick={() => onStartDay(i)}
-              className={`rounded-lg border px-3 py-1.5 text-sm ${
+              className={`border px-3 py-1.5 text-sm ${
                 i === next
-                  ? 'border-violet-500/60 bg-violet-500/10 text-violet-200'
-                  : 'border-neutral-700 text-neutral-400 hover:border-neutral-500'
+                  ? 'border-accent bg-accent font-extrabold text-paper'
+                  : 'border-ink/40 font-semibold text-ink/70 hover:bg-ink/5'
               }`}
             >
               {done.has(i) ? '✓ ' : ''}
@@ -97,11 +97,11 @@ export function MesoCard({
           ))}
         </div>
       )}
-      <div className="flex gap-4 text-xs font-medium">
+      <div className="flex gap-4 text-xs">
         {overdue && (
           <button
             onClick={() => onEnd('completed')}
-            className="text-teal-400 hover:text-teal-300"
+            className="font-semibold text-accent-700 hover:text-accent"
           >
             Mark completed
           </button>
@@ -112,7 +112,7 @@ export function MesoCard({
               onEnd(wrapUp ? 'completed' : 'abandoned')
             }
           }}
-          className="text-neutral-600 hover:text-red-400"
+          className="font-semibold text-ink/45 hover:text-accent-700"
         >
           End meso
         </button>
@@ -253,7 +253,7 @@ export function MesoSetup({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-medium text-neutral-300">
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
           Plan a mesocycle
         </h1>
         <button
@@ -263,7 +263,7 @@ export function MesoSetup({
               onCancel()
             }
           }}
-          className="text-sm text-neutral-500 hover:text-neutral-300"
+          className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
         >
           Cancel
         </button>
@@ -277,7 +277,7 @@ export function MesoSetup({
         onChange={(e) => setName(e.target.value)}
       />
 
-      <label className="flex items-center gap-2 text-sm text-neutral-400">
+      <label className="flex items-center gap-2 text-sm text-ink/70">
         length
         <NumberField
           className={`${inputClass} w-16 text-center`}
@@ -291,7 +291,7 @@ export function MesoSetup({
       </label>
 
       <div className="flex flex-col gap-1.5">
-        <p className="text-xs uppercase tracking-wide text-neutral-600">
+        <p className="kicker">
           focus muscles (up to 3) — these ramp toward their weekly max while
           everything else holds steady
         </p>
@@ -300,10 +300,10 @@ export function MesoSetup({
             <button
               key={m}
               onClick={() => toggleFocus(m)}
-              className={`rounded-full border px-3 py-1 text-sm ${
+              className={`border px-3 py-1 text-sm ${
                 focus.includes(m)
-                  ? 'border-violet-500/60 bg-violet-500/10 text-violet-200'
-                  : 'border-neutral-700 text-neutral-500 hover:text-neutral-300'
+                  ? 'border-accent bg-accent font-extrabold text-paper'
+                  : 'border-ink/40 font-semibold text-ink/60 hover:bg-ink/5'
               }`}
             >
               {m}
@@ -315,7 +315,9 @@ export function MesoSetup({
       {days.map((day, di) => (
         <div
           key={di}
-          className="flex flex-col gap-2 rounded-xl border border-neutral-800/60 bg-neutral-900/60 p-3"
+          className={`flex flex-col gap-2 border border-ink/40 p-3 ${
+            di > 0 ? '-mt-4 border-t-0' : ''
+          }`}
         >
           <div className="flex items-center gap-2">
             <input
@@ -328,7 +330,7 @@ export function MesoSetup({
             <button
               onClick={() => setDays((prev) => prev.filter((_, j) => j !== di))}
               aria-label={`remove ${day.label}`}
-              className="shrink-0 px-1 text-neutral-600 hover:text-red-400"
+              className="shrink-0 px-1 text-ink/45 hover:text-accent-700"
             >
               <XIcon />
             </button>
@@ -354,7 +356,7 @@ export function MesoSetup({
                   })
                 }
               />
-              <label className="flex shrink-0 items-center gap-1.5 text-xs text-neutral-500">
+              <label className="flex shrink-0 items-center gap-1.5 text-xs text-ink/55">
                 sets
                 <NumberField
                   className={`${inputClass} w-14 text-center`}
@@ -378,7 +380,7 @@ export function MesoSetup({
                   })
                 }
                 aria-label="remove exercise"
-                className="shrink-0 text-neutral-600 hover:text-red-400"
+                className="shrink-0 text-ink/45 hover:text-accent-700"
               >
                 ✕
               </button>
@@ -391,7 +393,7 @@ export function MesoSetup({
                   exercises: [...day.exercises, { name: '', setCount: 3 }],
                 })
               }
-              className="self-start text-xs font-medium text-teal-400 hover:text-teal-300"
+              className="self-start text-xs font-semibold text-accent-700 hover:text-accent"
             >
               + add exercise
             </button>
@@ -406,7 +408,7 @@ export function MesoSetup({
 
       {days.length < 7 && (
         <div className="flex flex-col gap-2">
-          <p className="text-xs uppercase tracking-wide text-neutral-600">
+          <p className="kicker">
             add a training day
           </p>
           <div className="flex flex-wrap gap-2">
@@ -414,14 +416,14 @@ export function MesoSetup({
               <button
                 key={t.id}
                 onClick={() => addDayFromTemplate(t)}
-                className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500"
+                className="border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5"
               >
                 from “{t.name}”
               </button>
             ))}
             <button
               onClick={addBlankDay}
-              className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 hover:border-neutral-500"
+              className="border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5"
             >
               blank day
             </button>
@@ -429,10 +431,13 @@ export function MesoSetup({
         </div>
       )}
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && (
+        <p className="text-sm font-semibold text-accent-700">{error}</p>
+      )}
 
-      <button onClick={save} className={`${buttonClass} w-full`}>
+      <button onClick={save} className={`${buttonClass} w-full justify-between`}>
         Start mesocycle
+        <span>→</span>
       </button>
     </div>
   )

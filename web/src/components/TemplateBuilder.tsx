@@ -21,9 +21,9 @@ import type { WorkoutKind } from '../lib/workouts'
 import { buttonClass, inputClass, NumberField } from './ui'
 
 export const KIND_STYLE: Record<WorkoutKind, string> = {
-  strength: 'bg-teal-500/15 text-teal-300',
-  speed: 'bg-violet-500/15 text-violet-300',
-  cardio: 'bg-sky-500/15 text-sky-300',
+  strength: 'bg-accent-100 text-accent-800',
+  speed: 'bg-ink text-paper',
+  cardio: 'bg-accent2-100 text-accent2-800',
 }
 
 const PLAN_FIELDS: Array<{
@@ -52,7 +52,7 @@ export function PlanFields({
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         {PLAN_FIELDS.map(({ key, label, min, max }) => (
           <label key={key} className="flex flex-col gap-1">
-            <span className="text-[11px] uppercase tracking-wide text-neutral-600">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-ink/55">
               {label}
             </span>
             <NumberField
@@ -65,7 +65,7 @@ export function PlanFields({
           </label>
         ))}
       </div>
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-ink/55">
         {sections.length} sections · {fmtSec(totalSec(sections))} total ·{' '}
         {sections.map((s) => s.label[0]).join('·')}
       </p>
@@ -252,26 +252,28 @@ export function TemplateBuilder({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-medium text-neutral-300">
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
           {initial ? 'Edit template' : 'New template'}
         </h1>
         <button
           onClick={onCancel}
-          className="text-sm text-neutral-500 hover:text-neutral-300"
+          className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
         >
           Cancel
         </button>
       </div>
 
-      <div className="flex gap-2">
-        {(['strength', 'speed', 'cardio'] as const).map((k) => (
+      <div className="flex border border-ink/40">
+        {(['strength', 'speed', 'cardio'] as const).map((k, ki) => (
           <button
             key={k}
             onClick={() => setKind(k)}
-            className={`rounded-full px-3 py-1.5 text-sm capitalize ${
+            className={`flex-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider ${
+              ki > 0 ? 'border-l border-ink/40 ' : ''
+            }${
               kind === k
-                ? KIND_STYLE[k]
-                : 'text-neutral-500 hover:text-neutral-300'
+                ? `font-extrabold ${KIND_STYLE[k]}`
+                : 'text-ink/60 hover:bg-ink/5'
             }`}
           >
             {k}
@@ -294,9 +296,9 @@ export function TemplateBuilder({
               ref={(el) => {
                 rowRefs.current[i] = el
               }}
-              className={`flex items-center gap-2 rounded-lg border p-1 ${
+              className={`flex items-center gap-2 border p-1 ${
                 dragIndex === i
-                  ? 'border-teal-500 opacity-60'
+                  ? 'border-accent opacity-60'
                   : 'border-transparent'
               }`}
             >
@@ -306,19 +308,19 @@ export function TemplateBuilder({
                 onPointerUp={onHandlePointerUp}
                 onPointerCancel={onHandlePointerUp}
                 aria-label={`reorder ${e.name}`}
-                className="touch-none cursor-grab select-none px-1 text-base leading-none text-neutral-600 hover:text-neutral-300"
+                className="touch-none cursor-grab select-none px-1 text-base leading-none text-ink/45 hover:text-ink"
               >
                 ≡
               </button>
-              <span className="flex-1 truncate text-sm text-neutral-200">
+              <span className="flex-1 truncate text-sm text-ink">
                 {e.muscle !== undefined && (
-                  <span className="mr-1.5 rounded-full bg-violet-500/15 px-2 py-0.5 text-[11px] font-medium text-violet-300">
+                  <span className="mr-1.5 bg-accent-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent-800">
                     slot
                   </span>
                 )}
                 {e.name}
               </span>
-              <label className="flex items-center gap-1.5 text-xs text-neutral-500">
+              <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/55">
                 sets
                 <NumberField
                   className={`${inputClass} w-16 text-center`}
@@ -337,7 +339,7 @@ export function TemplateBuilder({
               </label>
               <button
                 onClick={() => setExercises(exercises.filter((_, j) => j !== i))}
-                className="text-neutral-600 hover:text-red-400"
+                className="text-ink/45 hover:text-accent-700"
                 aria-label="remove exercise"
               >
                 ✕
@@ -363,7 +365,7 @@ export function TemplateBuilder({
             </button>
           </div>
           {typedUnknown && (
-            <label className="flex items-center gap-2 text-xs text-neutral-500">
+            <label className="flex items-center gap-2 text-xs text-ink/55">
               new exercise — muscle group:
               <select
                 className={`${inputClass} w-auto py-1.5`}
@@ -378,7 +380,7 @@ export function TemplateBuilder({
               </select>
             </label>
           )}
-          <label className="flex items-center gap-2 text-xs text-neutral-500">
+          <label className="flex items-center gap-2 text-xs text-ink/55">
             or a generic slot:
             <select
               className={`${inputClass} w-auto py-1.5`}
@@ -393,7 +395,7 @@ export function TemplateBuilder({
             </select>
             <button
               onClick={addSlot}
-              className="rounded-lg border border-neutral-700 px-3 py-1.5 text-neutral-300 hover:border-neutral-500"
+              className="border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5"
             >
               Add slot
             </button>
@@ -403,10 +405,15 @@ export function TemplateBuilder({
         <PlanFields plan={plan} onChange={setPlan} />
       )}
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm font-semibold text-accent-700">{error}</p>}
 
-      <button onClick={save} disabled={busy} className={`${buttonClass} w-full`}>
-        {busy ? 'Saving…' : 'Save template'}
+      <button
+        onClick={save}
+        disabled={busy}
+        className={`${buttonClass} w-full justify-between`}
+      >
+        <span>{busy ? 'Saving…' : 'Save template'}</span>
+        <span>→</span>
       </button>
     </div>
   )

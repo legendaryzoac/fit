@@ -31,9 +31,9 @@ const MILE = 1609.34
 const YD = 0.9144
 
 const repInput =
-  'w-full rounded-lg border border-neutral-800 bg-neutral-900 px-1 py-2 ' +
-  'text-center text-base text-neutral-100 placeholder-neutral-600 outline-none ' +
-  'focus:border-teal-500'
+  'w-full border border-ink/40 bg-surface px-1 py-2 text-center text-base ' +
+  'font-semibold text-ink placeholder:font-normal placeholder:text-ink/35 ' +
+  'outline-none focus:border-accent'
 
 /** Post-timer rep logging for speed sessions — feeds the sprint analytics. */
 function DrillSetsEditor({
@@ -80,21 +80,21 @@ function DrillSetsEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-ink/55">
         Log your rep times (optional — powers the speed trend chart):
       </p>
       {drills.map((d, di) => (
-        <div key={di} className="rounded-lg border border-neutral-800 p-2.5">
+        <div key={di} className="border-t-2 border-ink/40 pt-2">
           <div className="mb-1.5 flex items-baseline justify-between">
-            <p className="text-sm font-medium text-neutral-200">{d.name}</p>
+            <p className="text-base font-extrabold text-ink">{d.name}</p>
             <button
               onClick={() => onChange(drills.filter((_, i) => i !== di))}
-              className="text-xs text-neutral-600 hover:text-red-400"
+              className="text-[10px] font-semibold uppercase tracking-widest text-ink/40 hover:text-accent-700"
             >
               remove
             </button>
           </div>
-          <div className="mb-1 grid grid-cols-[1.5rem_1fr_1fr_2rem] gap-1.5 text-[11px] uppercase tracking-wide text-neutral-600">
+          <div className="mb-1 grid grid-cols-[1.5rem_1fr_1fr_2rem] gap-1.5 border-b-2 border-ink/40 pb-1 text-[9px] font-semibold uppercase tracking-widest text-ink/50">
             <span>rep</span>
             <span className="text-center">yd</span>
             <span className="text-center">sec</span>
@@ -105,7 +105,7 @@ function DrillSetsEditor({
               key={si}
               className="mb-1 grid grid-cols-[1.5rem_1fr_1fr_2rem] items-center gap-1.5"
             >
-              <span className="text-sm text-neutral-500">{si + 1}</span>
+              <span className="text-sm font-extrabold text-ink">{si + 1}</span>
               <input
                 className={repInput}
                 type="number"
@@ -130,7 +130,7 @@ function DrillSetsEditor({
                     ),
                   )
                 }
-                className="text-neutral-600 hover:text-red-400"
+                className="text-ink/35 hover:text-accent-700"
                 aria-label="remove rep"
               >
                 ✕
@@ -145,7 +145,7 @@ function DrillSetsEditor({
                 ),
               )
             }
-            className="text-xs font-medium text-teal-400 hover:text-teal-300"
+            className="py-1 text-[10px] font-extrabold uppercase tracking-widest text-accent-700 hover:text-accent-600"
           >
             + add rep
           </button>
@@ -173,12 +173,13 @@ function DrillSetsEditor({
   )
 }
 
+// Monochrome+red: work shouts in red, rest is ink, warm/cool are tints.
 const TONE: Record<SectionTone, { pill: string; text: string; bar: string }> = {
-  warm: { pill: 'bg-amber-500/15 text-amber-300', text: 'text-amber-300', bar: 'bg-amber-400' },
-  work: { pill: 'bg-teal-500/15 text-teal-300', text: 'text-teal-300', bar: 'bg-teal-400' },
-  rest: { pill: 'bg-sky-500/15 text-sky-300', text: 'text-sky-300', bar: 'bg-sky-400' },
-  cool: { pill: 'bg-violet-500/15 text-violet-300', text: 'text-violet-300', bar: 'bg-violet-400' },
-  other: { pill: 'bg-neutral-800 text-neutral-300', text: 'text-neutral-200', bar: 'bg-neutral-400' },
+  warm: { pill: 'bg-accent-200 text-accent-800', text: 'text-accent-600', bar: 'bg-accent-400' },
+  work: { pill: 'bg-accent text-paper', text: 'text-accent', bar: 'bg-accent' },
+  rest: { pill: 'bg-ink text-paper', text: 'text-ink', bar: 'bg-ink' },
+  cool: { pill: 'bg-neutral-300 text-neutral-800', text: 'text-neutral-600', bar: 'bg-neutral-500' },
+  other: { pill: 'bg-surface text-neutral-800', text: 'text-ink', bar: 'bg-neutral-400' },
 }
 
 export function IntervalSession({
@@ -340,8 +341,8 @@ export function IntervalSession({
     )
     return (
       <div className="flex flex-col gap-4">
-        <p className="text-sm text-neutral-500">Session complete</p>
-        <p className="font-mono text-4xl tabular-nums text-teal-300">
+        <p className="kicker">Session complete</p>
+        <p className="text-5xl font-extrabold tracking-tight tabular-nums text-ink">
           {fmtSec(doneElapsedRef.current / 1000)}
         </p>
         <input
@@ -365,7 +366,7 @@ export function IntervalSession({
             />
             {linkCandidates.length > 0 && (
               <div className="flex flex-col gap-1.5">
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-ink/55">
                   Attach WHOOP heart-rate data:
                 </p>
                 {linkCandidates.map((s) => (
@@ -374,10 +375,10 @@ export function IntervalSession({
                     onClick={() =>
                       setLinkedSk(linkedSk === s.sk ? undefined : s.sk)
                     }
-                    className={`rounded-lg border px-3 py-2.5 text-left text-xs ${
+                    className={`border px-3 py-2.5 text-left text-xs font-semibold ${
                       linkedSk === s.sk
-                        ? 'border-teal-500/60 bg-teal-500/10 text-teal-200'
-                        : 'border-neutral-800 text-neutral-400 hover:border-neutral-600'
+                        ? 'border-accent bg-accent-100 text-accent-800'
+                        : 'border-ink/40 text-ink/70 hover:bg-ink/5'
                     }`}
                   >
                     {s.sport ?? 'activity'} ·{' '}
@@ -403,7 +404,7 @@ export function IntervalSession({
           </button>
           <button
             onClick={onCancel}
-            className="text-sm text-neutral-500 hover:text-neutral-300"
+            className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-accent-700"
           >
             Discard
           </button>
@@ -415,9 +416,9 @@ export function IntervalSession({
   const tone = TONE[sectionTone(current.label)]
   return (
     <div className="-mt-4 flex min-h-[78dvh] flex-col">
-      {/* top-16 tucks under the sticky app header; 1fr_auto_1fr keeps the
+      {/* top-[58px] (header 56px + 2px rule) tucks under the sticky app header; 1fr_auto_1fr keeps the
           clock dead-centre no matter how wide the flanking cells are */}
-      <div className="sticky top-16 z-20 -mx-4 grid grid-cols-[1fr_auto_1fr] items-center border-b border-neutral-800/60 bg-neutral-950/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-[58px] z-20 -mx-4 grid grid-cols-[1fr_auto_1fr] items-center border-b-2 border-ink/40 bg-paper px-4 py-2.5">
         {/* icon-only: two labeled buttons + the clock don't fit at 375px.
             gap-3 + 40px squares keep the unconfirmed Cancel mis-tap-safe. */}
         <div className="flex items-center gap-3 justify-self-start">
@@ -442,16 +443,19 @@ export function IntervalSession({
           </button>
         </div>
         {stopwatch ? (
-          <span className="justify-self-center font-mono text-sm tabular-nums text-neutral-400">
+          <span className="justify-self-center text-xl font-extrabold leading-none tabular-nums">
             {fmtSec(elapsedSec)}
           </span>
         ) : (
-          <span className="justify-self-center font-mono text-sm tabular-nums text-neutral-400">
-            {fmtSec(Math.min(elapsedSec, total))} / {fmtSec(total)}
+          <span className="justify-self-center text-xl font-extrabold leading-none tabular-nums">
+            {fmtSec(Math.min(elapsedSec, total))}{' '}
+            <span className="text-sm font-semibold text-ink/50">
+              / {fmtSec(total)}
+            </span>
           </span>
         )}
         {!stopwatch ? (
-          <span className="justify-self-end text-xs tabular-nums text-neutral-600">
+          <span className="justify-self-end text-[10px] font-semibold tracking-widest text-ink/55">
             {idx + 1}/{sections.length}
           </span>
         ) : (
@@ -464,24 +468,24 @@ export function IntervalSession({
       <div className="flex flex-1 flex-col items-center justify-center gap-5">
         {stopwatch ? (
           <>
-            <p className="font-mono text-[5.5rem] leading-none tabular-nums text-sky-300 sm:text-[7rem]">
+            <p className="text-[5.5rem] font-extrabold leading-none tracking-tight tabular-nums text-ink sm:text-[7rem]">
               {fmtSec(elapsedSec)}
             </p>
-            <p className="text-sm text-neutral-500">elapsed</p>
+            <p className="kicker-muted">elapsed</p>
           </>
         ) : (
           <>
             <span
-              className={`rounded-full px-4 py-1.5 text-sm font-semibold uppercase tracking-widest ${tone.pill}`}
+              className={`px-4 py-1.5 text-sm font-extrabold uppercase tracking-widest ${tone.pill}`}
             >
               {current.label}
             </span>
             <p
-              className={`font-mono text-[5.5rem] leading-none tabular-nums sm:text-[7rem] ${tone.text}`}
+              className={`text-[5.5rem] font-extrabold leading-none tracking-tight tabular-nums sm:text-[7rem] ${tone.text}`}
             >
               {fmtSec(Math.ceil(remaining))}
             </p>
-            <div className="h-1.5 w-full max-w-sm overflow-hidden rounded-full bg-neutral-800">
+            <div className="h-1.5 w-full max-w-sm overflow-hidden bg-ink/15">
               <div
                 className={`h-full transition-[width] duration-200 ${tone.bar}`}
                 style={{
@@ -489,7 +493,7 @@ export function IntervalSession({
                 }}
               />
             </div>
-            <p className="text-sm text-neutral-500">
+            <p className="text-sm font-semibold text-ink/55">
               {next
                 ? `Next · ${next.label} ${fmtSec(next.durationSec)}`
                 : 'Final section'}
@@ -497,7 +501,7 @@ export function IntervalSession({
           </>
         )}
         {draft.paused && (
-          <p className="text-xs uppercase tracking-widest text-amber-400">
+          <p className="text-xs font-extrabold uppercase tracking-widest text-accent-700">
             paused
           </p>
         )}
@@ -513,14 +517,14 @@ export function IntervalSession({
         {!stopwatch && (
           <button
             onClick={skip}
-            className="rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-300 hover:border-neutral-500"
+            className="border border-ink/40 px-4 py-2 text-sm font-semibold text-ink hover:bg-ink/5"
           >
             Skip
           </button>
         )}
         <button
           onClick={endEarly}
-          className="px-2 text-sm text-red-400/80 hover:text-red-400"
+          className="px-2 text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-accent-700"
         >
           End
         </button>

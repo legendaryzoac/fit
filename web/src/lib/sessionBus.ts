@@ -20,6 +20,26 @@ export function isInSession(): boolean {
   return inSession
 }
 
+// Whether Workouts is showing a full-screen flow (live session, wizard,
+// builder…) — AppShell hides the bottom tab bar while one is up.
+let overlay = false
+const overlaySubs = new Set<() => void>()
+
+export function setOverlay(v: boolean): void {
+  if (v === overlay) return
+  overlay = v
+  for (const fn of overlaySubs) fn()
+}
+
+export function subscribeOverlay(fn: () => void): () => void {
+  overlaySubs.add(fn)
+  return () => overlaySubs.delete(fn)
+}
+
+export function isOverlay(): boolean {
+  return overlay
+}
+
 const resumeSubs = new Set<() => void>()
 
 export function requestResume(): void {

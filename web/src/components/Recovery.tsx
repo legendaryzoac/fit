@@ -20,6 +20,7 @@ import {
 } from '../lib/metrics'
 import {
   SleepStagesChart,
+  squareDot,
   StatCard,
   TrendChart,
   type SleepPoint,
@@ -27,13 +28,20 @@ import {
 } from './Charts'
 import { buttonClass, Card } from './ui'
 
-const tickStyle = { fill: '#737373', fontSize: 11 }
-const tooltipStyle = {
-  backgroundColor: '#171717',
-  border: '1px solid #404040',
-  borderRadius: 8,
-  fontSize: 12,
+const tickStyle = {
+  fill: '#7d7979',
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '.06em',
 }
+const tooltipStyle = {
+  backgroundColor: '#f3f2f2',
+  border: '1px solid #201e1d',
+  borderRadius: 0,
+  fontSize: 12,
+  color: '#201e1d',
+}
+const gridStroke = 'rgba(32,30,29,.18)'
 const dateTick = (d: string) => d.slice(5)
 
 function axisProps() {
@@ -263,22 +271,28 @@ export function Recovery({ api }: { api: Api }) {
 
   return (
     <>
-      {banner && <p className="text-sm text-teal-300">{banner}</p>}
-      {apiError && <p className="text-sm text-red-400">{apiError}</p>}
+      {banner && (
+        <p className="text-sm font-semibold text-accent-700">{banner}</p>
+      )}
+      {apiError && (
+        <p className="text-sm font-semibold text-accent-700">{apiError}</p>
+      )}
 
       {me && <WhoopConnect me={me} onError={setApiError} api={api} />}
 
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-medium text-neutral-300">Recovery</h1>
-        <div className="flex gap-1">
+        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
+          Recovery
+        </h1>
+        <div className="flex divide-x divide-ink/40 border border-ink/40">
           {RANGES.map((r) => (
             <button
               key={r}
               onClick={() => setDays(r)}
-              className={`rounded-full px-3 py-1 text-xs ${
+              className={`px-3 py-1.5 text-[10px] uppercase tracking-wider ${
                 days === r
-                  ? 'bg-teal-500/15 text-teal-300'
-                  : 'text-neutral-500 hover:text-neutral-300'
+                  ? 'bg-accent font-extrabold text-paper'
+                  : 'font-semibold text-ink/60 hover:bg-ink/5'
               }`}
             >
               {r}d
@@ -288,27 +302,27 @@ export function Recovery({ api }: { api: Api }) {
       </div>
 
       {!metrics && !apiError && (
-        <p className="py-8 text-center text-sm text-neutral-600">
+        <p className="py-8 text-center text-sm text-ink/45">
           Loading metrics…
         </p>
       )}
 
       {metrics && recoverySeries.length === 0 && (
         me?.whoop.connected ? (
-          <p className="py-8 text-center text-sm text-neutral-600">
+          <p className="py-8 text-center text-sm text-ink/45">
             No recovery data yet — the backfill may still be running.
           </p>
         ) : (
           <div className="py-6 text-center">
-            <p className="mx-auto max-w-sm text-sm text-neutral-500">
+            <p className="mx-auto max-w-sm text-sm text-ink/55">
               This tab comes alive when a wearable is connected: daily
               recovery scores, HRV and resting-heart-rate trends against your
               own baselines, and sleep-stage breakdowns.
             </p>
-            <p className="mx-auto mt-3 max-w-sm text-sm text-neutral-600">
-              No strap? No problem — the Training tab is the full product:
-              log workouts, build templates, run interval timers, and watch
-              your strength analytics grow.
+            <p className="mx-auto mt-3 max-w-sm text-sm text-ink/45">
+              No strap? No problem — the rest of the app is the full
+              product: start sessions from Today, build templates and
+              mesocycles in Plan, and watch your strength grow in Progress.
             </p>
           </div>
         )
@@ -343,7 +357,7 @@ export function Recovery({ api }: { api: Api }) {
           <Card title="Recovery score" subtitle="daily · dashed 7-day baseline">
             <TrendChart
               data={scoreSeries}
-              color="#2dd4bf"
+              color="#ec3013"
               unit="%"
               domain={[0, 100]}
               baselineLabel="7-day baseline"
@@ -353,13 +367,13 @@ export function Recovery({ api }: { api: Api }) {
             title="Heart-rate variability"
             subtitle="RMSSD, ms · dashed 30-day baseline"
           >
-            <TrendChart data={hrvSeries} color="#a78bfa" unit="ms" />
+            <TrendChart data={hrvSeries} color="#ec3013" unit="ms" />
           </Card>
           <Card
             title="Resting heart rate"
             subtitle="bpm · dashed 30-day baseline"
           >
-            <TrendChart data={rhrSeries} color="#f87171" unit="bpm" />
+            <TrendChart data={rhrSeries} color="#ec3013" unit="bpm" />
           </Card>
           <Card title="Sleep stages" subtitle="hours per night">
             <SleepStagesChart data={sleepSeries} />
@@ -370,7 +384,7 @@ export function Recovery({ api }: { api: Api }) {
           >
             <TrendChart
               data={sleepPerfSeries}
-              color="#38bdf8"
+              color="#ec3013"
               unit="%"
               domain={[0, 100]}
             />
@@ -383,7 +397,7 @@ export function Recovery({ api }: { api: Api }) {
                   data={bedtimes}
                   margin={{ top: 4, right: 4, bottom: 0, left: -10 }}
                 >
-                  <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid stroke={gridStroke} vertical={false} />
                   <XAxis
                     dataKey="date"
                     {...axisProps()}
@@ -398,28 +412,30 @@ export function Recovery({ api }: { api: Api }) {
                   />
                   <Tooltip
                     contentStyle={tooltipStyle}
-                    labelStyle={{ color: '#d4d4d4' }}
+                    labelStyle={{ color: '#201e1d', fontWeight: 600 }}
                     formatter={(value, name) => [clock(Number(value)), String(name)]}
                   />
                   <Line
                     type="monotone"
                     dataKey="bed"
-                    stroke="#a78bfa"
-                    strokeWidth={1.5}
-                    dot={false}
+                    stroke="#ec3013"
+                    strokeWidth={2}
+                    dot={squareDot('#ec3013')}
+                    activeDot={false}
                     name="bedtime"
                   />
                   <Line
                     type="monotone"
                     dataKey="wake"
-                    stroke="#f59e0b"
+                    stroke="#201e1d"
                     strokeWidth={1.5}
                     dot={false}
+                    activeDot={false}
                     name="wake"
                   />
                 </LineChart>
               </ResponsiveContainer>
-              <p className="mt-1 text-xs text-neutral-600">
+              <p className="mt-1 text-xs text-ink/45">
                 Flat lines = consistent circadian rhythm; the vertical gap is your
                 time in bed.
               </p>
@@ -433,23 +449,18 @@ export function Recovery({ api }: { api: Api }) {
                   data={weekdays}
                   margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
                 >
-                  <CartesianGrid stroke="#262626" strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid stroke={gridStroke} vertical={false} />
                   <XAxis dataKey="day" {...axisProps()} />
                   <YAxis width={40} domain={[0, 100]} {...axisProps()} />
                   <Tooltip
                     contentStyle={tooltipStyle}
-                    labelStyle={{ color: '#d4d4d4' }}
+                    labelStyle={{ color: '#201e1d', fontWeight: 600 }}
                     formatter={(value, _name, item) => [
                       `${value}% avg over ${(item?.payload as { nights?: number })?.nights ?? '?'} nights`,
                       'recovery',
                     ]}
                   />
-                  <Bar
-                    dataKey="avg"
-                    fill="#2dd4bf"
-                    name="recovery"
-                    radius={[2, 2, 0, 0]}
-                  />
+                  <Bar dataKey="avg" fill="#ec3013" name="recovery" />
                 </BarChart>
               </ResponsiveContainer>
             </Card>
