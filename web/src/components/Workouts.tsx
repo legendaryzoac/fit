@@ -47,6 +47,7 @@ import {
 } from '../lib/lockScreen'
 import {
   activeMeso,
+  dayKind,
   loadMesoCache,
   mesoWeek,
   plannedSets,
@@ -1313,6 +1314,36 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     const now = Date.now()
     // Overdue mesos clamp to the deload week's (gentle) prescriptions
     const week = Math.min(mesoWeek(meso, now), meso.weeks - 1)
+
+    if (dayKind(day) === 'cardio') {
+      // Cardio days run the interval timer (or stopwatch), tagged to the
+      // meso so day tracking counts them like any other session.
+      if (
+        (loadDraft() || loadTimerDraft()) &&
+        !window.confirm(
+          'A session is already live — discard it and start this one?',
+        )
+      ) {
+        return
+      }
+      saveDraft(null)
+      const draft: TimerDraft = {
+        kind: 'cardio',
+        title: `${day.label} · wk ${week + 1}`,
+        sections: day.sections ?? [],
+        startEpoch: Date.now(),
+        skipOffsetMs: 0,
+        paused: false,
+        pausedElapsedMs: 0,
+        mesoId: meso.id,
+        mesoDayIndex: dayIndex,
+      }
+      saveTimerDraft(draft)
+      autoStartLockScreen()
+      setMode({ m: 'timer', draft })
+      return
+    }
+
     const mesoWorkouts = workouts.filter((w) => w.mesoId === meso.id)
     const planned = plannedSets(meso, day, week, mesoWorkouts, muscleLookup, now)
     const w = newWorkout('strength')

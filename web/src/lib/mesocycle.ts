@@ -13,7 +13,7 @@ import {
   SESSION_SET_CAP,
 } from './progression'
 import { storageKey } from './storage'
-import type { Workout } from './workouts'
+import type { IntervalSection, Workout } from './workouts'
 
 export interface MesoExercise {
   name: string
@@ -24,7 +24,27 @@ export interface MesoExercise {
 export interface MesoDay {
   label: string
   exercises: MesoExercise[]
+  /** 0=Mon … 6=Sun. Absent on legacy mesos → sequence-based scheduling.
+   * Two days may share a weekday (cardio in the morning, legs at night —
+   * array order is the within-day order). */
+  weekday?: number
+  /** 'cardio' days start an interval/stopwatch session instead of a
+   * strength ledger. Absent = 'strength' (legacy). */
+  kind?: 'strength' | 'cardio'
+  /** Cardio only: interval plan; empty/absent = stopwatch. */
+  sections?: IntervalSection[]
 }
+
+export function dayKind(d: MesoDay): 'strength' | 'cardio' {
+  return d.kind ?? 'strength'
+}
+
+/** Monday-first weekday index for a timestamp. */
+export function mondayWeekday(nowMs: number): number {
+  return (new Date(nowMs).getDay() + 6) % 7
+}
+
+export const WEEKDAY_SHORT = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
 
 export interface Mesocycle {
   id: string
@@ -119,8 +139,10 @@ export function doneDayIndexes(
 }
 
 /**
- * Which microcycle day comes next this week: the first day not yet
- * trained; wraps if the lifter trains more days than planned.
+ * Which microcycle day comes next this week: today's un-done sessions
+ * first, then the nearest upcoming weekday's; weekday-less (legacy) days
+ * fall back to array order after any anchored day. Wraps if the lifter
+ * trains more days than planned.
  */
 export function nextDayIndex(
   m: Mesocycle,
@@ -129,10 +151,41 @@ export function nextDayIndex(
 ): number {
   const week = mesoWeek(m, nowMs)
   const done = doneDayIndexes(m, workouts, week)
-  for (let i = 0; i < m.days.length; i++) {
-    if (!done.has(i)) return i
-  }
+  const todayW = mondayWeekday(nowMs)
+  let best = -1
+  let bestScore = Infinity
+  m.days.forEach((d, i) => {
+    if (done.has(i)) return
+    // anchored days sort by distance-from-today (today = 0), ties by
+    // array order (the AM session of a double comes first); legacy
+    // weekday-less days sort after everything anchored
+    const score =
+      d.weekday == null
+        ? 1000 + i
+        : ((d.weekday - todayW + 7) % 7) * 10 + i / 100
+    if (score < bestScore) {
+      best = i
+      bestScore = score
+    }
+  })
+  if (best >= 0) return best
   return workoutsInWeek(m, workouts, week).length % m.days.length
+}
+
+/** Indexes of today's planned, not-yet-trained sessions (may be several —
+ * doubles are a feature). Empty for legacy weekday-less mesos. */
+export function sessionsForToday(
+  m: Mesocycle,
+  workouts: Workout[],
+  nowMs: number,
+): number[] {
+  const week = mesoWeek(m, nowMs)
+  const done = doneDayIndexes(m, workouts, week)
+  const todayW = mondayWeekday(nowMs)
+  return m.days
+    .map((d, i) => ({ d, i }))
+    .filter(({ d, i }) => d.weekday === todayW && !done.has(i))
+    .map(({ i }) => i)
 }
 
 // ---- prescriptions (PROGRESSION.md §6) ----
@@ -334,6 +387,226 @@ export function plannedSets(
     })
     .filter((e) => e.setCount > 0)
 }
+
+// ---- prebuilt mesocycle templates (wizard starting points) ----
+// Every exercise name is from the built-in EXERCISES list, so muscle
+// resolution works without registering customs. Everything a template
+// prefills stays editable in the wizard.
+
+export interface MesoTemplate {
+  id: string
+  name: string
+  blurb: string
+  weeks: number
+  focus: string[]
+  days: MesoDay[]
+}
+
+/** 5:00 warm + n×(work/rest) + 5:00 cool — rowing/bike style intervals. */
+function cardioIntervals(
+  workSec: number,
+  restSec: number,
+  rounds: number,
+): IntervalSection[] {
+  const out: IntervalSection[] = [{ label: 'Warm up', durationSec: 300 }]
+  for (let i = 0; i < rounds; i++) {
+    if (i > 0) out.push({ label: 'Rest', durationSec: restSec })
+    out.push({ label: 'Work', durationSec: workSec })
+  }
+  out.push({ label: 'Cool down', durationSec: 300 })
+  return out
+}
+
+export const MESO_TEMPLATES: MesoTemplate[] = [
+  {
+    id: 'leg-focus',
+    name: 'Leg block',
+    blurb: 'Quads + hamstrings ramp; upper body holds; one engine day.',
+    weeks: 5,
+    focus: ['quads', 'hamstrings'],
+    days: [
+      {
+        label: 'Lower A',
+        weekday: 0,
+        exercises: [
+          { name: 'Back squat', setCount: 4 },
+          { name: 'Romanian deadlift', setCount: 3 },
+          { name: 'Leg press', setCount: 3 },
+          { name: 'Calf raise', setCount: 3 },
+        ],
+      },
+      {
+        label: 'Upper',
+        weekday: 2,
+        exercises: [
+          { name: 'Bench press', setCount: 3 },
+          { name: 'Barbell row', setCount: 3 },
+          { name: 'Overhead press', setCount: 3 },
+          { name: 'Dumbbell curl', setCount: 2 },
+        ],
+      },
+      {
+        label: 'Engine',
+        weekday: 3,
+        kind: 'cardio',
+        exercises: [],
+        sections: cardioIntervals(60, 60, 6),
+      },
+      {
+        label: 'Lower B',
+        weekday: 4,
+        exercises: [
+          { name: 'Hack squat', setCount: 4 },
+          { name: 'Leg curl', setCount: 3 },
+          { name: 'Walking lunge', setCount: 3 },
+          { name: 'Seated calf raise', setCount: 3 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'chest-focus',
+    name: 'Chest block',
+    blurb: 'Two pressing days ramp the chest; pull and legs hold.',
+    weeks: 5,
+    focus: ['chest'],
+    days: [
+      {
+        label: 'Push A',
+        weekday: 0,
+        exercises: [
+          { name: 'Bench press', setCount: 4 },
+          { name: 'Incline dumbbell press', setCount: 3 },
+          { name: 'Cable fly', setCount: 3 },
+          { name: 'Triceps pushdown', setCount: 2 },
+        ],
+      },
+      {
+        label: 'Pull',
+        weekday: 1,
+        exercises: [
+          { name: 'Barbell row', setCount: 3 },
+          { name: 'Lat pulldown', setCount: 3 },
+          { name: 'Rear delt fly', setCount: 2 },
+          { name: 'Dumbbell curl', setCount: 2 },
+        ],
+      },
+      {
+        label: 'Push B',
+        weekday: 3,
+        exercises: [
+          { name: 'Incline bench press', setCount: 4 },
+          { name: 'Dips', setCount: 3 },
+          { name: 'Pec deck', setCount: 3 },
+          { name: 'Lateral raise', setCount: 2 },
+        ],
+      },
+      {
+        label: 'Legs',
+        weekday: 5,
+        exercises: [
+          { name: 'Back squat', setCount: 3 },
+          { name: 'Romanian deadlift', setCount: 3 },
+          { name: 'Leg press', setCount: 2 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'back-focus',
+    name: 'Back block',
+    blurb: 'Rowing and pulling volume ramps; pressing holds steady.',
+    weeks: 5,
+    focus: ['back'],
+    days: [
+      {
+        label: 'Pull A',
+        weekday: 0,
+        exercises: [
+          { name: 'Deadlift', setCount: 3 },
+          { name: 'Barbell row', setCount: 4 },
+          { name: 'Lat pulldown', setCount: 3 },
+          { name: 'Face pull', setCount: 2 },
+        ],
+      },
+      {
+        label: 'Push',
+        weekday: 2,
+        exercises: [
+          { name: 'Bench press', setCount: 3 },
+          { name: 'Overhead press', setCount: 3 },
+          { name: 'Triceps pushdown', setCount: 2 },
+        ],
+      },
+      {
+        label: 'Pull B',
+        weekday: 4,
+        exercises: [
+          { name: 'Pull-up', setCount: 4 },
+          { name: 'Seated cable row', setCount: 3 },
+          { name: 'Straight-arm pulldown', setCount: 3 },
+          { name: 'Hammer curl', setCount: 2 },
+        ],
+      },
+      {
+        label: 'Legs',
+        weekday: 5,
+        exercises: [
+          { name: 'Back squat', setCount: 3 },
+          { name: 'Leg curl', setCount: 3 },
+          { name: 'Calf raise', setCount: 2 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'ppl-engine',
+    name: 'PPL + engine',
+    blurb:
+      'Classic push/pull/legs with a morning row before leg day — a double.',
+    weeks: 4,
+    focus: [],
+    days: [
+      {
+        label: 'Push',
+        weekday: 0,
+        exercises: [
+          { name: 'Bench press', setCount: 3 },
+          { name: 'Overhead press', setCount: 3 },
+          { name: 'Cable fly', setCount: 2 },
+          { name: 'Triceps pushdown', setCount: 2 },
+        ],
+      },
+      {
+        label: 'Pull',
+        weekday: 2,
+        exercises: [
+          { name: 'Barbell row', setCount: 3 },
+          { name: 'Lat pulldown', setCount: 3 },
+          { name: 'Face pull', setCount: 2 },
+          { name: 'Dumbbell curl', setCount: 2 },
+        ],
+      },
+      {
+        label: 'Morning row',
+        weekday: 4,
+        kind: 'cardio',
+        exercises: [],
+        sections: cardioIntervals(90, 60, 5),
+      },
+      {
+        label: 'Legs',
+        weekday: 4,
+        exercises: [
+          { name: 'Back squat', setCount: 4 },
+          { name: 'Romanian deadlift', setCount: 3 },
+          { name: 'Leg press', setCount: 3 },
+          { name: 'Calf raise', setCount: 2 },
+        ],
+      },
+    ],
+  },
+]
 
 /**
  * Per-exercise weight/rep prescription. Anchored to the lifter's last

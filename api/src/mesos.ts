@@ -6,9 +6,20 @@ import type {
 import { TABLE_NAME, ddb } from './db'
 import { json } from './http'
 
+interface IntervalSection {
+  label: string
+  durationSec: number
+}
+
 interface MesoDay {
   label: string
   exercises: Array<{ name: string; setCount: number; muscle?: string }>
+  /** 0=Mon … 6=Sun; two days may share one weekday (AM/PM double). */
+  weekday?: number
+  /** 'cardio' days run the interval timer instead of the ledger. */
+  kind?: 'strength' | 'cardio'
+  /** Cardio interval plan; empty/absent = stopwatch. */
+  sections?: IntervalSection[]
 }
 
 interface Mesocycle {
@@ -56,7 +67,8 @@ function parseMeso(raw: unknown): Mesocycle | null {
     focus.push(muscle)
   }
 
-  if (!Array.isArray(r.days) || r.days.length < 1 || r.days.length > 7) {
+  // Up to two sessions per weekday (AM cardio + PM lift) — 14 max.
+  if (!Array.isArray(r.days) || r.days.length < 1 || r.days.length > 14) {
     return null
   }
   const days: MesoDay[] = []
@@ -81,7 +93,46 @@ function parseMeso(raw: unknown): Mesocycle | null {
         ...(muscle !== undefined && { muscle }),
       })
     }
-    days.push({ label, exercises })
+
+    const weekday =
+      num(day.weekday) !== undefined &&
+      Number.isInteger(day.weekday) &&
+      (day.weekday as number) >= 0 &&
+      (day.weekday as number) <= 6
+        ? (day.weekday as number)
+        : undefined
+    const kind =
+      day.kind === 'cardio' || day.kind === 'strength'
+        ? day.kind
+        : undefined
+
+    let sections: IntervalSection[] | undefined
+    if (Array.isArray(day.sections)) {
+      if (day.sections.length > 80) return null
+      sections = []
+      for (const s of day.sections) {
+        const sec = s as Record<string, unknown>
+        const secLabel = str(sec?.label, 40)
+        const durationSec = num(sec?.durationSec)
+        if (
+          !secLabel ||
+          durationSec == null ||
+          durationSec < 1 ||
+          durationSec > 7200
+        ) {
+          return null
+        }
+        sections.push({ label: secLabel, durationSec: Math.round(durationSec) })
+      }
+    }
+
+    days.push({
+      label,
+      exercises,
+      ...(weekday !== undefined && { weekday }),
+      ...(kind !== undefined && { kind }),
+      ...(sections !== undefined && { sections }),
+    })
   }
 
   return {

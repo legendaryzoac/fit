@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Api } from '../lib/api'
 import {
+  dayKind,
+  doneDayIndexes,
   isDeloadWeek,
   mesoOverdue,
   mesoWeek,
   nextDayIndex,
   plannedSets,
   prescribeExercises,
+  sessionsForToday,
+  WEEKDAY_SHORT,
   workoutsInWeek,
   type Mesocycle,
 } from '../lib/mesocycle'
+import { fmtSec, totalSec } from '../lib/templates'
 import type { Workout } from '../lib/workouts'
 import { buttonClass } from './ui'
 
@@ -174,13 +179,18 @@ export function Today({
           ? ['MODERATE', 'TRAIN, WATCH THE LOAD']
           : ['RUN DOWN', 'GO EASY TODAY']
 
-  // ---- today's session (meso-aware) ----
+  // ---- today's session(s), meso-aware; doubles are a feature ----
   const now = Date.now()
   const week = meso ? Math.min(mesoWeek(meso, now), meso.weeks - 1) : 0
-  const next = meso ? nextDayIndex(meso, workouts, now) : 0
+  const todayIdxs = meso ? sessionsForToday(meso, workouts, now) : []
+  const next = meso
+    ? (todayIdxs[0] ?? nextDayIndex(meso, workouts, now))
+    : 0
+  const alsoToday = todayIdxs.slice(1)
   const day = meso?.days[next]
+  const dayIsToday = todayIdxs.length > 0
   const preview = useMemo(() => {
-    if (!meso || !day) return null
+    if (!meso || !day || dayKind(day) !== 'strength') return null
     const mesoWorkouts = workouts.filter((w) => w.mesoId === meso.id)
     const planned = plannedSets(meso, day, week, mesoWorkouts, lookup, now)
     const setsByName = Object.fromEntries(
@@ -237,6 +247,19 @@ export function Today({
       }
       return remaining.get(wk)!
     }
+    // Keep ORIGINAL indexes: done-state is tracked per day index, and a
+    // square must clear once its session is trained — even off-schedule.
+    const anchored = (meso?.days ?? [])
+      .map((d, idx) => ({ d, idx }))
+      .filter(({ d }) => d.weekday != null)
+    const doneByWeek = new Map<number, Set<number>>()
+    const doneFor = (wk: number): Set<number> => {
+      if (!meso) return new Set()
+      if (!doneByWeek.has(wk)) {
+        doneByWeek.set(wk, doneDayIndexes(meso, workouts, wk))
+      }
+      return doneByWeek.get(wk)!
+    }
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(monday)
       d.setDate(monday.getDate() + i)
@@ -246,9 +269,17 @@ export function Today({
       let plan = false
       if (!done && future && meso) {
         const wk = Math.floor((dayIdx(d) - startIdx) / 7)
-        if (remainingFor(wk) > 0) {
-          plan = true
-          remaining.set(wk, remainingFor(wk) - 1)
+        if (wk >= 0 && wk < meso.weeks) {
+          if (anchored.length > 0) {
+            // Weekday-scheduled mesos: a square sits exactly on its day,
+            // and clears once that session was trained this meso week
+            plan = anchored.some(
+              ({ d: md, idx }) => md.weekday === i && !doneFor(wk).has(idx),
+            )
+          } else if (remainingFor(wk) > 0) {
+            plan = true
+            remaining.set(wk, remainingFor(wk) - 1)
+          }
         }
       }
       return {
@@ -371,24 +402,35 @@ export function Today({
         ) : meso && day ? (
           <>
             <p className="kicker mb-1">
-              Today — wk {week + 1} of {meso.weeks}
+              {dayIsToday
+                ? `Today — wk ${week + 1} of ${meso.weeks}`
+                : `Next${day.weekday != null ? ` — ${WEEKDAY_SHORT[day.weekday]}` : ''} · wk ${week + 1} of ${meso.weeks}`}
               {isDeloadWeek(meso, week) ? ' · deload' : ''}
               {meso.focus.length > 0 ? ` · ${meso.focus.join(' + ')}` : ''}
             </p>
             <h2 className="text-3xl font-extrabold leading-none tracking-tight">
               {day.label}
             </h2>
-            {preview && (
-              <>
-                <p className="mt-1 text-xs text-ink/55">
-                  {preview.planned.length} exercises · {preview.totalSets} sets
-                </p>
-                <p className="mt-1.5 text-xs leading-relaxed text-ink/80">
-                  {preview.lines.slice(0, 4).join(' · ')}
-                  {preview.lines.length > 4 &&
-                    ` · +${preview.lines.length - 4} more`}
-                </p>
-              </>
+            {dayKind(day) === 'cardio' ? (
+              <p className="mt-1 text-xs text-ink/55">
+                {day.sections && day.sections.length > 0
+                  ? `Intervals · ${day.sections.length} sections · ${fmtSec(totalSec(day.sections))}`
+                  : 'Stopwatch — open-ended, log the miles afterwards.'}
+              </p>
+            ) : (
+              preview && (
+                <>
+                  <p className="mt-1 text-xs text-ink/55">
+                    {preview.planned.length} exercises · {preview.totalSets}{' '}
+                    sets
+                  </p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-ink/80">
+                    {preview.lines.slice(0, 4).join(' · ')}
+                    {preview.lines.length > 4 &&
+                      ` · +${preview.lines.length - 4} more`}
+                  </p>
+                </>
+              )
             )}
             <button
               onClick={() => onStartMesoDay(next)}
@@ -396,6 +438,32 @@ export function Today({
             >
               Start session<span>→</span>
             </button>
+            {alsoToday.map((i) => {
+              const d2 = meso.days[i]
+              return (
+                <div
+                  key={i}
+                  className="mt-2 flex items-center justify-between border border-ink/40 p-2.5"
+                >
+                  <span className="min-w-0 truncate text-sm font-semibold text-ink">
+                    Also today · {d2.label}
+                    <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
+                      {dayKind(d2) === 'cardio'
+                        ? d2.sections && d2.sections.length > 0
+                          ? fmtSec(totalSec(d2.sections))
+                          : 'stopwatch'
+                        : `${d2.exercises.length} exercises`}
+                    </span>
+                  </span>
+                  <button
+                    onClick={() => onStartMesoDay(i)}
+                    className="shrink-0 bg-accent px-3 py-1.5 text-xs font-extrabold text-paper hover:bg-accent-600"
+                  >
+                    Start
+                  </button>
+                </div>
+              )
+            })}
           </>
         ) : (
           <>

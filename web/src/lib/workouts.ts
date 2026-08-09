@@ -146,6 +146,10 @@ export interface TimerDraft {
   skipOffsetMs: number
   paused: boolean
   pausedElapsedMs: number
+  /** Set when a mesocycle cardio day started this timer — the saved
+   * workout carries these so the meso's day tracking sees it. */
+  mesoId?: string
+  mesoDayIndex?: number
 }
 
 /**

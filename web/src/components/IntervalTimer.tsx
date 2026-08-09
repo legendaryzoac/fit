@@ -205,6 +205,10 @@ export function IntervalSession({
   const [drills, setDrills] = useState<WorkoutExercise[]>([])
   const lastIdxRef = useRef(0)
   const doneElapsedRef = useRef(0)
+  // When the timer actually ENDED — lingering on the summary screen must
+  // not drift the workout's date (a meso session bucketed by start date
+  // could land in the wrong week if saved the next morning).
+  const doneAtRef = useRef(Date.now())
   // A timer that ran out while this screen was unmounted already announced
   // itself (lock-screen driver) — resuming into it shouldn't beep again.
   const finishedAtMount = useRef(
@@ -250,6 +254,7 @@ export function IntervalSession({
     }
     if (finished) {
       doneElapsedRef.current = Math.min(elapsedMs, total * 1000)
+      doneAtRef.current = Date.now()
       saveTimerDraft(null)
       if (!finishedAtMount.current) cue(3)
       setPhase('done')
@@ -311,17 +316,19 @@ export function IntervalSession({
 
   function endEarly() {
     doneElapsedRef.current = elapsedMs
+    doneAtRef.current = Date.now()
     saveTimerDraft(null)
     setPhase('done')
   }
 
   function save() {
     const durMs = doneElapsedRef.current
+    const doneAt = doneAtRef.current
     onSave({
       id: crypto.randomUUID(),
       // Approximate: paused time is excluded from the duration on purpose
-      start: new Date(Date.now() - durMs).toISOString(),
-      end: new Date().toISOString(),
+      start: new Date(doneAt - durMs).toISOString(),
+      end: new Date(doneAt).toISOString(),
       kind: draft.kind,
       title: title || undefined,
       weightUnit: 'lb',
@@ -331,6 +338,9 @@ export function IntervalSession({
       distanceM: miles ? Math.round(Number(miles) * MILE) : undefined,
       notes: notes || undefined,
       linkedSessionSk: linkedSk,
+      // meso cardio days count toward the block's day tracking
+      mesoId: draft.mesoId,
+      mesoDayIndex: draft.mesoDayIndex,
     })
   }
 

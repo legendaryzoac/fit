@@ -164,11 +164,12 @@ function parseWorkout(raw: unknown): Workout | null {
     distanceM: num(r.distanceM),
     feedback: parseFeedback(r.feedback),
     mesoId: str(r.mesoId, 64),
+    // 0..13 — must match the 14-session microcycle cap in mesos.ts
     mesoDayIndex:
       num(r.mesoDayIndex) !== undefined &&
       Number.isInteger(r.mesoDayIndex) &&
       (r.mesoDayIndex as number) >= 0 &&
-      (r.mesoDayIndex as number) <= 6
+      (r.mesoDayIndex as number) <= 13
         ? (r.mesoDayIndex as number)
         : undefined,
     previousStart:
