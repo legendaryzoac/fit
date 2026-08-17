@@ -11,6 +11,7 @@ import {
   MESO_TEMPLATES,
   mesoOverdue,
   mesoWeek,
+  mondayWeekday,
   nextDayIndex,
   plannedSets,
   WEEKDAY_SHORT,
@@ -26,10 +27,21 @@ const FOCUS_CHOICES = MUSCLE_GROUPS.filter(
   (m) => m !== 'other' && m !== 'full body',
 )
 
+/** Session chip colors — cardio and strength read as different labels. */
+const CHIP: Record<'strength' | 'cardio', string> = {
+  strength: 'border-accent bg-accent-100 text-accent-800',
+  cardio: 'border-accent2-500 bg-accent2-100 text-accent2-800',
+}
+const CHIP_NEXT: Record<'strength' | 'cardio', string> = {
+  strength: 'border-accent bg-accent text-paper',
+  cardio: 'border-accent2-500 bg-accent2-500 text-paper',
+}
+const CHIP_DONE = 'border-ink/25 bg-surface text-ink/40'
+
 /**
- * Card shown above the workout list while a mesocycle is active (or a slim
- * planner entry when none is). Deliberately additive — ad-hoc training
- * stays exactly as it was.
+ * Plan-screen mesocycle card: block progress up top, then the current
+ * week as an actual calendar — one column per weekday, each scheduled
+ * session a tappable colored label (red = strength, salmon = cardio).
  */
 export function MesoCard({
   meso,
@@ -61,14 +73,35 @@ export function MesoCard({
   const deload = !overdue && isDeloadWeek(meso, week)
   const done = doneDayIndexes(meso, workouts, week)
   const next = nextDayIndex(meso, workouts, now)
+  const todayW = mondayWeekday(now)
   // Reaching the deload week means the block did its job — ending from
   // here is a completion, not an abandonment.
   const wrapUp = overdue || deload
 
+  // Monday-anchored dates for the calendar row
+  const monday = new Date(now)
+  monday.setDate(monday.getDate() - todayW)
+
+  const scheduled = meso.days
+    .map((d, i) => ({ d, i }))
+    .filter(({ d }) => d.weekday != null)
+  const unscheduled = meso.days
+    .map((d, i) => ({ d, i }))
+    .filter(({ d }) => d.weekday == null)
+
+  const sessionsDone = done.size
+  const totalSessions = meso.days.length
+
+  function chipClass(i: number, kind: 'strength' | 'cardio'): string {
+    if (done.has(i)) return CHIP_DONE
+    if (i === next && !overdue) return CHIP_NEXT[kind]
+    return CHIP[kind]
+  }
+
   return (
     <div className="border-t-2 border-ink/40 pt-2.5">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <p className="kicker min-w-0 truncate">
+      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+        <p className="min-w-0 truncate text-lg font-extrabold tracking-tight text-ink">
           {meso.name}
         </p>
         <span className="shrink-0 bg-accent-200 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent-800">
@@ -79,40 +112,109 @@ export function MesoCard({
               : `week ${week + 1}/${meso.weeks}`}
         </span>
       </div>
-      {meso.focus.length > 0 && (
-        <p className="mb-2 text-xs text-ink/55">
-          focus: {meso.focus.join(', ')}
-        </p>
-      )}
+
+      {/* block progress — one cell per week, filled through the current */}
+      <div className="mb-1 flex gap-0.5">
+        {Array.from({ length: meso.weeks }, (_, w) => (
+          <div
+            key={w}
+            className={`h-1.5 flex-1 ${
+              w < week
+                ? 'bg-accent'
+                : w === week && !overdue
+                  ? 'bg-accent-400'
+                  : 'bg-ink/15'
+            }`}
+          />
+        ))}
+      </div>
+      <div className="mb-3 flex justify-between text-[9px] font-semibold uppercase tracking-wider text-ink/50">
+        <span>
+          {meso.focus.length > 0
+            ? `focus: ${meso.focus.join(' + ')}`
+            : 'no focus muscles'}
+        </span>
+        <span>
+          {sessionsDone}/{totalSessions} sessions this week
+        </span>
+      </div>
+
       {!overdue && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {meso.days.map((d, i) => (
-            <button
-              key={i}
-              onClick={() => onStartDay(i)}
-              className={`border px-3 py-1.5 text-sm ${
-                i === next
-                  ? 'border-accent bg-accent font-extrabold text-paper'
-                  : 'border-ink/40 font-semibold text-ink/70 hover:bg-ink/5'
-              }`}
-            >
-              {done.has(i) ? '✓ ' : ''}
-              {d.weekday != null && (
-                <span className="mr-1 text-[9px] font-semibold tracking-wider opacity-70">
-                  {WEEKDAY_SHORT[d.weekday]}
-                </span>
-              )}
-              {d.label}
-              {dayKind(d) === 'cardio' && (
-                <span className="ml-1 text-[9px] font-semibold tracking-wider opacity-70">
-                  CARDIO
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-7 border border-ink/40">
+            {WEEKDAY_SHORT.map((wd, wi) => {
+              const date = new Date(monday)
+              date.setDate(monday.getDate() + wi)
+              const isToday = wi === todayW
+              const cells = scheduled.filter(({ d }) => d.weekday === wi)
+              return (
+                <div
+                  key={wd}
+                  className={`min-h-20 border-ink/25 p-1 ${
+                    wi < 6 ? 'border-r' : ''
+                  } ${isToday ? 'bg-accent-100/60' : ''}`}
+                >
+                  <div
+                    className={`mb-1 text-center text-[9px] font-semibold ${
+                      isToday ? 'text-accent-700' : 'text-ink/45'
+                    }`}
+                  >
+                    {wd[0]}
+                    <span className="ml-0.5 font-extrabold">
+                      {date.getDate()}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    {cells.map(({ d, i }) => (
+                      <button
+                        key={i}
+                        onClick={() => onStartDay(i)}
+                        title={`${d.label} — ${dayKind(d)}`}
+                        className={`w-full truncate border px-0.5 py-1 text-[8px] font-semibold uppercase leading-tight tracking-wide ${chipClass(i, dayKind(d))}`}
+                      >
+                        {done.has(i) ? '✓ ' : ''}
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="mt-1.5 flex gap-3 text-[9px] font-semibold uppercase tracking-wider text-ink/50">
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 border border-accent bg-accent-100" />
+              strength
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 border border-accent2-500 bg-accent2-100" />
+              cardio
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 border border-ink/25 bg-surface" />
+              done
+            </span>
+          </div>
+
+          {unscheduled.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {unscheduled.map(({ d, i }) => (
+                <button
+                  key={i}
+                  onClick={() => onStartDay(i)}
+                  className={`border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${chipClass(i, dayKind(d))}`}
+                >
+                  {done.has(i) ? '✓ ' : ''}
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
-      <div className="flex gap-4 text-xs">
+
+      <div className="mt-2.5 flex gap-4 text-xs">
         {overdue && (
           <button
             onClick={() => onEnd('completed')}

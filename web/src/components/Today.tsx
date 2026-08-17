@@ -158,7 +158,17 @@ export function Today({
   const latest = [...(recoveries ?? [])]
     .reverse()
     .find((r) => r.recoveryScore != null)
-  const score = latest?.recoveryScore ?? null
+  // …but a score from last month is not "today's readiness". When the
+  // strap stops reporting (subscription lapsed, device shelved) we say
+  // so instead of dressing stale data up as current.
+  const latestAgeDays =
+    latest?.date != null
+      ? Math.floor(
+          (Date.now() - new Date(latest.date).getTime()) / 86_400_000,
+        )
+      : null
+  const stale = latestAgeDays != null && latestAgeDays > 2
+  const score = stale ? null : (latest?.recoveryScore ?? null)
   const hrv = latest?.hrvMs ?? null
   const rhr = latest?.rhr ?? null
   const hrv30 = mean(
@@ -296,6 +306,15 @@ export function Today({
 
   return (
     <div className="flex flex-col gap-4">
+      {stale && (
+        <section className="border-t-2 border-ink/40 pt-2.5">
+          <p className="kicker-muted mb-1">Readiness</p>
+          <p className="text-sm text-ink/70">
+            No recovery data for {latestAgeDays} days — showing training
+            only. Everything below still works without a strap.
+          </p>
+        </section>
+      )}
       {score != null && (
         <section>
           <p className="kicker mb-1.5">Readiness</p>

@@ -256,6 +256,11 @@ export function Recovery({ api }: { api: Api }) {
   }
 
   const latest = recoverySeries.at(-1)
+  /** Days since the newest recovery record — drives the stale banner. */
+  const staleDays =
+    latest?.date != null
+      ? Math.floor((Date.now() - new Date(latest.date).getTime()) / 86_400_000)
+      : null
   const hrv30 = mean(
     recoverySeries.slice(-30).flatMap((p) => (p.hrv == null ? [] : [p.hrv])),
   )
@@ -279,6 +284,15 @@ export function Recovery({ api }: { api: Api }) {
       )}
 
       {me && <WhoopConnect me={me} onError={setApiError} api={api} />}
+
+      {/* Connected but silent — a lapsed subscription or a shelved strap
+          stops producing records without ever failing a token refresh. */}
+      {me?.whoop.connected && staleDays != null && staleDays > 3 && (
+        <p className="bg-accent-200 px-2 py-1 text-xs font-semibold text-accent-800">
+          No new WHOOP data in {staleDays} days — the charts below end at
+          your last synced day. Training and analytics are unaffected.
+        </p>
+      )}
 
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-extrabold tracking-tight text-ink">

@@ -113,7 +113,6 @@ export function Analytics({
   const [metricsError, setMetricsError] = useState(false)
   const [exercise, setExercise] = useState<string | null>(null)
   const [drill, setDrill] = useState<string | null>(null)
-  const [deepDiveOpen, setDeepDiveOpen] = useState(false)
 
   useEffect(() => {
     api
@@ -153,8 +152,8 @@ export function Analytics({
 
   const runs = useMemo(() => runSeries(sessions), [sessions])
   const detail = useMemo(
-    () => (deepDiveOpen && activeExercise ? exerciseDetail(workouts, activeExercise) : []),
-    [deepDiveOpen, workouts, activeExercise],
+    () => (activeExercise ? exerciseDetail(workouts, activeExercise) : []),
+    [workouts, activeExercise],
   )
   const zones = useMemo(() => weeklyZones(sessions), [sessions])
 
@@ -313,16 +312,8 @@ export function Analytics({
           title="Exercise deep dive"
           subtitle="session volume, top set, and e1RM for one lift"
         >
-          {!deepDiveOpen ? (
-            <button
-              onClick={() => setDeepDiveOpen(true)}
-              className="w-full border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5"
-            >
-              Show exercise breakdown
-            </button>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <div className="scroll-thin flex gap-1 overflow-x-auto pb-1">
+          <div className="flex flex-col gap-3">
+            <div className="scroll-thin flex gap-1 overflow-x-auto pb-1">
                 {exercises.slice(0, 8).map((name) => (
                   <Chip
                     key={name}
@@ -394,7 +385,6 @@ export function Analytics({
                 </p>
               )}
             </div>
-          )}
         </Card>
       )}
 
