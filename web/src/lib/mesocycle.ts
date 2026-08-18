@@ -826,9 +826,15 @@ export function prescribeExercises(
     // Step 2 — progress on ONE axis. When the effort target moved, that
     // ramp IS this week's progression: hold the reps and let the re-based
     // load do the work, or the lifter eats two jumps at once.
+    //
+    // …but only if the load ACTUALLY moved. On light lifts a 3% correction
+    // is smaller than the nearest plate, so the re-base holds — and
+    // suppressing reps on top of that leaves an accessory completely flat
+    // for the whole block. A no-op re-base spends no axis, so reps run.
+    const loadMoved = based !== anchor.weight
     let weight = based
     let target: number
-    if (deltaRir !== 0 && !bw) {
+    if (deltaRir !== 0 && !bw && loadMoved) {
       target = Math.max(low, Math.min(anchorReps, high))
     } else if (
       anchorWorkout &&
