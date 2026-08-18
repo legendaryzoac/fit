@@ -340,7 +340,7 @@ const RIR_MAX_CUT = 0.88
 const RIR_MAX_RAISE = 1.05
 
 /** Re-base an anchor load from its effort level to the session's target
- * RIR, rounded toward the lighter plate and floored at an empty bar. */
+ * RIR, snapped to a real plate step without ever exceeding the rails. */
 function rebaseForRir(
   weight: number,
   reps: number,
@@ -354,12 +354,28 @@ function rebaseForRir(
   // A session that fell short of its reps never earns a heavier load
   if (missedReps) mult = Math.min(mult, 1)
   mult = Math.max(RIR_MAX_CUT, Math.min(RIR_MAX_RAISE, mult))
-  const raw = weight * mult
-  // Round toward lighter on a cut so the correction is never undone
-  const step = raw >= 25 ? 5 : 2.5
-  const rounded =
-    mult < 1 ? Math.floor(raw / step) * step : Math.round(raw / step) * step
-  const floor = compound ? 45 : step
+
+  // Step comes from the ANCHOR, not the corrected value — otherwise a
+  // cut across the 25 lb line silently changes granularity mid-correction.
+  const step = weight >= 25 ? 5 : 2.5
+  // Nearest step: a 3% intended correction must not cost a whole plate.
+  let rounded = Math.round((weight * mult) / step) * step
+
+  // Re-apply the rails in STEP space. Clamping the multiplier alone lets
+  // rounding overshoot it — a 32.5 lb accessory could land 23% down off
+  // an 8.5% intent, and a raise could clear the +5% cap.
+  const lo = Math.ceil((weight * RIR_MAX_CUT) / step) * step
+  const hi = Math.floor((weight * RIR_MAX_RAISE) / step) * step
+  rounded = Math.min(Math.max(rounded, lo), hi)
+  // Direction guard: when no step fits inside the rails the load holds
+  // rather than moving the wrong way.
+  if (mult > 1) rounded = Math.max(rounded, weight)
+  else if (mult < 1) rounded = Math.min(rounded, weight)
+
+  // The bar floor is a "can't go under an empty bar" guard, not a minimum
+  // prescription — these names are also logged with dumbbells and machines,
+  // so it only applies once the anchor is already at or above bar weight.
+  const floor = compound && weight >= 45 ? 45 : step
   return Math.max(floor, rounded)
 }
 

@@ -135,10 +135,16 @@ W_target = W_anchor × (1 + c)^(RIR_anchor − RIR_target)
   rep target holds. Double progression only runs when ΔRIR = 0 (e.g. a
   barbell compound floored at 1 RIR across the last two weeks). The
   correction applies once per anchor and never stacks on a bumped one.
-- **Rails**: max −12% / +5% per step, rounded toward the lighter plate on
-  a cut, floored at an empty bar (45 lb) for barbell compounds; a session
-  that missed its rep target can never earn a heavier load; bodyweight
-  moves are exempt (mass isn't a dial).
+- **Rails**: max −12% / +5% per step, enforced *after* snapping to a real
+  plate step — clamping the multiplier alone lets rounding overshoot it.
+  The correction rounds to the nearest step (a 3% intent must not cost a
+  whole plate), and when no step fits inside the rails the load simply
+  holds rather than moving the wrong way. A session that missed its rep
+  target can never earn a heavier load. The 45 lb barbell floor is a
+  "can't go under an empty bar" guard, not a minimum prescription — it
+  only applies once the anchor is already at bar weight, since names like
+  hip thrust and good morning are also logged with dumbbells and
+  machines. Bodyweight moves are exempt (mass isn't a dial).
 - **No data at all** still prescribes no weight — "find a working weight
   (~3 RIR)" — matching RP, whose app also declines to prefill week 1 and
   lets the lifter self-select against an RPE target. Evidence supports
