@@ -109,6 +109,42 @@ Opt-in blocks layered on the engine above; ad-hoc training is untouched.
   load rather than the spec's split-week 100%/50%; between-meso carryover
   and missed-session policies are future work.
 
+## 7. RIR-normalized load anchoring
+
+A set of N reps at E reps-in-reserve is roughly an (N+E)-rep max, so the
+same bar weight is a *different session* at a different effort target.
+Anchoring week 1 (3 RIR) to last block's near-failure set therefore
+prescribes a load that is too heavy — the engine now re-bases it:
+
+```
+W_target = W_anchor × (1 + c)^(RIR_anchor − RIR_target)
+```
+
+- `c` (load per RIR step) by rep count: ≤5 reps 3.5%, 6–12 3.0%,
+  13–20 2.5%, 21+ 2.0% — flatter at high reps, per Stronger by Science's
+  reps-to-failure data (RTS/Helms charts run hotter and are unreliable
+  above ~10 reps). One coefficient for compounds and isolations: Remmert
+  & Zourdos 2023 found no RIR-accuracy difference between them.
+- **Anchor effort** comes from logged RPE (RIR = 10 − RPE); failing that,
+  from what that meso week actually prescribed; otherwise assume 1 RIR.
+  Never assume the anchor matches the target — that was the bug. Lifters
+  under-report reps-in-reserve (Halperin 2022), so a logged "0 RIR" was
+  probably 1, which already biases the correction slightly light.
+- **One axis per session.** When the effort target moved (ΔRIR ≠ 0) the
+  RIR ramp *is* that week's progression: the re-based load stands and the
+  rep target holds. Double progression only runs when ΔRIR = 0 (e.g. a
+  barbell compound floored at 1 RIR across the last two weeks). The
+  correction applies once per anchor and never stacks on a bumped one.
+- **Rails**: max −12% / +5% per step, rounded toward the lighter plate on
+  a cut, floored at an empty bar (45 lb) for barbell compounds; a session
+  that missed its rep target can never earn a heavier load; bodyweight
+  moves are exempt (mass isn't a dial).
+- **No data at all** still prescribes no weight — "find a working weight
+  (~3 RIR)" — matching RP, whose app also declines to prefill week 1 and
+  lets the lifter self-select against an RPE target. Evidence supports
+  prefilling elsewhere (defaults get obeyed, so they must err light) and
+  RPE-anchored self-selection does not lead to under-loading (Helms 2018).
+
 ## Key sources
 
 - RP volume-landmark guides (Israetel):

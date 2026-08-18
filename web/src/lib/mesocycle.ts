@@ -276,12 +276,15 @@ export interface Prescription {
 }
 
 /** Top completed set: heaviest, ties broken by reps. */
-function topSet(w: Workout, name: string): { weight?: number; reps?: number } | null {
+function topSet(
+  w: Workout,
+  name: string,
+): { weight?: number; reps?: number; rpe?: number } | null {
   const ex = w.exercises.find(
     (e) => e.name.toLowerCase() === name.toLowerCase(),
   )
   if (!ex || ex.sets.length === 0) return null
-  let best: { weight?: number; reps?: number } | null = null
+  let best: { weight?: number; reps?: number; rpe?: number } | null = null
   for (const s of ex.sets) {
     if (s.weight == null && s.reps == null) continue
     if (
@@ -289,10 +292,75 @@ function topSet(w: Workout, name: string): { weight?: number; reps?: number } | 
       (s.weight ?? 0) > (best.weight ?? 0) ||
       ((s.weight ?? 0) === (best.weight ?? 0) && (s.reps ?? 0) > (best.reps ?? 0))
     ) {
-      best = { weight: s.weight, reps: s.reps }
+      best = { weight: s.weight, reps: s.reps, rpe: s.rpe }
     }
   }
   return best
+}
+
+// ---- RIR-normalized load anchoring (PROGRESSION.md §7) ----
+// A set of N reps at E RIR is roughly an (N+E)-rep max, so moving between
+// effort levels is a load change even at the same reps. Without this, week
+// 1 of a block ghosts last block's near-failure weight and calls it 3 RIR.
+
+/** Load change per RIR step, by rep count — flatter at high reps. */
+function rirCoefficient(reps: number): number {
+  if (reps <= 5) return 0.035
+  if (reps <= 12) return 0.03
+  if (reps <= 20) return 0.025
+  return 0.02
+}
+
+/** Effort of an anchor set in RIR. Logged RPE wins (RIR = 10 − RPE); a
+ * meso session falls back to what that week actually prescribed; anything
+ * else assumes 1 — logged top sets are hard but rarely true grinders, and
+ * lifters under-report reps-in-reserve anyway (Halperin 2022). */
+function anchorRir(
+  m: Mesocycle,
+  anchor: { rpe?: number },
+  anchorWorkout: Workout | null,
+  compound: boolean,
+): number {
+  if (anchor.rpe != null && Number.isFinite(anchor.rpe)) {
+    return Math.max(0, Math.min(5, 10 - anchor.rpe))
+  }
+  if (anchorWorkout?.mesoId === m.id) {
+    const wk = mesoWeek(m, new Date(anchorWorkout.start).getTime())
+    if (wk < m.weeks - 1) return targetRir(wk, m.weeks - 1, compound)
+  }
+  return 1
+}
+
+/** Sessions of a lift to consider when anchoring from history — wide
+ * enough to look past a deload week, narrow enough to stay current. */
+const HISTORY_ANCHOR_LOOKBACK = 3
+
+/** Cap a single re-base: never more than 12% down or 5% up. */
+const RIR_MAX_CUT = 0.88
+const RIR_MAX_RAISE = 1.05
+
+/** Re-base an anchor load from its effort level to the session's target
+ * RIR, rounded toward the lighter plate and floored at an empty bar. */
+function rebaseForRir(
+  weight: number,
+  reps: number,
+  anchorRirValue: number,
+  targetRirValue: number,
+  compound: boolean,
+  missedReps: boolean,
+): number {
+  const c = rirCoefficient(reps)
+  let mult = Math.pow(1 + c, anchorRirValue - targetRirValue)
+  // A session that fell short of its reps never earns a heavier load
+  if (missedReps) mult = Math.min(mult, 1)
+  mult = Math.max(RIR_MAX_CUT, Math.min(RIR_MAX_RAISE, mult))
+  const raw = weight * mult
+  // Round toward lighter on a cut so the correction is never undone
+  const step = raw >= 25 ? 5 : 2.5
+  const rounded =
+    mult < 1 ? Math.floor(raw / step) * step : Math.round(raw / step) * step
+  const floor = compound ? 45 : step
+  return Math.max(floor, rounded)
 }
 
 /** Whether every logged set of the exercise reached the window top. A
@@ -641,7 +709,7 @@ export function prescribeExercises(
 
     // Newest-first scan for an anchor WITH a weight — a reps-only log
     // must not block the fallbacks below.
-    let anchor: { weight?: number; reps?: number } | null = null
+    let anchor: { weight?: number; reps?: number; rpe?: number } | null = null
     let anchorWorkout: Workout | null = null
     for (const w of mesoWorkouts) {
       if (deload && dayIndex(w.start) >= deloadStartDay) continue
@@ -653,20 +721,32 @@ export function prescribeExercises(
       }
     }
     if (!anchor) {
+      // Falling back to history: take the HEAVIEST top set among the last
+      // few sessions of this lift, not strictly the newest. A brand-new
+      // block otherwise anchors to the previous block's deload week — a
+      // deliberately light session — and then gets re-based lighter still.
+      const recent: Array<{ weight?: number; reps?: number; rpe?: number }> = []
       for (const w of allWorkouts) {
         if (w.kind !== 'strength') continue
         const t = topSet(w, name)
         if (t?.weight != null) {
-          anchor = t
-          break
+          recent.push(t)
+          if (recent.length >= HISTORY_ANCHOR_LOOKBACK) break
         }
+      }
+      for (const t of recent) {
+        if (!anchor || (t.weight ?? 0) > (anchor.weight ?? 0)) anchor = t
       }
     }
     // Bodyweight moves pin to TODAY's measured mass (the app-wide
     // invariant) and progress by reps only — you can't add 5 lb to
     // yourself, and a deload can't take 10% off you either.
     if (bw && bodyWeightLb !== undefined) {
-      anchor = { weight: Math.round(bodyWeightLb), reps: anchor?.reps }
+      anchor = {
+        weight: Math.round(bodyWeightLb),
+        reps: anchor?.reps,
+        rpe: anchor?.rpe,
+      }
       anchorWorkout = null
     }
 
@@ -706,19 +786,44 @@ export function prescribeExercises(
       continue
     }
 
-    // Double progression against the meso anchor: window topped-out on
-    // every set -> raise the load and reset reps; otherwise chase a rep.
-    // A null increment means the smallest jump is too coarse for this
-    // lift — keep the weight and keep adding reps past the window instead.
-    let weight = anchor.weight
+    // Step 1 — re-base the anchor to this session's effort target. Last
+    // block's final set was ground out near failure; week 1 asks for 3
+    // RIR, and the same bar weight is a different session. Bodyweight
+    // moves have no load to re-base.
+    const anchorReps = anchor.reps ?? low
+    const missedReps = anchor.reps != null && anchor.reps < low
+    const aRir =
+      rir == null ? 0 : anchorRir(m, anchor, anchorWorkout, compound)
+    const deltaRir = rir == null ? 0 : aRir - rir
+    const based =
+      bw || rir == null || deltaRir === 0
+        ? anchor.weight
+        : rebaseForRir(
+            anchor.weight,
+            anchorReps,
+            aRir,
+            rir,
+            compound,
+            missedReps,
+          )
+
+    // Step 2 — progress on ONE axis. When the effort target moved, that
+    // ramp IS this week's progression: hold the reps and let the re-based
+    // load do the work, or the lifter eats two jumps at once.
+    let weight = based
     let target: number
-    if (
+    if (deltaRir !== 0 && !bw) {
+      target = Math.max(low, Math.min(anchorReps, high))
+    } else if (
       anchorWorkout &&
       anchor.reps != null &&
       anchor.reps >= high &&
       allSetsAtTop(anchorWorkout, name, high)
     ) {
-      const bumped = increment(lookup(name), anchor.weight)
+      // Double progression: window topped out on every set -> raise the
+      // load and reset reps. A null increment means the smallest jump is
+      // too coarse for this lift — keep the weight, keep adding reps.
+      const bumped = increment(lookup(name), based)
       if (bumped !== null) {
         weight = bumped
         target = low
