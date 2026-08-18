@@ -64,6 +64,7 @@ import {
   type Recommendation,
 } from '../lib/progression'
 import { onResume, setInSession, setOverlay } from '../lib/sessionBus'
+import { currentBodyWeight, loadWeightCache, saveWeightCache, type WeightEntry } from '../lib/weights'
 import { FeedbackModal } from './Feedback'
 import { IntervalSession } from './IntervalTimer'
 import { LockScreenToggle } from './LockScreenToggle'
@@ -1094,7 +1095,10 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
   const [customs, setCustoms] = useState<CustomExercise[]>(loadCustomExercises)
   const muscleLookup = useMemo(() => makeMuscleLookup(customs), [customs])
   const [pendingCount, setPendingCount] = useState(() => loadPending().length)
-  const [bodyWeightLb, setBodyWeightLb] = useState<number | undefined>(undefined)
+  const [whoopWeightLb, setWhoopWeightLb] = useState<number | undefined>(undefined)
+  const [weights, setWeights] = useState<WeightEntry[]>(loadWeightCache)
+  // A number the lifter typed always outranks the strap's measurement
+  const bodyWeightLb = currentBodyWeight(weights, whoopWeightLb)
   const [offline, setOffline] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE)
@@ -1108,13 +1112,14 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
 
   async function refresh() {
     try {
-      const [wRes, sRes, tRes, eRes, meRes, mRes] = await Promise.all([
+      const [wRes, sRes, tRes, eRes, meRes, mRes, wtRes] = await Promise.all([
         api.get('/api/workouts?days=365'),
         api.get('/api/sessions?days=365'),
         api.get('/api/templates'),
         api.get('/api/exercises'),
         api.get('/api/me'),
         api.get('/api/mesos'),
+        api.get('/api/weights'),
       ])
       if (wRes.ok) {
         const body = await wRes.json()
@@ -1143,7 +1148,14 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
       }
       if (meRes.ok) {
         const body = await meRes.json()
-        setBodyWeightLb(body?.whoop?.bodyWeightLb)
+        setWhoopWeightLb(body?.whoop?.bodyWeightLb)
+      }
+      if (wtRes.ok) {
+        const body = await wtRes.json()
+        if (Array.isArray(body.weights)) {
+          setWeights(body.weights)
+          saveWeightCache(body.weights)
+        }
       }
       if (mRes.ok) {
         const body = await mRes.json()

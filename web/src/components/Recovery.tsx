@@ -26,6 +26,7 @@ import {
   type SleepPoint,
   type TrendPoint,
 } from './Charts'
+import { BodyWeight } from './BodyWeight'
 import { buttonClass, Card } from './ui'
 
 const tickStyle = {
@@ -55,6 +56,7 @@ type Me = {
     status?: 'active' | 'error'
     lastSyncAt?: string | null
     backfillDone?: boolean
+    bodyWeightLb?: number
   }
 }
 
@@ -284,6 +286,8 @@ export function Recovery({ api }: { api: Api }) {
       )}
 
       {me && <WhoopConnect me={me} onError={setApiError} api={api} />}
+
+      <BodyWeight api={api} whoopLb={me?.whoop.bodyWeightLb} />
 
       {/* Connected but silent — a lapsed subscription or a shelved strap
           stops producing records without ever failing a token refresh. */}

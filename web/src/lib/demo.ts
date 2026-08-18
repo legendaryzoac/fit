@@ -4,6 +4,7 @@
  */
 import type { Api } from './api'
 import type { Mesocycle } from './mesocycle'
+import type { WeightEntry } from './weights'
 import type { Template } from './templates'
 import type { SessionRecord, Workout } from './workouts'
 
@@ -33,6 +34,7 @@ interface DemoStore {
   templates: Template[]
   exercises: Array<{ name: string; muscle: string }>
   mesos: Mesocycle[]
+  weights: WeightEntry[]
 }
 
 function generate(): DemoStore {
@@ -49,6 +51,7 @@ function generate(): DemoStore {
     templates: [],
     exercises: [{ name: 'Sled drag', muscle: 'full body' }],
     mesos: [],
+    weights: [],
   }
 
   const DAYS = 200
@@ -375,6 +378,7 @@ export function makeDemoApi(): Api {
     if (pathname === '/api/templates') return respond({ templates: store.templates })
     if (pathname === '/api/exercises') return respond({ exercises: store.exercises })
     if (pathname === '/api/mesos') return respond({ mesos: store.mesos })
+    if (pathname === '/api/weights') return respond({ weights: store.weights })
     return respond({ error: 'not found in demo' })
   }
 
@@ -418,6 +422,11 @@ export function makeDemoApi(): Api {
       const id = new URL(path, 'http://demo').searchParams.get('id')
       store.mesos = store.mesos.filter((m) => m.id !== id)
       return respond({ deleted: id })
+    }
+    if (path.startsWith('/api/weights')) {
+      const e = body as WeightEntry
+      store.weights = [...store.weights.filter((x) => x.date !== e.date), e]
+      return respond({ saved: e.date })
     }
     if (path.startsWith('/api/exercises')) {
       if (method === 'POST') {

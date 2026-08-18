@@ -17,6 +17,7 @@ import {
   handleSaveMeso,
 } from './mesos'
 import { handleMetrics, handleSessions } from './metrics'
+import { handleListWeights, handleSaveWeight } from './weights'
 import {
   handleDeleteTemplate,
   handleListTemplates,
@@ -110,6 +111,8 @@ export async function handler(
   if (route === 'GET /api/mesos') return handleListMesos(userId)
   if (route === 'POST /api/mesos') return handleSaveMeso(userId, event)
   if (route === 'DELETE /api/mesos') return handleDeleteMeso(userId, event)
+  if (route === 'GET /api/weights') return handleListWeights(userId)
+  if (route === 'POST /api/weights') return handleSaveWeight(userId, event)
   if (route === 'GET /api/exercises') return handleListExercises(userId)
   if (route === 'POST /api/exercises') return handleSaveExercise(userId, event)
   if (route === 'DELETE /api/exercises') return handleDeleteExercise(userId, event)
