@@ -82,10 +82,11 @@ Opt-in blocks layered on the engine above; ad-hoc training is untouched.
 
 - **Shape**: N weeks (4–6 recommended, user-controlled), last week is the
   deload. Focus muscles (up to 3) ramp +1 set/week through accumulation
-  (capped at +3); set additions freeze in the final accumulation week
-  (new volume before a deload has nowhere to be adapted to). The same
-  feedback engine, scoped to the meso's own sessions, modulates the ramp
-  — only downward in the frozen week.
+  (capped at +3); the ramp itself freezes for the last hard week (new
+  volume before a deload has nowhere to be adapted to). The same feedback
+  engine, scoped to the meso's own sessions, modulates the ramp. Feedback
+  deltas carry into that frozen week unchanged — zeroing them made the
+  peak week the *lowest*-volume hard week of the block.
 - **RIR ramp** (length-aware, conservative): descends to 0 in the final
   accumulation week from a cap of 3 — 4-week meso: 2→1→0; 5-week:
   3→2→1→0; 6-week: 3,3,2,1,0. Barbell compounds floor at 1 RIR.
@@ -145,6 +146,18 @@ W_target = W_anchor × (1 + c)^(RIR_anchor − RIR_target)
   only applies once the anchor is already at bar weight, since names like
   hip thrust and good morning are also logged with dumbbells and
   machines. Bodyweight moves are exempt (mass isn't a dial).
+- **Across a block boundary** a completed block carries +2% forward. Without
+  it the opening re-base exactly mirrors the ramp just climbed and a block
+  nets zero — six simulated blocks opened at the same weight every time.
+  A block whose reps fell short carries nothing.
+- **Rails bind per direction.** The cut floor and raise ceiling cross over
+  on light loads (a 7 lb dumbbell yields floor 7.5 above ceiling 5), so
+  each is applied only on its own side; otherwise a small cut got dragged
+  to −44%.
+- **Reps can't run away.** When the plate step is too coarse the lift
+  chases reps, but once reps pass the window top by 3 the step is taken
+  anyway — a 30 lb lateral raise for 39 reps is not the lift anyone
+  intended. Simulated: 30×16→23, then 35×10, then 40×10.
 - **No data at all** still prescribes no weight — "find a working weight
   (~3 RIR)" — matching RP, whose app also declines to prefill week 1 and
   lets the lifter self-select against an RPE target. Evidence supports

@@ -255,10 +255,16 @@ const LOWER_BODY = new Set([
  * adding a rep instead is evidence-equivalent for hypertrophy (Plotkin
  * 2022) — so we return null and the caller chases a rep.
  */
-function increment(muscle: string | undefined, weight: number): number | null {
+function increment(
+  muscle: string | undefined,
+  weight: number,
+  force = false,
+): number | null {
   const step = muscle !== undefined && LOWER_BODY.has(muscle) ? 10 : 5
   const bumped = Math.round((weight + step) / 5) * 5
-  if (bumped - weight > weight * 0.05) return null
+  // `force` overrides the 5% rule: once reps have run well past the window
+  // the coarse jump beats turning a lateral raise into an endurance set.
+  if (!force && bumped - weight > weight * 0.05) return null
   return bumped
 }
 
@@ -287,6 +293,10 @@ function topSet(
   let best: { weight?: number; reps?: number; rpe?: number } | null = null
   for (const s of ex.sets) {
     if (s.weight == null && s.reps == null) continue
+    // A weight with no reps is unverified — a stray number typed into the
+    // weight box must never become next week's prescription. (Reps-only
+    // rows still count: that is how bodyweight work is logged.)
+    if (s.weight != null && s.reps == null) continue
     if (
       !best ||
       (s.weight ?? 0) > (best.weight ?? 0) ||
@@ -335,6 +345,10 @@ function anchorRir(
  * enough to look past a deload week, narrow enough to stay current. */
 const HISTORY_ANCHOR_LOOKBACK = 3
 
+/** A completed block carries a little forward across the boundary, so the
+ * new block's opening load isn't the exact mirror of the ramp just run. */
+const CROSS_BLOCK_CARRY = 1.02
+
 /** Cap a single re-base: never more than 12% down or 5% up. */
 const RIR_MAX_CUT = 0.88
 const RIR_MAX_RAISE = 1.05
@@ -348,9 +362,10 @@ function rebaseForRir(
   targetRirValue: number,
   compound: boolean,
   missedReps: boolean,
+  carryOver = 1,
 ): number {
   const c = rirCoefficient(reps)
-  let mult = Math.pow(1 + c, anchorRirValue - targetRirValue)
+  let mult = Math.pow(1 + c, anchorRirValue - targetRirValue) * carryOver
   // A session that fell short of its reps never earns a heavier load
   if (missedReps) mult = Math.min(mult, 1)
   mult = Math.max(RIR_MAX_CUT, Math.min(RIR_MAX_RAISE, mult))
@@ -364,13 +379,16 @@ function rebaseForRir(
   // Re-apply the rails in STEP space. Clamping the multiplier alone lets
   // rounding overshoot it — a 32.5 lb accessory could land 23% down off
   // an 8.5% intent, and a raise could clear the +5% cap.
-  const lo = Math.ceil((weight * RIR_MAX_CUT) / step) * step
-  const hi = Math.floor((weight * RIR_MAX_RAISE) / step) * step
-  rounded = Math.min(Math.max(rounded, lo), hi)
-  // Direction guard: when no step fits inside the rails the load holds
-  // rather than moving the wrong way.
-  if (mult > 1) rounded = Math.max(rounded, weight)
-  else if (mult < 1) rounded = Math.min(rounded, weight)
+  // Each rail binds only in its OWN direction: on light anchors the two
+  // bounds cross over (a 7 lb dumbbell yields lo 7.5 > hi 5), and applying
+  // the raise ceiling to a cut dragged it far past the floor.
+  if (mult < 1) {
+    const lo = Math.ceil((weight * RIR_MAX_CUT) / step) * step
+    rounded = Math.min(Math.max(rounded, lo), weight)
+  } else if (mult > 1) {
+    const hi = Math.floor((weight * RIR_MAX_RAISE) / step) * step
+    rounded = Math.max(Math.min(rounded, hi), weight)
+  }
 
   // The bar floor is a "can't go under an empty bar" guard, not a minimum
   // prescription — these names are also logged with dumbbells and machines,
@@ -405,9 +423,9 @@ export function plannedSets(
   nowMs: number,
 ): Array<{ name: string; setCount: number }> {
   const deload = isDeloadWeek(m, week)
-  // Set additions FREEZE in the final accumulation week — the next week
-  // is the deload, so new volume there has nowhere to be adapted to.
-  const finalAccum = !deload && week >= m.weeks - 2
+  // Set additions freeze near the end of the block via the ramp cap below
+  // (rampWeeks tops out at weeks-3), so the last hard week matches the one
+  // before it instead of introducing volume a deload will erase.
   const rampWeeks = Math.min(week, Math.max(0, m.weeks - 3))
   const ramp = deload
     ? 0
@@ -442,15 +460,11 @@ export function plannedSets(
     // In-meso autoregulation: the same feedback engine, scoped to this
     // meso's sessions only, nudges the planned ramp up or down. In the
     // frozen final week only downward corrections still apply.
-    let recs = recommendations(mesoWorkouts, resolve, nowMs)
-    if (finalAccum) {
-      recs = Object.fromEntries(
-        Object.entries(recs).map(([k, r]) => [
-          k,
-          { ...r, setDelta: Math.min(0, r.setDelta) as typeof r.setDelta },
-        ]),
-      )
-    }
+    // The ramp itself already freezes (rampWeeks caps at weeks-3), so the
+    // feedback delta carries unchanged — zeroing it here dropped the final
+    // hard week back to the template base, making the peak week the
+    // LOWEST-volume week of the block.
+    const recs = recommendations(mesoWorkouts, resolve, nowMs)
     entries = applyRecommendations(entries, recs, resolve)
   }
 
@@ -741,17 +755,30 @@ export function prescribeExercises(
       // few sessions of this lift, not strictly the newest. A brand-new
       // block otherwise anchors to the previous block's deload week — a
       // deliberately light session — and then gets re-based lighter still.
-      const recent: Array<{ weight?: number; reps?: number; rpe?: number }> = []
+      const recent: Array<{
+        t: { weight?: number; reps?: number; rpe?: number }
+        w: Workout
+      }> = []
       for (const w of allWorkouts) {
         if (w.kind !== 'strength') continue
+        // Same deload guard the in-meso scan uses
+        if (deload && w.mesoId === m.id && dayIndex(w.start) >= deloadStartDay) {
+          continue
+        }
         const t = topSet(w, name)
         if (t?.weight != null) {
-          recent.push(t)
+          recent.push({ t, w })
           if (recent.length >= HISTORY_ANCHOR_LOOKBACK) break
         }
       }
-      for (const t of recent) {
-        if (!anchor || (t.weight ?? 0) > (anchor.weight ?? 0)) anchor = t
+      for (const r of recent) {
+        if (!anchor || (r.t.weight ?? 0) > (anchor.weight ?? 0)) {
+          anchor = r.t
+          // Carry the source session too, or double progression is
+          // unreachable in week 1 and every block boundary claws back
+          // the reps the lifter earned above the window top.
+          anchorWorkout = r.w
+        }
       }
     }
     // Bodyweight moves pin to TODAY's measured mass (the app-wide
@@ -783,9 +810,10 @@ export function prescribeExercises(
       // Step scales with the load so light lifts don't round to 0 lb
       const raw = anchor.weight * DELOAD_LOAD_FACTOR
       const step = raw >= 25 ? 5 : 2.5
+      const deloadFloor = compound && anchor.weight >= 45 ? 45 : step
       const weight = bw
         ? anchor.weight
-        : Math.max(step, Math.round(raw / step) * step)
+        : Math.max(deloadFloor, Math.round(raw / step) * step)
       const reps = Math.max(
         3,
         Math.round((anchor.reps ?? high) * DELOAD_REP_FACTOR),
@@ -811,6 +839,11 @@ export function prescribeExercises(
     const aRir =
       rir == null ? 0 : anchorRir(m, anchor, anchorWorkout, compound)
     const deltaRir = rir == null ? 0 : aRir - rir
+    // Crossing a block boundary, the downward re-base mirrors the ramp the
+    // lifter just climbed, so a block would net zero. A completed block
+    // earns a small carry-over (PROGRESSION.md §7, research case ii).
+    const crossBlock = !anchorWorkout || anchorWorkout.mesoId !== m.id
+    const carryOver = crossBlock && !missedReps ? CROSS_BLOCK_CARRY : 1
     const based =
       bw || rir == null || deltaRir === 0
         ? anchor.weight
@@ -821,6 +854,7 @@ export function prescribeExercises(
             rir,
             compound,
             missedReps,
+            carryOver,
           )
 
     // Step 2 — progress on ONE axis. When the effort target moved, that
@@ -832,10 +866,25 @@ export function prescribeExercises(
     // suppressing reps on top of that leaves an accessory completely flat
     // for the whole block. A no-op re-base spends no axis, so reps run.
     const loadMoved = based !== anchor.weight
+    // Reps that have run well past the window top mean the plate step the
+    // engine keeps refusing as too coarse is now the only sane move — a
+    // 30 lb lateral raise for 39 reps is not the lift anyone intended.
+    const runaway = !bw && anchor.reps != null && anchor.reps >= high + 3
     let weight = based
     let target: number
-    if (deltaRir !== 0 && !bw && loadMoved) {
+    if (runaway) {
+      weight = increment(lookup(name), based, true) ?? based
+      target = low
+    } else if (deltaRir !== 0 && !bw && loadMoved) {
       target = Math.max(low, Math.min(anchorReps, high))
+    } else if (deltaRir !== 0 && !bw) {
+      // Re-base was a no-op (correction smaller than the nearest plate).
+      // Chase a rep — never a plate bump, which would jump the load the
+      // opposite way from the correction the engine just computed.
+      target =
+        anchor.reps != null && anchor.reps >= high
+          ? anchor.reps + 1
+          : Math.min((anchor.reps ?? low) + 1, high)
     } else if (
       anchorWorkout &&
       anchor.reps != null &&
