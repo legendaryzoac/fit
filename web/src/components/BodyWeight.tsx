@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import type { Api } from '../lib/api'
+import { squareDot } from './Charts'
 import {
   loadWeightCache,
   localToday,
@@ -43,6 +53,8 @@ export function BodyWeight({
   }, [api])
 
   const sorted = useMemo(() => sortWeights(entries), [entries])
+  /** Oldest-first for the trend chart. */
+  const trend = useMemo(() => [...sorted].reverse(), [sorted])
   const newest = sorted[0]
   const prior = sorted.find((e) => e.date !== newest?.date)
   const delta =
@@ -107,6 +119,57 @@ export function BodyWeight({
           )}
         </div>
       </div>
+
+      {trend.length > 1 && (
+        <ResponsiveContainer width="100%" height={150}>
+          <LineChart
+            data={trend}
+            margin={{ top: 8, right: 4, bottom: 0, left: -14 }}
+          >
+            <CartesianGrid stroke="rgba(32,30,29,.18)" vertical={false} />
+            <XAxis
+              dataKey="date"
+              tick={{
+                fill: '#7d7979',
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: '.06em',
+              }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(d: string) => d.slice(5)}
+              minTickGap={28}
+            />
+            <YAxis
+              tick={{ fill: '#7d7979', fontSize: 10, fontWeight: 600 }}
+              tickLine={false}
+              axisLine={false}
+              width={40}
+              domain={['dataMin - 2', 'dataMax + 2']}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: '#f3f2f2',
+                border: '1px solid #201e1d',
+                borderRadius: 0,
+                fontSize: 12,
+                color: '#201e1d',
+              }}
+              labelStyle={{ color: '#201e1d', fontWeight: 600 }}
+              formatter={(v) => [`${v} lb`, 'weight']}
+            />
+            <Line
+              type="monotone"
+              dataKey="lb"
+              stroke="#ec3013"
+              strokeWidth={2}
+              dot={squareDot('#ec3013')}
+              activeDot={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
 
       <div className="mt-3 flex gap-2">
         <input

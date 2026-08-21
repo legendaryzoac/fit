@@ -721,6 +721,9 @@ export function prescribeExercises(
   setsByName: Record<string, number>,
   lookup: (name: string) => string | undefined,
   bodyWeightLb?: number,
+  /** Which microcycle day this session is — the same lift on two
+   * different days is two separate slots and must not cross-anchor. */
+  slotDayIndex?: number,
 ): Record<string, Prescription> {
   const deload = isDeloadWeek(m, week)
   const accum = m.weeks - 1
@@ -741,14 +744,25 @@ export function prescribeExercises(
     // must not block the fallbacks below.
     let anchor: { weight?: number; reps?: number; rpe?: number } | null = null
     let anchorWorkout: Workout | null = null
-    for (const w of mesoWorkouts) {
-      if (deload && dayIndex(w.start) >= deloadStartDay) continue
-      const t = topSet(w, name)
-      if (t?.weight != null) {
-        anchor = t
-        anchorWorkout = w
-        break
+    // Pass 0 looks only at THIS microcycle day, pass 1 at the rest of the
+    // meso. Pull-ups on Monday and on Thursday progress independently.
+    for (const pass of [0, 1]) {
+      for (const w of mesoWorkouts) {
+        if (deload && dayIndex(w.start) >= deloadStartDay) continue
+        if (
+          pass === 0 &&
+          (slotDayIndex == null || w.mesoDayIndex !== slotDayIndex)
+        ) {
+          continue
+        }
+        const t = topSet(w, name)
+        if (t?.weight != null) {
+          anchor = t
+          anchorWorkout = w
+          break
+        }
       }
+      if (anchor) break
     }
     if (!anchor) {
       // Falling back to history: take the HEAVIEST top set among the last
@@ -913,7 +927,12 @@ export function prescribeExercises(
       repHigh: high,
       sets,
       rir,
-      note: `${sets}×${target} @ ${weight} lb · ${rir} RIR`,
+      // Say WHY a load dropped — opening a block lighter than last
+      // block's near-failure sets is the RIR re-base, not a glitch.
+      note:
+        weight < anchor.weight
+          ? `${sets}×${target} @ ${weight} lb · ${rir} RIR · eased from ${anchor.weight}`
+          : `${sets}×${target} @ ${weight} lb · ${rir} RIR`,
     }
   }
   return out

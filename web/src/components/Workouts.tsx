@@ -259,12 +259,23 @@ function ActiveWorkout({
     exerciseName.trim().length > 0 && lookup(exerciseName) === undefined
 
   /** Last performance of this exercise, for ghost placeholders per set index. */
+  /** Last time's sets for the "prev" column. Inside a mesocycle the same
+   * lift on two different days is two separate slots, so pass 0 looks for
+   * the same meso day and only pass 1 widens to any session. */
   function prevSetsFor(name: string): WorkoutSet[] {
-    for (const past of history) {
-      const match = past.exercises.find(
-        (e) => e.name.toLowerCase() === name.toLowerCase(),
-      )
-      if (match && match.sets.length > 0) return match.sets
+    const sameSlot = (past: Workout) =>
+      w.mesoId != null &&
+      past.mesoId === w.mesoId &&
+      past.mesoDayIndex === w.mesoDayIndex
+    for (const pass of [0, 1]) {
+      for (const past of history) {
+        if (past.id === w.id) continue
+        if (pass === 0 && !sameSlot(past)) continue
+        const match = past.exercises.find(
+          (e) => e.name.toLowerCase() === name.toLowerCase(),
+        )
+        if (match && match.sets.length > 0) return match.sets
+      }
     }
     return []
   }
@@ -1467,6 +1478,7 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
         ),
         muscleLookup,
         bodyWeightLb,
+        mode.workout.mesoDayIndex,
       )
     }
     return (

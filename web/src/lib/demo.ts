@@ -192,6 +192,15 @@ function generate(): DemoStore {
       scoreState: 'SCORED',
     })
 
+    // Body weight, logged by hand a few mornings a week
+    if (dow === 1 || dow === 4 || dow === 6) {
+      const pad = (n: number) => String(n).padStart(2, '0')
+      store.weights.push({
+        date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+        lb: Math.round((186 - progress * 5 + noise(1.1)) * 10) / 10,
+      })
+    }
+
     // Hand-logged training that mirrors the captured sessions
     if (lifts) {
       const week = Math.floor((DAYS - i) / 7)

@@ -215,6 +215,7 @@ export function Today({
       setsByName,
       lookup,
       bodyWeightLb,
+      next,
     )
     const totalSets = planned.reduce((n, e) => n + e.setCount, 0)
     const lines = planned.map((e) => {
