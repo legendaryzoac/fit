@@ -110,6 +110,39 @@ Opt-in blocks layered on the engine above; ad-hoc training is untouched.
   load rather than the spec's split-week 100%/50%; between-meso carryover
   and missed-session policies are future work.
 
+## 6b. Per-set rep targets and mid-block edits
+
+- **A session has a shape, not a number.** A prescription carries one rep
+  target per set, and each set progresses off *its own* last performance:
+  a 12/10 session earns 13/11, never a flat 13/13 that quietly asks three
+  extra reps of the back-off set. The branch that fires (double
+  progression, RIR re-base, deload) picks the *rule*; the rule then runs
+  over every set the athlete logged. Sets beyond what the anchor logged
+  repeat its last one — the same rule the ghost column uses.
+- **Two rails stop the shape from decaying.** A plan that only ever
+  repeats what happened can only ever fall: simulated over two blocks
+  against an athlete who drops a rep on every back-off set, the shape-only
+  rule reached 10/3/3. So no set is prescribed below the window bottom
+  while the headline is at or above it, and none is prescribed more than
+  one rep above what that set actually did. A slot that comes in short
+  therefore holds, then climbs back a rep a week, while the rest of the
+  session keeps progressing — verified: 16/14/12 → 19/17/12 when the last
+  set misses by one every week.
+- **The check-off adopts exactly what the row was showing**, effort
+  included. An unrated set is a set the engine has to guess the effort of
+  later (§7), and the guess it makes for a meso session is precisely the
+  week's target — so writing it down changes no math, it just stops the
+  athlete having to type what the app already knew.
+- **Swapping a lift mid-session is a first-class move.** Targets are
+  recomputed as the exercise list changes rather than frozen at session
+  start, so a lift dropped in halfway gets ghosts and a target like any
+  lift the block planned: load anchored to its own last outing (re-based
+  for effort, §7), reps shaped by that session, and a set count of what
+  the plan would have given it — its own last set count plus this week's
+  ramp if it lands on a focus muscle, still bounded by the per-muscle
+  session cap. Focus steers **volume, not load**, per RP: a shoulder block
+  gives cable raises more sets, not a bigger jump per set.
+
 ## 7. RIR-normalized load anchoring
 
 A set of N reps at E reps-in-reserve is roughly an (N+E)-rep max, so the

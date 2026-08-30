@@ -195,6 +195,16 @@ const FOCUS_RAMP_PER_WEEK = 1
 const FOCUS_RAMP_MAX = 3
 
 /**
+ * Accumulated focus-muscle ramp at a given week: +1 set/week, capped, and
+ * frozen for the last hard week (rampWeeks tops out at weeks-3) so the
+ * block never introduces volume a deload is about to erase.
+ */
+function focusRamp(m: Mesocycle, week: number): number {
+  const rampWeeks = Math.min(week, Math.max(0, m.weeks - 3))
+  return Math.min(rampWeeks * FOCUS_RAMP_PER_WEEK, FOCUS_RAMP_MAX)
+}
+
+/**
  * Length-aware RIR ramp (PROGRESSION.md §6): descend to 0 RIR in the
  * final accumulation week, from 3 (capped — a 6-week meso holds 3 twice:
  * 3,3,2,1,0; a 4-week runs 2→1→0). Barbell compounds floor at 1 RIR —
@@ -268,10 +278,21 @@ function increment(
   return bumped
 }
 
+/** "4×8" while every set shares a target, "13/11/9" once they diverge. */
+function repText(targets: number[], sets: number): string {
+  return targets.every((r) => r === targets[0])
+    ? `${sets}×${targets[0]}`
+    : targets.join('/')
+}
+
 export interface Prescription {
   /** Suggested working weight (absent = find one, ~3 RIR). */
   weight?: number
+  /** Headline rep target (the top set's). */
   targetReps?: number
+  /** Per-set rep targets, one per planned set — a 12/10 session progresses
+   * to 13/11, not to 13/13. Same order the rows are logged in. */
+  targetRepsBySet?: number[]
   repLow: number
   repHigh: number
   sets: number
@@ -306,6 +327,72 @@ function topSet(
     }
   }
   return best
+}
+
+/** Reps of each logged set of an exercise, in order — the SHAPE of the
+ * session, not just its best set. Rep-less rows (a stray weight, an
+ * abandoned row) drop out: they are not a rep target to build on. */
+function setReps(w: Workout, name: string): number[] {
+  const ex = w.exercises.find(
+    (e) => e.name.toLowerCase() === name.toLowerCase(),
+  )
+  if (!ex) return []
+  return ex.sets
+    .map((s) => s.reps)
+    .filter((r): r is number => r != null && r > 0)
+}
+
+/**
+ * Spread the session's rep target across its sets, keeping the SHAPE of
+ * the anchor session: each set gives up the same ground it gave up last
+ * time, so a 12/10 session earns 13/11 rather than a flat 13/13.
+ *
+ * Two rails keep that shape honest, because a plan that only ever repeats
+ * what happened can only ever decay:
+ *  - never below the window bottom while the headline is at or above it —
+ *    the rep window IS the plan, and a back-off set is not a licence to
+ *    drift out of it;
+ *  - never more than one rep above what that set actually did, so a slot
+ *    that came in short climbs back a rep a week instead of being handed
+ *    a target it already missed.
+ * Together they make a shortfall self-correcting: simulated over two
+ * blocks, back-off sets that lose a rep a week recover instead of
+ * spiralling (the shape-only rule reached 10/3/3 by block 2).
+ *
+ * Sets beyond what the anchor logged repeat its last one — the same rule
+ * the ghost column uses. With no per-set history at all, every set gets
+ * the headline.
+ */
+function repsBySet(
+  headline: number,
+  basis: number,
+  low: number,
+  anchorSetReps: number[],
+  sets: number,
+): number[] {
+  return Array.from({ length: Math.max(1, sets) }, (_, i) => {
+    const actual = anchorSetReps[i] ?? anchorSetReps.at(-1)
+    if (actual == null) return headline
+    const dropoff = Math.max(0, basis - actual)
+    return Math.max(
+      1,
+      Math.min(Math.max(low, headline - dropoff), actual + 1),
+    )
+  })
+}
+
+/** Deload variant: every set halves its OWN reps, no shape rails — the
+ * point of the week is that nothing is being chased. */
+function mapReps(
+  map: (r: number) => number,
+  anchorSetReps: number[],
+  sets: number,
+  headline: number,
+): number[] {
+  return Array.from({ length: Math.max(1, sets) }, (_, i) => {
+    const r = anchorSetReps[i] ?? anchorSetReps.at(-1)
+    return r == null ? headline : Math.max(1, map(r))
+  })
 }
 
 // ---- RIR-normalized load anchoring (PROGRESSION.md §7) ----
@@ -423,13 +510,7 @@ export function plannedSets(
   nowMs: number,
 ): Array<{ name: string; setCount: number }> {
   const deload = isDeloadWeek(m, week)
-  // Set additions freeze near the end of the block via the ramp cap below
-  // (rampWeeks tops out at weeks-3), so the last hard week matches the one
-  // before it instead of introducing volume a deload will erase.
-  const rampWeeks = Math.min(week, Math.max(0, m.weeks - 3))
-  const ramp = deload
-    ? 0
-    : Math.min(rampWeeks * FOCUS_RAMP_PER_WEEK, FOCUS_RAMP_MAX)
+  const ramp = deload ? 0 : focusRamp(m, week)
 
   // One muscle resolver for ramp, feedback, and cap alike: the day's own
   // muscle tag (slot rows) wins, the global lookup fills in the rest —
@@ -795,6 +876,11 @@ export function prescribeExercises(
         }
       }
     }
+    // The anchor session's per-set shape, captured before the bodyweight
+    // override below drops the source workout: 12/10/8 progresses to
+    // 13/11/9, not to three sets of 13.
+    const anchorSetReps = anchorWorkout ? setReps(anchorWorkout, name) : []
+
     // Bodyweight moves pin to TODAY's measured mass (the app-wide
     // invariant) and progress by reps only — you can't add 5 lb to
     // yourself, and a deload can't take 10% off you either.
@@ -828,18 +914,19 @@ export function prescribeExercises(
       const weight = bw
         ? anchor.weight
         : Math.max(deloadFloor, Math.round(raw / step) * step)
-      const reps = Math.max(
-        3,
-        Math.round((anchor.reps ?? high) * DELOAD_REP_FACTOR),
-      )
+      const halve = (r: number) =>
+        Math.max(3, Math.round(r * DELOAD_REP_FACTOR))
+      const reps = halve(anchor.reps ?? high)
+      const repsPlan = mapReps(halve, anchorSetReps, sets, reps)
       out[name] = {
         weight,
         targetReps: reps,
+        targetRepsBySet: repsPlan,
         repLow: low,
         repHigh: high,
         sets,
         rir,
-        note: `deload · ${sets}×${reps} @ ${weight} lb, stop far from failure`,
+        note: `deload · ${repText(repsPlan, sets)} @ ${weight} lb, stop far from failure`,
       }
       continue
     }
@@ -884,21 +971,31 @@ export function prescribeExercises(
     // engine keeps refusing as too coarse is now the only sane move — a
     // 30 lb lateral raise for 39 reps is not the lift anyone intended.
     const runaway = !bw && anchor.reps != null && anchor.reps >= high + 3
+
+    // Each branch picks a rep RULE, not one number, and that rule then runs
+    // over every set the athlete actually did. A 12/10 session earns 13/11:
+    // flattening it to 13/13 quietly asks for three extra reps on the back
+    // set and turns a descending session into a rectangle.
+    const capped = (r: number) => Math.min(r + 1, high)
+    const plusOne = (r: number) => r + 1
+    const reset = () => low
+    // No floor at the window bottom: a back-off set that only made 8 on a
+    // 10-20 window must not be asked for 10 in the same breath as a heavier
+    // load. Repeat what it did; the window's top still caps it.
+    const hold = (r: number) => Math.min(r, high)
+
     let weight = based
-    let target: number
+    let rule: (r: number) => number
     if (runaway) {
       weight = increment(lookup(name), based, true) ?? based
-      target = low
+      rule = reset
     } else if (deltaRir !== 0 && !bw && loadMoved) {
-      target = Math.max(low, Math.min(anchorReps, high))
+      rule = hold
     } else if (deltaRir !== 0 && !bw) {
       // Re-base was a no-op (correction smaller than the nearest plate).
       // Chase a rep — never a plate bump, which would jump the load the
       // opposite way from the correction the engine just computed.
-      target =
-        anchor.reps != null && anchor.reps >= high
-          ? anchor.reps + 1
-          : Math.min((anchor.reps ?? low) + 1, high)
+      rule = plusOne
     } else if (
       anchorWorkout &&
       anchor.reps != null &&
@@ -911,18 +1008,22 @@ export function prescribeExercises(
       const bumped = increment(lookup(name), based)
       if (bumped !== null) {
         weight = bumped
-        target = low
+        rule = reset
       } else {
-        target = anchor.reps + 1
+        rule = plusOne
       }
     } else if (bw && anchor.reps != null && anchor.reps >= high) {
-      target = anchor.reps + 1 // no plates to add to yourself — keep repping
+      rule = plusOne // no plates to add to yourself — keep repping
     } else {
-      target = Math.min((anchor.reps ?? low) + 1, high)
+      rule = capped
     }
+    const basis = anchor.reps ?? low
+    const target = Math.max(1, rule(basis))
+    const targets = repsBySet(target, basis, low, anchorSetReps, sets)
     out[name] = {
       weight,
       targetReps: target,
+      targetRepsBySet: targets,
       repLow: low,
       repHigh: high,
       sets,
@@ -931,9 +1032,70 @@ export function prescribeExercises(
       // block's near-failure sets is the RIR re-base, not a glitch.
       note:
         weight < anchor.weight
-          ? `${sets}×${target} @ ${weight} lb · ${rir} RIR · eased from ${anchor.weight}`
-          : `${sets}×${target} @ ${weight} lb · ${rir} RIR`,
+          ? `${repText(targets, sets)} @ ${weight} lb · ${rir} RIR · eased from ${anchor.weight}`
+          : `${repText(targets, sets)} @ ${weight} lb · ${rir} RIR`,
     }
   }
   return out
+}
+
+/**
+ * How many sets a lift the athlete adds MID-BLOCK should start with — what
+ * the plan would have given it had it been in the template all along: its
+ * own last set count (this block first, then any history, then three),
+ * plus this week's ramp when it lands on a focus muscle.
+ *
+ * Swapping a machine press for cable raises in week 3 of a shoulder block
+ * should inherit the block's shoulder volume rather than restart at the
+ * template base; a non-focus swap simply repeats what it did last time.
+ */
+export function plannedSetsForExercise(
+  m: Mesocycle,
+  name: string,
+  week: number,
+  mesoWorkouts: Workout[],
+  allWorkouts: Workout[],
+  muscle: string | undefined,
+  /** Sets this session already spends on the same muscle. */
+  usedByMuscle = 0,
+): number {
+  const countIn = (w: Workout): number => {
+    const ex = w.exercises.find(
+      (e) => e.name.toLowerCase() === name.toLowerCase(),
+    )
+    return ex ? ex.sets.length : 0
+  }
+  let base = 0
+  let sourceWeek: number | null = null
+  for (const w of mesoWorkouts) {
+    const n = countIn(w)
+    if (n > 0) {
+      base = n
+      sourceWeek = mesoWeek(m, new Date(w.start).getTime())
+      break
+    }
+  }
+  if (base === 0) {
+    for (const w of allWorkouts) {
+      const n = countIn(w)
+      if (n > 0) {
+        base = n
+        break
+      }
+    }
+  }
+  if (base === 0) base = 3
+
+  if (isDeloadWeek(m, week)) {
+    return Math.max(1, Math.round(base * DELOAD_SET_FACTOR))
+  }
+  // A count taken from an earlier week of THIS block already carries that
+  // week's ramp — add only the difference, or the swap inherits it twice.
+  const ramp =
+    muscle !== undefined && m.focus.includes(muscle)
+      ? focusRamp(m, week) - (sourceWeek == null ? 0 : focusRamp(m, sourceWeek))
+      : 0
+  // The athlete asked for this lift, so it always gets at least one set:
+  // the per-muscle session cap trims it, it never deletes it.
+  return Math.max(1, Math.min(base + ramp, SESSION_SET_CAP - usedByMuscle))
 }
