@@ -9,8 +9,10 @@
 import { isBodyweight } from './exercises'
 import {
   applyRecommendations,
+  landmarksFor,
   recommendations,
   SESSION_SET_CAP,
+  type Recommendation,
 } from './progression'
 import { storageKey } from './storage'
 import type { IntervalSection, Workout } from './workouts'
@@ -190,18 +192,134 @@ export function sessionsForToday(
 
 // ---- prescriptions (PROGRESSION.md §6) ----
 
-/** Accumulation ramp: focus muscles add a set per week, capped. */
+/** Accumulation ramp: focus muscles add a set per week, capped — RP's own
+ * stated block total is 2-3 sets per muscle per session, so 3 is the most
+ * a session may gain across a whole block. */
 const FOCUS_RAMP_PER_WEEK = 1
 const FOCUS_RAMP_MAX = 3
 
 /**
- * Accumulated focus-muscle ramp at a given week: +1 set/week, capped, and
- * frozen for the last hard week (rampWeeks tops out at weeks-3) so the
- * block never introduces volume a deload is about to erase.
+ * Ceiling on how much a focus muscle's WEEKLY volume may grow across one
+ * block: half again what the microcycle authors. The set landmarks are
+ * absolute, but tolerance for *change* is relative — Scarpelli 2020 found
+ * volume individualized to 1.2x habitual beat a fixed 22 sets/week, and
+ * the fastest progression anyone has actually studied (Enes 2024/2025,
+ * +4-6 sets/week every fortnight off a 22-set base, i.e. ~9-13%/week)
+ * bought extra strength but NO extra hypertrophy, at a dose-dependent cost
+ * in training strain. Without this rail an absolute "+1 set/week" is +50%
+ * a week on a 2-set lift and +12% on an 8-set one — the same number
+ * meaning wildly different things.
  */
-function focusRamp(m: Mesocycle, week: number): number {
+const FOCUS_BLOCK_GROWTH = 0.5
+
+/**
+ * Where the ramp schedule stands at a given week: +1 set/week, frozen for
+ * the last hard week (rampWeeks tops out at weeks-3) so the block never
+ * introduces volume a deload is about to erase. The BUDGET below decides
+ * how far this schedule is allowed to run.
+ */
+function rampSchedule(m: Mesocycle, week: number): number {
   const rampWeeks = Math.min(week, Math.max(0, m.weeks - 3))
   return Math.min(rampWeeks * FOCUS_RAMP_PER_WEEK, FOCUS_RAMP_MAX)
+}
+
+/**
+ * Weekly sets the microcycle authors for each muscle, and how many of the
+ * week's sessions train it. The landmarks are WEEKLY figures, so a muscle
+ * trained twice a week must not take the week's increase twice — that
+ * alone doubled the intended rate for anyone running an upper/lower or
+ * push/pull split.
+ */
+function weeklyPlan(
+  m: Mesocycle,
+  lookup: (name: string) => string | undefined,
+): { sets: Map<string, number>; days: Map<string, number> } {
+  const sets = new Map<string, number>()
+  const days = new Map<string, number>()
+  for (const d of m.days) {
+    const tags = new Map<string, string>()
+    for (const e of d.exercises) {
+      if (e.muscle !== undefined) tags.set(e.name.toLowerCase(), e.muscle)
+    }
+    const here = new Set<string>()
+    for (const e of d.exercises) {
+      const muscle = tags.get(e.name.toLowerCase()) ?? lookup(e.name)
+      if (muscle === undefined) continue
+      sets.set(muscle, (sets.get(muscle) ?? 0) + e.setCount)
+      here.add(muscle)
+    }
+    for (const muscle of here) days.set(muscle, (days.get(muscle) ?? 0) + 1)
+  }
+  return { sets, days }
+}
+
+/**
+ * How many sets the block's ramp may add to ONE SESSION of a muscle.
+ * Four rails, tightest wins:
+ *  - RP's stated block total for a session (FOCUS_RAMP_MAX);
+ *  - proportional growth (FOCUS_BLOCK_GROWTH), shared across the sessions
+ *    that train the muscle so frequency doesn't multiply the dose;
+ *  - weekly MRV headroom, likewise shared;
+ *  - whatever is left of the per-session cap, so the ramp can never eat
+ *    sets off the other lifts the athlete programmed.
+ * Non-focus muscles hold the volume the athlete authored, full stop. The
+ * app does not silently rewrite what you programmed: a block that is not
+ * about your chest is not the place to quietly grow it.
+ */
+function rampBudget(
+  m: Mesocycle,
+  muscle: string,
+  weeklySets: number,
+  frequency: number,
+  daySets: number,
+): number {
+  const marks = landmarksFor(muscle)
+  const freq = Math.max(1, frequency)
+  const cap = m.focus.includes(muscle)
+    ? Math.min(
+        FOCUS_RAMP_MAX,
+        // Rounds DOWN — the budget is spent once per SESSION, so rounding
+        // 2.5 up turns a 50% weekly cap into 60% on a twice-a-week muscle.
+        // The floor of 1 is the escape hatch for tiny volumes, where one
+        // set is coarser than the percentage and standing still helps
+        // nobody; that is the only case allowed past the cap.
+        Math.max(1, Math.floor((weeklySets * FOCUS_BLOCK_GROWTH) / freq)),
+      )
+    : 0
+  const weeklyRoom = Math.floor(Math.max(0, marks.mrv - weeklySets) / freq)
+  const sessionRoom = Math.max(0, SESSION_SET_CAP - daySets)
+  return Math.max(0, Math.min(cap, weeklyRoom, sessionRoom))
+}
+
+/** Where the ramp actually stands: the schedule, spent no further than the
+ * budget allows. */
+function rampAt(m: Mesocycle, week: number, budget: number): number {
+  return Math.min(budget, rampSchedule(m, week))
+}
+
+/**
+ * Inside a block, feedback may only HOLD or CUT — the ramp is the only
+ * thing that adds.
+ *
+ * RP is explicit that a set increase happens "if warranted" rather than on
+ * a schedule, so the block's ramp and the week's feedback are two views of
+ * ONE decision, not two additions; letting both fire tripled a focus
+ * muscle's weekly volume in two weeks. Clamping the DELTA (rather than the
+ * resulting total) also keeps the session's shape: capping the total after
+ * the fact let a +1 land on the compound and the matching trim come off
+ * the isolation, so one lift doubled while the muscle barely moved.
+ *
+ * "Too easy, not enough volume" every week is information about where the
+ * NEXT block should start, not licence to outrun this one.
+ */
+function cutsOnly(
+  recs: Record<string, Recommendation>,
+): Record<string, Recommendation> {
+  const out: Record<string, Recommendation> = {}
+  for (const [muscle, r] of Object.entries(recs)) {
+    out[muscle] = r.setDelta > 0 ? { ...r, setDelta: 0 } : r
+  }
+  return out
 }
 
 /**
@@ -510,7 +628,6 @@ export function plannedSets(
   nowMs: number,
 ): Array<{ name: string; setCount: number }> {
   const deload = isDeloadWeek(m, week)
-  const ramp = deload ? 0 : focusRamp(m, week)
 
   // One muscle resolver for ramp, feedback, and cap alike: the day's own
   // muscle tag (slot rows) wins, the global lookup fills in the rest —
@@ -522,20 +639,49 @@ export function plannedSets(
   const resolve = (name: string) =>
     dayMuscle.get(name.toLowerCase()) ?? lookup(name)
 
-  // The ramp is per MUSCLE, not per exercise — it lands on the first
-  // exercise of each focus muscle (same convention the feedback deltas
-  // use), so two quad lifts don't silently double the weekly ramp.
-  const bumped = new Set<string>()
-  let entries = day.exercises.map((e) => {
+  // What this day authors per muscle, against the block's weekly picture.
+  const daySets = new Map<string, number>()
+  for (const e of day.exercises) {
     const muscle = resolve(e.name)
-    const focused =
-      ramp > 0 &&
-      muscle !== undefined &&
-      m.focus.includes(muscle) &&
-      !bumped.has(muscle)
-    if (focused && muscle !== undefined) bumped.add(muscle)
-    return { name: e.name, setCount: e.setCount + (focused ? ramp : 0) }
+    if (muscle !== undefined) {
+      daySets.set(muscle, (daySets.get(muscle) ?? 0) + e.setCount)
+    }
+  }
+  const plan = weeklyPlan(m, lookup)
+
+  // The ramp is per MUSCLE, not per exercise — two quad lifts must not
+  // silently double the weekly ramp — and it SPREADS across that muscle's
+  // lifts, compound first. Piling the whole ramp on one exercise is how a
+  // 2-set bench became a 4-set bench while the muscle only gained two
+  // weekly sets: the dose that matters is the muscle's, but the number the
+  // athlete reads is the lift's.
+  let entries = day.exercises.map((e) => ({
+    name: e.name,
+    setCount: e.setCount,
+  }))
+  const byMuscle = new Map<string, number[]>()
+  entries.forEach((e, i) => {
+    const muscle = resolve(e.name)
+    if (muscle === undefined) return
+    byMuscle.set(muscle, [...(byMuscle.get(muscle) ?? []), i])
   })
+  for (const [muscle, idx] of byMuscle) {
+    const here = daySets.get(muscle) ?? 0
+    const ramp = deload
+      ? 0
+      : rampAt(
+          m,
+          week,
+          rampBudget(
+            m,
+            muscle,
+            plan.sets.get(muscle) ?? here,
+            plan.days.get(muscle) ?? 1,
+            here,
+          ),
+        )
+    for (let k = 0; k < ramp; k++) entries[idx[k % idx.length]].setCount += 1
+  }
 
   if (!deload) {
     // In-meso autoregulation: the same feedback engine, scoped to this
@@ -546,7 +692,7 @@ export function plannedSets(
     // hard week back to the template base, making the peak week the
     // LOWEST-volume week of the block.
     const recs = recommendations(mesoWorkouts, resolve, nowMs)
-    entries = applyRecommendations(entries, recs, resolve)
+    entries = applyRecommendations(entries, cutsOnly(recs), resolve)
   }
 
   // Per-muscle session cap — the cap is the hard invariant, so an
@@ -571,6 +717,12 @@ export function plannedSets(
 // Every exercise name is from the built-in EXERCISES list, so muscle
 // resolution works without registering customs. Everything a template
 // prefills stays editable in the wizard.
+//
+// Focus muscles START AT MEV with room left under the 8-set session cap,
+// because that is the only way the block's ramp (§6a) has anywhere to go.
+// These used to open at 10 sets per session for the focus muscle — already
+// past the cap — so the cap silently binned two sets, the ramp's budget
+// was zero, and a "Chest block" ran the same chest volume for five weeks.
 
 export interface MesoTemplate {
   id: string
@@ -608,9 +760,9 @@ export const MESO_TEMPLATES: MesoTemplate[] = [
         label: 'Lower A',
         weekday: 0,
         exercises: [
-          { name: 'Back squat', setCount: 4 },
+          { name: 'Back squat', setCount: 3 },
           { name: 'Romanian deadlift', setCount: 3 },
-          { name: 'Leg press', setCount: 3 },
+          { name: 'Leg press', setCount: 2 },
           { name: 'Calf raise', setCount: 3 },
         ],
       },
@@ -635,9 +787,9 @@ export const MESO_TEMPLATES: MesoTemplate[] = [
         label: 'Lower B',
         weekday: 4,
         exercises: [
-          { name: 'Hack squat', setCount: 4 },
+          { name: 'Hack squat', setCount: 3 },
           { name: 'Leg curl', setCount: 3 },
-          { name: 'Walking lunge', setCount: 3 },
+          { name: 'Walking lunge', setCount: 2 },
           { name: 'Seated calf raise', setCount: 3 },
         ],
       },
@@ -654,9 +806,9 @@ export const MESO_TEMPLATES: MesoTemplate[] = [
         label: 'Push A',
         weekday: 0,
         exercises: [
-          { name: 'Bench press', setCount: 4 },
-          { name: 'Incline dumbbell press', setCount: 3 },
-          { name: 'Cable fly', setCount: 3 },
+          { name: 'Bench press', setCount: 2 },
+          { name: 'Incline dumbbell press', setCount: 2 },
+          { name: 'Cable fly', setCount: 2 },
           { name: 'Triceps pushdown', setCount: 2 },
         ],
       },
@@ -674,9 +826,9 @@ export const MESO_TEMPLATES: MesoTemplate[] = [
         label: 'Push B',
         weekday: 3,
         exercises: [
-          { name: 'Incline bench press', setCount: 4 },
-          { name: 'Dips', setCount: 3 },
-          { name: 'Pec deck', setCount: 3 },
+          { name: 'Incline bench press', setCount: 2 },
+          { name: 'Dips', setCount: 2 },
+          { name: 'Pec deck', setCount: 2 },
           { name: 'Lateral raise', setCount: 2 },
         ],
       },
@@ -703,8 +855,8 @@ export const MESO_TEMPLATES: MesoTemplate[] = [
         weekday: 0,
         exercises: [
           { name: 'Deadlift', setCount: 3 },
-          { name: 'Barbell row', setCount: 4 },
-          { name: 'Lat pulldown', setCount: 3 },
+          { name: 'Barbell row', setCount: 3 },
+          { name: 'Lat pulldown', setCount: 2 },
           { name: 'Face pull', setCount: 2 },
         ],
       },
@@ -721,9 +873,9 @@ export const MESO_TEMPLATES: MesoTemplate[] = [
         label: 'Pull B',
         weekday: 4,
         exercises: [
-          { name: 'Pull-up', setCount: 4 },
-          { name: 'Seated cable row', setCount: 3 },
-          { name: 'Straight-arm pulldown', setCount: 3 },
+          { name: 'Pull-up', setCount: 2 },
+          { name: 'Seated cable row', setCount: 2 },
+          { name: 'Straight-arm pulldown', setCount: 2 },
           { name: 'Hammer curl', setCount: 2 },
         ],
       },
@@ -1056,6 +1208,7 @@ export function plannedSetsForExercise(
   mesoWorkouts: Workout[],
   allWorkouts: Workout[],
   muscle: string | undefined,
+  lookup: (name: string) => string | undefined,
   /** Sets this session already spends on the same muscle. */
   usedByMuscle = 0,
 ): number {
@@ -1091,10 +1244,21 @@ export function plannedSetsForExercise(
   }
   // A count taken from an earlier week of THIS block already carries that
   // week's ramp — add only the difference, or the swap inherits it twice.
+  // Same budget the planned lifts ramp under, so a swap can't outrun them.
+  const plan = weeklyPlan(m, lookup)
+  const budget =
+    muscle === undefined
+      ? 0
+      : rampBudget(
+          m,
+          muscle,
+          plan.sets.get(muscle) ?? base,
+          plan.days.get(muscle) ?? 1,
+          usedByMuscle + base,
+        )
   const ramp =
-    muscle !== undefined && m.focus.includes(muscle)
-      ? focusRamp(m, week) - (sourceWeek == null ? 0 : focusRamp(m, sourceWeek))
-      : 0
+    rampAt(m, week, budget) -
+    (sourceWeek == null ? 0 : rampAt(m, sourceWeek, budget))
   // The athlete asked for this lift, so it always gets at least one set:
   // the per-muscle session cap trims it, it never deletes it.
   return Math.max(1, Math.min(base + ramp, SESSION_SET_CAP - usedByMuscle))

@@ -81,12 +81,13 @@ weight and chases a rep.
 Opt-in blocks layered on the engine above; ad-hoc training is untouched.
 
 - **Shape**: N weeks (4–6 recommended, user-controlled), last week is the
-  deload. Focus muscles (up to 3) ramp +1 set/week through accumulation
-  (capped at +3); the ramp itself freezes for the last hard week (new
-  volume before a deload has nowhere to be adapted to). The same feedback
-  engine, scoped to the meso's own sessions, modulates the ramp. Feedback
-  deltas carry into that frozen week unchanged — zeroing them made the
-  peak week the *lowest*-volume hard week of the block.
+  deload. Focus muscles (up to 3) ramp +1 set/week through accumulation,
+  as far as the budget in §6a allows; the ramp itself freezes for the last
+  hard week (new volume before a deload has nowhere to be adapted to). The
+  ramp spreads across a muscle's lifts, compound first, rather than piling
+  onto one. The same feedback engine, scoped to the meso's own sessions,
+  can trim the plan. Its cuts carry into that frozen week unchanged —
+  zeroing them made the peak week the *lowest*-volume hard week.
 - **RIR ramp** (length-aware, conservative): descends to 0 in the final
   accumulation week from a cap of 3 — 4-week meso: 2→1→0; 5-week:
   3→2→1→0; 6-week: 3,3,2,1,0. Barbell compounds floor at 1 RIR.
@@ -109,6 +110,51 @@ Opt-in blocks layered on the engine above; ad-hoc training is untouched.
   programmed — feedback can still trim them); the deload keeps a flat 90%
   load rather than the spec's split-week 100%/50%; between-meso carryover
   and missed-session policies are future work.
+
+## 6a. How fast volume may grow
+
+The set landmarks are absolute, but tolerance for *change* is relative,
+and "+1 set per week" is not one rate — it is +50% a week on a 2-set lift
+and +12% on an 8-set one. Four rails bound a focus muscle's ramp; the
+tightest wins.
+
+| Rail | Value | Why |
+|---|---|---|
+| Block total per session | +3 sets | RP's own stated figure |
+| Proportional weekly growth | ≤ +50% of the authored weekly volume | fastest rate anyone has studied |
+| Weekly MRV headroom | to MRV, no further | §1 landmarks |
+| Per-session cap | to 8 direct sets | §2 |
+
+The proportional and MRV rails are **divided by training frequency**: the
+landmarks are weekly figures, so a muscle trained twice a week must not
+take the week's increase twice. That alone doubled the intended rate for
+anyone on an upper/lower or push/pull split.
+
+- **The ramp is the only thing that adds.** RP is explicit that set
+  increases happen "if warranted" rather than on a schedule, and cautions
+  against pre-planned automatic increases. The engine used to schedule a
+  ramp *and* add the feedback delta on top, so a focus muscle rated "easy,
+  not enough volume" went from 4 weekly sets to 12 in two weeks. Inside a
+  block, feedback may now only hold or cut; "too easy" every week is
+  information about where the *next* block should start. Cuts always pass
+  through — backing off must never be blocked.
+- **The ramp can't eat other lifts.** Bounding it by the remaining
+  per-session cap stops a ramping compound from squeezing the isolations
+  out of the day, which is what used to happen once a day was already at
+  8 sets for that muscle.
+- **Non-focus muscles hold what you authored**, full stop — a block that
+  isn't about your chest is not the place to quietly grow it.
+- **Calibration.** Enes 2024/2025 is the fastest progression actually
+  studied: +4–6 sets per week every fortnight off a 22-set base (≈9–13% a
+  week). It bought extra *strength* but no significant extra hypertrophy
+  (CSA and muscle thickness showed no between-group differences), while
+  training strain rose dose-dependently (6S > 4S > fixed) and the fastest
+  group reported the least pleasant sessions. So ~50% per block is a
+  ceiling, not a target. Scarpelli 2020 points the same way: volume
+  individualized to 1.2× habitual beat a fixed 22 sets/week. The one
+  documented exemption is a floor of +1 set — below ~4 weekly sets a
+  single set is coarser than the percentage, and standing still there
+  helps nobody.
 
 ## 6b. Per-set rep targets and mid-block edits
 
@@ -222,3 +268,17 @@ W_target = W_anchor × (1 + c)^(RIR_anchor − RIR_target)
   ≈ 1/9–1/3 of building volume
 - Nuckols, Stronger by Science — training volume synthesis
   (strongerbyscience.com/volume)
+- RP, "Optimizing Hypertrophy: The Case for Increasing Sets in Mesocycles"
+  (rpstrength.com/blogs/articles/in-defense-of-set-increases-within-the-hypertrophy-mesocycle):
+  start ≈3 sets/muscle/session, end ≈8; advanced lifters "only move about
+  2-3 sets per muscle per session TOTAL" across a 4-week accumulation
+  phase, and progression is "IF WARRANTED" rather than pre-planned
+- Enes et al. 2024, MSSE (pubmed.ncbi.nlm.nih.gov/37796222): constant vs
+  +4 vs +6 sets/week every fortnight, 12 weeks — strength favored the
+  progressive arms, CSA and thickness showed no between-group difference
+- Enes et al. 2025, J Sports Sci (pubmed.ncbi.nlm.nih.gov/39869076):
+  same design in females from a 22-set/week base
+- Enes et al., J Human Kinetics — psychophysiological responses in the
+  same cohort (jhk.termedia.pl, article 209051): all groups began at 22
+  weekly quad sets; 4S reached 42 and 6S reached 52 by week 12; strain
+  followed 6S > 4S > fixed

@@ -1542,6 +1542,7 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
           mesoWorkouts,
           workouts,
           muscleLookup(name),
+          muscleLookup,
           usedByMuscle,
         )
     }
