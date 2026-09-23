@@ -1880,8 +1880,11 @@ export function Workouts({
     return (
       <FeedbackModal
         muscles={feedbackMuscles(mode.workout, muscleLookup)}
-        onSubmit={(fb) =>
-          commitFinish({ ...mode.workout, feedback: fb }, { isNew: true })
+        onSubmit={(fb, sessionRpe) =>
+          commitFinish(
+            { ...mode.workout, feedback: fb, sessionRpe },
+            { isNew: true },
+          )
         }
         onSkip={() => commitFinish(mode.workout, { isNew: true })}
       />

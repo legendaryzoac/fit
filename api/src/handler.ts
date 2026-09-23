@@ -22,6 +22,11 @@ import {
   handleSaveMeso,
 } from './mesos'
 import { handleMetrics, handleSessions } from './metrics'
+import {
+  handleDeleteRomTest,
+  handleListRomTests,
+  handleSaveRomTest,
+} from './romtests'
 import { handleListWeights, handleSaveWeight } from './weights'
 import {
   handleDeleteTemplate,
@@ -125,6 +130,9 @@ export async function handler(
   if (route === 'GET /api/checkins') return handleListCheckins(userId, event)
   if (route === 'POST /api/checkins') return handleSaveCheckin(userId, event)
   if (route === 'DELETE /api/checkins') return handleDeleteCheckin(userId, event)
+  if (route === 'GET /api/romtests') return handleListRomTests(userId)
+  if (route === 'POST /api/romtests') return handleSaveRomTest(userId, event)
+  if (route === 'DELETE /api/romtests') return handleDeleteRomTest(userId, event)
   if (route === 'GET /api/exercises') return handleListExercises(userId)
   if (route === 'POST /api/exercises') return handleSaveExercise(userId, event)
   if (route === 'DELETE /api/exercises') return handleDeleteExercise(userId, event)

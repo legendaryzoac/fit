@@ -50,9 +50,65 @@ export function Segmented<T extends string>({
 }
 
 /**
+ * A 0–10 (or any small integer) scale as one row of equal buttons — the
+ * session-RPE and Perceived Recovery Status input.
+ */
+export function ScaleRow({
+  label,
+  low,
+  high,
+  value,
+  onChange,
+  min = 0,
+  max = 10,
+}: {
+  label: string
+  low: string
+  high: string
+  value: number | undefined
+  onChange: (v: number) => void
+  min?: number
+  max?: number
+}) {
+  const n = max - min + 1
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between text-[10px] font-semibold uppercase tracking-wider">
+        <span className="text-ink">{label}</span>
+        <span className="text-ink/45">
+          {min} {low} → {max} {high}
+        </span>
+      </div>
+      <div
+        className="grid border border-ink/40"
+        style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}
+      >
+        {Array.from({ length: n }, (_, i) => min + i).map((v, i) => (
+          <button
+            key={v}
+            onClick={() => onChange(v)}
+            aria-label={`${label} ${v}`}
+            className={`py-1.5 text-[11px] font-semibold tabular-nums ${
+              i > 0 ? 'border-l border-ink/40 ' : ''
+            }${
+              value === v
+                ? 'bg-accent font-extrabold text-paper'
+                : 'text-ink/60 hover:bg-ink/5'
+            }`}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
  * End-of-session autoregulation check-in, RP style: for every muscle group
  * trained, how hard it felt and how the volume sat — these drive the next
- * session's set and load recommendations.
+ * session's set and load recommendations. Plus one whole-session CR-10 so
+ * lifting and recovery share a load currency (session-RPE × minutes).
  */
 export function FeedbackModal({
   muscles,
@@ -60,13 +116,14 @@ export function FeedbackModal({
   onSkip,
 }: {
   muscles: string[]
-  onSubmit: (feedback: WorkoutFeedback) => void
+  onSubmit: (feedback: WorkoutFeedback, sessionRpe?: number) => void
   onSkip: () => void
 }) {
   const [ratings, setRatings] = useState<
     Record<string, Partial<MuscleFeedback>>
   >({})
   const [overall, setOverall] = useState<DifficultyRating | undefined>()
+  const [rpe, setRpe] = useState<number | undefined>()
 
   const patch = (muscle: string, part: Partial<MuscleFeedback>) =>
     setRatings((prev) => ({
@@ -113,6 +170,13 @@ export function FeedbackModal({
               value={overall}
               onChange={setOverall}
             />
+            <ScaleRow
+              label="Session effort"
+              low="rest"
+              high="max"
+              value={rpe}
+              onChange={setRpe}
+            />
           </section>
         </div>
 
@@ -120,12 +184,15 @@ export function FeedbackModal({
           <button
             disabled={!complete}
             onClick={() =>
-              onSubmit({
-                overall,
-                muscles: Object.fromEntries(
-                  muscles.map((m) => [m, ratings[m] as MuscleFeedback]),
-                ),
-              })
+              onSubmit(
+                {
+                  overall,
+                  muscles: Object.fromEntries(
+                    muscles.map((m) => [m, ratings[m] as MuscleFeedback]),
+                  ),
+                },
+                rpe,
+              )
             }
             className={`${buttonClass} flex-1`}
           >

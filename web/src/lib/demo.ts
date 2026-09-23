@@ -5,6 +5,7 @@
 import type { Api } from './api'
 import type { Checkin } from './checkins'
 import type { Mesocycle } from './mesocycle'
+import type { RomTest } from './romtests'
 import type { WeightEntry } from './weights'
 import type { Template } from './templates'
 import {
@@ -43,6 +44,7 @@ interface DemoStore {
   mesos: Mesocycle[]
   weights: WeightEntry[]
   checkins: Checkin[]
+  romtests: RomTest[]
 }
 
 function generate(): DemoStore {
@@ -61,6 +63,7 @@ function generate(): DemoStore {
     mesos: [],
     weights: [],
     checkins: [],
+    romtests: [],
   }
 
   const DAYS = 200
@@ -230,6 +233,8 @@ function generate(): DemoStore {
         kind: 'strength',
         title: upper ? 'Upper day' : 'Lower day',
         weightUnit: 'lb',
+        // Fixed, not random: a rand() here would shift the whole story
+        sessionRpe: upper ? 7 : 8,
         exercises: upper
           ? [
               { name: 'Bench press', sets: sets(bump(160, 1.1), 6, 4) },
@@ -255,6 +260,7 @@ function generate(): DemoStore {
         title: 'Sprint work',
         weightUnit: 'lb',
         durationMin: 34,
+        sessionRpe: 8,
         intervals: [
           { label: 'Warm up', durationSec: 480 },
           ...Array.from({ length: 6 }, () => [
@@ -283,6 +289,7 @@ function generate(): DemoStore {
         kind: 'cardio',
         title: 'Tempo run',
         weightUnit: 'lb',
+        sessionRpe: 6,
         exercises: [],
         durationMin: Math.round(
           (new Date(run.end!).getTime() - new Date(run.start).getTime()) / 60_000,
@@ -319,6 +326,7 @@ function generate(): DemoStore {
       intervals: sections,
       durationMin: Math.max(1, Math.round(total / 60)),
       rating: { post: 3 + Math.floor(rrand() * 3) },
+      sessionRpe: 2,
     }
   }
   for (let i = 60; i >= 1; i--) {
@@ -374,6 +382,19 @@ function generate(): DemoStore {
     })
   }
   store.checkins.sort((a, b) => b.date.localeCompare(a.date))
+
+  // Mobility tests every three weeks: hamstrings and ankles slowly better,
+  // one shoulder change that stays inside its noise band.
+  const romDay = (ago: number) => {
+    const d = new Date(now - ago * DAY)
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+  }
+  store.romtests = [
+    { date: romDay(66), toeTouchCm: 9, kneeToWallLCm: 8.5, kneeToWallRCm: 7.5, handBehindBackLCm: 12, handBehindBackRCm: 15 },
+    { date: romDay(45), toeTouchCm: 7, kneeToWallLCm: 9, kneeToWallRCm: 8, handBehindBackLCm: 11.5, handBehindBackRCm: 14 },
+    { date: romDay(24), toeTouchCm: 4, kneeToWallLCm: 10.5, kneeToWallRCm: 9, handBehindBackLCm: 11, handBehindBackRCm: 14.5 },
+    { date: romDay(3), toeTouchCm: 3, kneeToWallLCm: 11, kneeToWallRCm: 10, handBehindBackLCm: 10, handBehindBackRCm: 13.5 },
+  ].sort((a, b) => b.date.localeCompare(a.date))
 
   store.workouts.sort((a, b) => b.start.localeCompare(a.start))
   store.templates = [
@@ -486,6 +507,7 @@ export function makeDemoApi(): Api {
         checkins: store.checkins.filter((c) => c.date >= from),
       })
     }
+    if (pathname === '/api/romtests') return respond({ tests: store.romtests })
     return respond({ error: 'not found in demo' })
   }
 
@@ -546,6 +568,19 @@ export function makeDemoApi(): Api {
       }
       const date = new URL(path, 'http://demo').searchParams.get('date')
       store.checkins = store.checkins.filter((c) => c.date !== date)
+      return respond({ deleted: date })
+    }
+    if (path.startsWith('/api/romtests')) {
+      if (method === 'POST') {
+        const t = body as RomTest
+        store.romtests = [
+          t,
+          ...store.romtests.filter((x) => x.date !== t.date),
+        ].sort((a, b) => b.date.localeCompare(a.date))
+        return respond({ saved: t.date })
+      }
+      const date = new URL(path, 'http://demo').searchParams.get('date')
+      store.romtests = store.romtests.filter((t) => t.date !== date)
       return respond({ deleted: date })
     }
     if (path.startsWith('/api/exercises')) {

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Modality, Workout } from '../lib/workouts'
-import { Segmented } from './Feedback'
+import { ScaleRow, Segmented } from './Feedback'
 import { buttonClass, inputClass, NumberField } from './ui'
 
 /**
@@ -83,6 +83,7 @@ export function QuickLog({
     ),
   )
   const [feel, setFeel] = useState<number | undefined>(initial?.rating?.post)
+  const [rpe, setRpe] = useState<number | undefined>(initial?.sessionRpe)
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [error, setError] = useState<string | null>(null)
 
@@ -130,6 +131,7 @@ export function QuickLog({
       durationMin: Math.round(seed.minutes),
       dose,
       rating: feel !== undefined ? { post: feel } : initial?.rating,
+      sessionRpe: rpe,
       notes: notes.trim() || undefined,
       mesoId: initial?.mesoId,
       mesoDayIndex: initial?.mesoDayIndex,
@@ -247,6 +249,14 @@ export function QuickLog({
           onChange={(v) => setFeel(Number(v))}
         />
       </div>
+
+      <ScaleRow
+        label="Effort (optional)"
+        low="rest"
+        high="max"
+        value={rpe}
+        onChange={setRpe}
+      />
 
       <textarea
         className={`${inputClass} min-h-16`}

@@ -25,7 +25,7 @@ import {
   type Workout,
   type WorkoutExercise,
 } from '../lib/workouts'
-import { Segmented } from './Feedback'
+import { ScaleRow, Segmented } from './Feedback'
 import { LockScreenToggle } from './LockScreenToggle'
 import {
   buttonClass,
@@ -227,6 +227,7 @@ export function IntervalSession({
   const [linkedSk, setLinkedSk] = useState<string | undefined>()
   const [drills, setDrills] = useState<WorkoutExercise[]>([])
   const [postFeel, setPostFeel] = useState<number | undefined>()
+  const [rpe, setRpe] = useState<number | undefined>()
   const lastIdxRef = useRef(0)
   const lastWarnRef = useRef(-1)
   const doneElapsedRef = useRef(0)
@@ -407,6 +408,7 @@ export function IntervalSession({
       ...(recovery && { modality: draft.modality ?? ('stretch' as const) }),
       ...(recovery &&
         postFeel !== undefined && { rating: { post: postFeel } }),
+      ...(rpe !== undefined && { sessionRpe: rpe }),
       ...(sections.length > 0 && { intervals: sections }),
       durationMin: Math.max(1, Math.round(durMs / 60_000)),
       distanceM: miles ? Math.round(Number(miles) * MILE) : undefined,
@@ -434,6 +436,13 @@ export function IntervalSession({
           placeholder="title (optional)"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+        />
+        <ScaleRow
+          label="How hard was that?"
+          low="rest"
+          high="max"
+          value={rpe}
+          onChange={setRpe}
         />
         {recovery && (
           <div className="flex flex-col gap-2">

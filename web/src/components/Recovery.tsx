@@ -19,6 +19,14 @@ import {
   withRollingMean,
   type Metrics,
 } from '../lib/metrics'
+import {
+  RETEST_DAYS,
+  ROM_TESTS,
+  romSummary,
+  useRomTests,
+  type RomKey,
+  type RomTest,
+} from '../lib/romtests'
 import { localToday } from '../lib/weights'
 import { consistencyPct, localDay, recoveryDays } from '../lib/wellness'
 import { loadWorkoutCache, type Workout } from '../lib/workouts'
@@ -32,7 +40,211 @@ import {
 } from './Charts'
 import { BodyWeight } from './BodyWeight'
 import { CheckinCard } from './Checkin'
-import { buttonClass, Card } from './ui'
+import { buttonClass, Card, inputClass } from './ui'
+
+/**
+ * Mobility field tests: log every few weeks, read against each test's
+ * minimal detectable change. A change inside the band is noise and is
+ * shown as such; nothing here is ever called progress without clearing it.
+ */
+function MobilityTests({
+  tests,
+  onSave,
+  onDelete,
+}: {
+  tests: RomTest[]
+  onSave: (t: RomTest) => void
+  onDelete: (date: string) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<Record<RomKey, string>>({
+    toeTouchCm: '',
+    kneeToWallLCm: '',
+    kneeToWallRCm: '',
+    handBehindBackLCm: '',
+    handBehindBackRCm: '',
+  })
+  const [note, setNote] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const summary = romSummary(tests)
+  const last = tests[0]
+  const daysSince = last
+    ? Math.floor(
+        (Date.now() - new Date(`${last.date}T00:00:00`).getTime()) / 86_400_000,
+      )
+    : null
+  const due = daysSince == null || daysSince >= RETEST_DAYS
+
+  function save() {
+    const t: RomTest = { date: localToday() }
+    let any = false
+    for (const k of Object.keys(draft) as RomKey[]) {
+      const raw = draft[k].trim()
+      if (raw === '') continue
+      const n = Number(raw)
+      if (!Number.isFinite(n)) {
+        setError('Numbers only, in centimetres.')
+        return
+      }
+      t[k] = Math.round(n * 10) / 10
+      any = true
+    }
+    if (!any) {
+      setError('Enter at least one measurement.')
+      return
+    }
+    if (note.trim()) t.note = note.trim()
+    onSave(t)
+    setOpen(false)
+    setError(null)
+    setNote('')
+    setDraft({
+      toeTouchCm: '',
+      kneeToWallLCm: '',
+      kneeToWallRCm: '',
+      handBehindBackLCm: '',
+      handBehindBackRCm: '',
+    })
+  }
+
+  const fmt = (v: number | null) => (v == null ? '—' : `${v} cm`)
+
+  return (
+    <section className="border-t-2 border-ink/40 pt-2.5">
+      <div className="mb-1.5 flex items-baseline justify-between">
+        <p className="kicker">Mobility tests</p>
+        <span className="text-[9px] font-semibold tracking-widest text-ink/45">
+          {last ? `LAST ${daysSince === 0 ? 'TODAY' : `${daysSince}D AGO`}` : 'NONE YET'}
+          {due ? ' · DUE' : ''}
+        </span>
+      </div>
+
+      {tests.length > 0 && (
+        <div className="flex flex-col">
+          {summary.map((s) => {
+            const meta = ROM_TESTS.find((t) => t.key === s.key)!
+            return (
+              <div
+                key={s.key}
+                className="grid grid-cols-[1fr_auto_auto] items-baseline gap-3 border-b border-ink/20 py-1.5 text-sm"
+              >
+                <span className="min-w-0 truncate font-semibold text-ink">
+                  {meta.label}
+                  {meta.side && (
+                    <span className="ml-1 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
+                      {meta.side === 'L' ? 'left' : 'right'}
+                    </span>
+                  )}
+                </span>
+                <span className="tabular-nums text-ink">{fmt(s.latest)}</span>
+                <span className="w-28 text-right text-xs tabular-nums text-ink/55">
+                  {s.delta == null
+                    ? ''
+                    : s.beyondNoise
+                      ? `${s.delta > 0 ? '+' : ''}${s.delta} · ${s.improved ? 'better' : 'worse'}`
+                      : `${s.delta > 0 ? '+' : ''}${s.delta} · within ±${meta.mdcCm}`}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {!open ? (
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <span className="text-xs text-ink/55">
+            {due
+              ? 'Retest every ~3 weeks, same time of day, same warm-up.'
+              : `Next test in about ${RETEST_DAYS - (daysSince ?? 0)} days.`}
+          </span>
+          <button
+            onClick={() => setOpen(true)}
+            className="shrink-0 border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5"
+          >
+            Log a test
+          </button>
+        </div>
+      ) : (
+        <div className="mt-2 flex flex-col gap-3">
+          {ROM_TESTS.map((t) => (
+            <label key={t.key} className="flex flex-col gap-1">
+              <span className="flex items-baseline justify-between text-[10px] font-semibold uppercase tracking-wider">
+                <span className="text-ink">
+                  {t.label}
+                  {t.side ? ` · ${t.side === 'L' ? 'left' : 'right'}` : ''}
+                </span>
+                <span className="text-ink/45">cm · ±{t.mdcCm} noise</span>
+              </span>
+              <input
+                className={inputClass}
+                type="number"
+                inputMode="decimal"
+                step="0.5"
+                placeholder={t.how}
+                value={draft[t.key]}
+                onChange={(e) => setDraft({ ...draft, [t.key]: e.target.value })}
+              />
+              <span className="text-[11px] leading-snug text-ink/50">{t.how}</span>
+            </label>
+          ))}
+          <input
+            className={inputClass}
+            placeholder="note (optional — shoes, time of day)"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          {error && <p className="text-sm font-semibold text-accent-700">{error}</p>}
+          <div className="flex items-center gap-3">
+            <button onClick={save} className={`${buttonClass} flex-1`}>
+              Save test
+            </button>
+            <button
+              onClick={() => setOpen(false)}
+              className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tests.length > 1 && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink">
+            History ({tests.length})
+          </summary>
+          <div className="mt-1 flex flex-col">
+            {tests.slice(0, 8).map((t) => (
+              <div
+                key={t.date}
+                className="grid grid-cols-[auto_1fr_auto] gap-3 border-b border-ink/20 py-1 text-xs"
+              >
+                <span className="tabular-nums text-ink/55">{t.date}</span>
+                <span className="truncate text-ink/70">
+                  {ROM_TESTS.filter((m) => typeof t[m.key] === 'number')
+                    .map((m) => `${m.label.split(' ')[0]}${m.side ? m.side : ''} ${t[m.key]}`)
+                    .join(' · ')}
+                </span>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Delete the test from ${t.date}?`)) {
+                      onDelete(t.date).catch(() => setError('Deleting needs a connection.'))
+                    }
+                  }}
+                  className="text-ink/35 hover:text-accent-700"
+                  aria-label={`delete test ${t.date}`}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </section>
+  )
+}
 
 const tickStyle = {
   fill: '#7d7979',
@@ -200,6 +412,7 @@ export function Recovery({
   // Sessions come from the logger's cache: Workouts is unmounted while this
   // tab is up, and the cache is rewritten on every save, so it is current.
   const [workouts] = useState<Workout[]>(loadWorkoutCache)
+  const rom = useRomTests(api)
 
   useEffect(() => {
     if (banner) window.history.replaceState(null, '', '/')
@@ -461,6 +674,8 @@ export function Recovery({
           </div>
         )}
       </section>
+
+      <MobilityTests tests={rom.tests} onSave={rom.save} onDelete={rom.remove} />
 
       <BodyWeight api={api} whoopLb={me?.whoop.bodyWeightLb} />
 

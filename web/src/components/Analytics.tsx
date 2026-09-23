@@ -29,10 +29,25 @@ import { makeMuscleLookup, type CustomExercise } from '../lib/exercises'
 import type { Metrics } from '../lib/metrics'
 import { localToday } from '../lib/weights'
 import {
+  behaviourImpact,
   consistencyPct,
   dailySeries,
+  IMPACT_MIN_N,
+  weeklyLoad,
   weeklyMinutesByModality,
 } from '../lib/wellness'
+
+const KIND_COLORS: Record<string, string> = {
+  strength: '#ec3013',
+  speed: '#201e1d',
+  cardio: '#ef6853',
+  recovery: '#e0a112',
+}
+const OUTCOME_LABEL: Record<string, string> = {
+  soreness: 'soreness',
+  fatigue: 'energy',
+  prs: 'recovery (0–10)',
+}
 import type { SessionRecord, Workout } from '../lib/workouts'
 import { LiveHR } from './LiveHR'
 import { Card } from './ui'
@@ -144,6 +159,23 @@ export function Analytics({
   }, [checkins])
   const hasWellness = wellness.some((r) => r.sleep != null)
   const hasRecovery = recoveryWeeks.modalities.length > 0
+  const load = useMemo(() => weeklyLoad(workouts, 8), [workouts])
+  const ratedAny = load.some((w) => w.rated > 0)
+  const loadKinds = useMemo(
+    () => ['strength', 'speed', 'cardio', 'recovery'].filter((k) => load.some((w) => (w.byKind[k] ?? 0) > 0)),
+    [load],
+  )
+  const thisWeek = load[load.length - 1]
+  const lastWeek = load[load.length - 2]
+  const weekChange =
+    thisWeek && lastWeek && lastWeek.load > 0
+      ? Math.round(((thisWeek.load - lastWeek.load) / lastWeek.load) * 100)
+      : null
+  const impacts = useMemo(
+    () => behaviourImpact(workouts, checkins, localToday()),
+    [workouts, checkins],
+  )
+  const impactModalities = [...new Set(impacts.map((r) => r.modality))]
   const [metricsError, setMetricsError] = useState(false)
   const [exercise, setExercise] = useState<string | null>(null)
   const [drill, setDrill] = useState<string | null>(null)
@@ -292,6 +324,124 @@ export function Analytics({
           </p>
         </Card>
       )}
+
+      <Card
+        title="Training load"
+        subtitle="session effort (0–10) × minutes, per week · every kind counts"
+      >
+        {ratedAny ? (
+          <>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart
+                data={load.map((w) => ({ label: w.label, ...w.byKind }))}
+                margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
+              >
+                <CartesianGrid stroke={GRID_STROKE} vertical={false} />
+                <XAxis dataKey="label" {...axisProps()} />
+                <YAxis width={40} {...axisProps()} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
+                {loadKinds.map((k) => (
+                  <Bar key={k} dataKey={k} stackId="l" fill={KIND_COLORS[k]} name={k} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+            {thisWeek && (
+              <div className="mt-2 grid grid-cols-3 border-b-2 border-t border-ink/40">
+                <div className="py-2">
+                  <div className="text-[9px] font-semibold tracking-widest text-ink/50">
+                    THIS WEEK
+                  </div>
+                  <div className="text-lg font-extrabold">
+                    {thisWeek.load.toLocaleString()}
+                    {weekChange != null && (
+                      <span className="ml-1 text-[10px] font-semibold text-ink/55">
+                        {weekChange >= 0 ? '+' : ''}
+                        {weekChange}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="border-l border-ink/25 py-2 pl-3">
+                  <div className="text-[9px] font-semibold tracking-widest text-ink/50">
+                    MONOTONY
+                  </div>
+                  <div className="text-lg font-extrabold">
+                    {thisWeek.monotony ?? '—'}
+                  </div>
+                </div>
+                <div className="border-l border-ink/25 py-2 pl-3">
+                  <div className="text-[9px] font-semibold tracking-widest text-ink/50">
+                    STRAIN
+                  </div>
+                  <div className="text-lg font-extrabold">
+                    {thisWeek.strain != null ? thisWeek.strain.toLocaleString() : '—'}
+                  </div>
+                </div>
+              </div>
+            )}
+            <p className="mt-1 text-xs text-ink/45">
+              Monotony is mean ÷ SD of the seven daily loads; above ~2 means
+              the week has no easy days. Strain is load × monotony. Only
+              rated sessions count ({thisWeek?.rated ?? 0} of {thisWeek?.sessions ?? 0} this week).
+            </p>
+          </>
+        ) : (
+          <p className="py-6 text-center text-sm text-ink/45">
+            Rate sessions 0–10 when you save them and weekly load, monotony
+            and strain appear here.
+          </p>
+        )}
+      </Card>
+
+      <Card
+        title="What helps"
+        subtitle="next-morning check-in after a recovery session vs without · association, not causation"
+      >
+        {impacts.length === 0 ? (
+          <p className="py-6 text-center text-sm text-ink/45">
+            Needs at least {IMPACT_MIN_N} mornings after each recovery type
+            and {IMPACT_MIN_N} without, in the last 90 days, with the check-in
+            logged.
+          </p>
+        ) : (
+          <div className="flex flex-col">
+            {impactModalities.map((m) => (
+              <div
+                key={m}
+                className="grid grid-cols-[6rem_1fr] gap-2 border-b border-ink/20 py-1.5 text-sm"
+              >
+                <span className="font-extrabold capitalize text-ink">{m}</span>
+                <span className="flex flex-col gap-0.5 text-ink/80">
+                  {impacts
+                    .filter((r) => r.modality === m)
+                    .map((r) => (
+                      <span key={r.outcome}>
+                        {OUTCOME_LABEL[r.outcome]}{' '}
+                        <span
+                          className={`font-extrabold ${
+                            r.diff > 0
+                              ? 'text-accent-700'
+                              : r.diff < 0
+                                ? 'text-ink'
+                                : 'text-ink/55'
+                          }`}
+                        >
+                          {r.diff > 0 ? '+' : ''}
+                          {r.diff}
+                        </span>
+                        <span className="text-xs text-ink/45">
+                          {' '}
+                          · {r.meanWith} vs {r.meanWithout} · n {r.nWith} vs{' '}
+                          {r.nWithout}
+                        </span>
+                      </span>
+                    ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       {hasRecovery && (
         <Card
