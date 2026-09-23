@@ -13,6 +13,8 @@ export default defineConfig({
       manifest: false,
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,webmanifest,woff2}'],
+        // Manrope ships every script; only the latin face is precached
+        globIgnores: ['**/manrope-{cyrillic,cyrillic-ext,greek,latin-ext,vietnamese}-*'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//],
         // Never cache API responses in the SW — the app layer handles

@@ -1,112 +1,369 @@
-/* Modernist (design 1a "Ledger") — light typographic system.
-   Tokens mirror ds/modernist.css from the design project: warm paper,
-   near-black ink, one red. Zero border radius anywhere; hierarchy comes
-   from rules (2px section / 1px row), weight (400/600/800), and
-   uppercase letterspaced kickers. */
-@import '@fontsource/archivo/400.css';
-@import '@fontsource/archivo/600.css';
-@import '@fontsource/archivo/800.css';
+/* FIT Cadence — tokens and base.
+   Dawn lives on :root, Dusk under [data-theme="dark"] (set on <html> by
+   lib/theme.ts). Tailwind utilities read the runtime variables through
+   `@theme inline`, so `bg-canvas` follows the theme without a rebuild. */
+@import '@fontsource-variable/manrope';
 @import 'tailwindcss';
 
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:root {
+  color-scheme: light;
+
+  --canvas: #f2f0ea;
+  --surface: #ffffff;
+  --surface-2: #f1efe9;
+  --surface-3: #e9e6df;
+  --hairline: #1b211d14;
+  --scrim: #1b211d80;
+
+  --ink: #1b211d;
+  --ink-2: #576058;
+  --ink-3: #626b63;
+  --ink-4: #8f988f;
+
+  --brand: #1b6b5a;
+  --brand-strong: #15574a;
+  --brand-soft: #d9efe7;
+  --on-brand: #ffffff;
+
+  --ember: #e2683b;
+  --ember-strong: #b8451c;
+  --ember-soft: #fbe6dc;
+  --on-ember: #1b211d;
+
+  --sky: #3d6fb4;
+  --sky-strong: #2f5a95;
+  --sky-soft: #dfeafa;
+  --on-sky: #ffffff;
+
+  --amber: #bd7f17;
+  --amber-strong: #8f5e0c;
+  --amber-soft: #fbefd6;
+  --on-amber: #1b211d;
+
+  --rose: #d64c4c;
+  --rose-strong: #ad2f2f;
+  --rose-soft: #fbe1e1;
+  --on-rose: #ffffff;
+
+  --sleep-light: #9dbdf0;
+  --sleep-awake: #d9d3c4;
+  --zone-1: #cfd6d0;
+  --series-6: #6d7a74;
+  --series-7: #8bbf9a;
+
+  --shadow-lift: 0 1px 2px #1b211d0f, 0 12px 32px -16px #1b211d33;
+  --shadow-float: 0 16px 40px -12px #1b211d59;
+
+  /* Motion */
+  --motion-quick: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --motion-sheet: 400ms;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --canvas: #0f1311;
+  --surface: #181d1a;
+  --surface-2: #212724;
+  --surface-3: #2a312d;
+  --hairline: #eef0ea14;
+  --scrim: #00000099;
+
+  --ink: #eef0ea;
+  --ink-2: #aab2ab;
+  --ink-3: #8a938b;
+  --ink-4: #6a736b;
+
+  --brand: #5ccbab;
+  --brand-strong: #86dcc0;
+  --brand-soft: #1a3b32;
+  --on-brand: #0f1311;
+
+  --ember: #f08a5e;
+  --ember-strong: #f7a583;
+  --ember-soft: #3d2519;
+  --on-ember: #0f1311;
+
+  --sky: #7fa9ec;
+  --sky-strong: #a3c2f5;
+  --sky-soft: #1c2b44;
+  --on-sky: #0f1311;
+
+  --amber: #e6a83c;
+  --amber-strong: #f2c46a;
+  --amber-soft: #3b2d12;
+  --on-amber: #0f1311;
+
+  --rose: #ee6b6b;
+  --rose-strong: #f59a9a;
+  --rose-soft: #43201f;
+  --on-rose: #0f1311;
+
+  --sleep-light: #4f78b8;
+  --sleep-awake: #3a4440;
+  --zone-1: #3a4440;
+  --series-6: #8a9a92;
+  --series-7: #6fae86;
+
+  --shadow-lift: 0 0 0 1px #eef0ea0f;
+  --shadow-float: 0 16px 40px -12px #00000099, 0 0 0 1px #eef0ea14;
+}
+
+@theme inline {
+  --font-sans: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-hairline: var(--hairline);
+  --color-scrim: var(--scrim);
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-on-brand: var(--on-brand);
+
+  --color-ember: var(--ember);
+  --color-ember-strong: var(--ember-strong);
+  --color-ember-soft: var(--ember-soft);
+  --color-on-ember: var(--on-ember);
+
+  --color-sky: var(--sky);
+  --color-sky-strong: var(--sky-strong);
+  --color-sky-soft: var(--sky-soft);
+  --color-on-sky: var(--on-sky);
+
+  --color-amber: var(--amber);
+  --color-amber-strong: var(--amber-strong);
+  --color-amber-soft: var(--amber-soft);
+  --color-on-amber: var(--on-amber);
+
+  --color-rose: var(--rose);
+  --color-rose-strong: var(--rose-strong);
+  --color-rose-soft: var(--rose-soft);
+  --color-on-rose: var(--on-rose);
+
+  --color-sleep-deep: var(--sky-strong);
+  --color-sleep-rem: var(--sky);
+  --color-sleep-light: var(--sleep-light);
+  --color-sleep-awake: var(--sleep-awake);
+
+  --color-zone-1: var(--zone-1);
+  --color-zone-2: var(--sky);
+  --color-zone-3: var(--brand);
+  --color-zone-4: var(--ember);
+  --color-zone-5: var(--rose);
+
+  --color-series-1: var(--brand);
+  --color-series-2: var(--ember);
+  --color-series-3: var(--sky);
+  --color-series-4: var(--amber);
+  --color-series-5: var(--rose);
+  --color-series-6: var(--series-6);
+  --color-series-7: var(--series-7);
+
+  --shadow-lift: var(--shadow-lift);
+  --shadow-float: var(--shadow-float);
+
+  /* Ledger compatibility: the old token names resolve to the nearest
+     Cadence value so unmigrated screens keep rendering. Delete this block
+     when the last Ledger component is gone. */
+  --color-paper: var(--canvas);
+  --color-accent: var(--brand);
+  --color-accent-100: var(--brand-soft);
+  --color-accent-200: var(--brand-soft);
+  --color-accent-300: var(--brand-soft);
+  --color-accent-400: var(--brand);
+  --color-accent-500: var(--brand);
+  --color-accent-600: var(--brand-strong);
+  --color-accent-700: var(--brand-strong);
+  --color-accent-800: var(--brand-strong);
+  --color-accent-900: var(--brand-strong);
+  --color-accent2-100: var(--sky-soft);
+  --color-accent2-500: var(--sky);
+  --color-accent2-700: var(--sky-strong);
+  --color-accent2-800: var(--sky-strong);
+  --color-neutral-100: var(--surface);
+  --color-neutral-200: var(--surface-2);
+  --color-neutral-300: var(--surface-3);
+  --color-neutral-400: var(--ink-4);
+  --color-neutral-500: var(--ink-3);
+  --color-neutral-600: var(--ink-3);
+  --color-neutral-700: var(--ink-2);
+  --color-neutral-800: var(--ink-2);
+  --color-neutral-900: var(--ink);
+  --color-orange-500: var(--ember);
+  --color-orange-600: var(--ember);
+  --color-orange-700: var(--ember-strong);
+  --color-gold-500: var(--amber);
+  --color-gold-600: var(--amber);
+  --color-gold-700: var(--amber-strong);
+}
+
 @theme {
-  --font-sans: 'Archivo', system-ui, sans-serif;
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
 
-  --color-paper: #f3f2f2;
-  --color-surface: #eae9e9;
-  --color-ink: #201e1d;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-in: cubic-bezier(0.3, 0, 1, 1);
 
-  --color-accent: #ec3013;
-  --color-accent-100: #fff2ef;
-  --color-accent-200: #ffe0d9;
-  --color-accent-300: #ffc4b8;
-  --color-accent-400: #ff9783;
-  --color-accent-500: #ff563c;
-  --color-accent-600: #dd2b0f;
-  --color-accent-700: #ae1800;
-  --color-accent-800: #7c1405;
-  --color-accent-900: #4d170e;
+  --spacing-gutter: 20px;
+  --spacing-touch: 44px;
+  --spacing-dock: 64px;
+  --spacing-topbar: 56px;
+  --container-column: 720px;
 
-  --color-neutral-100: #f8f4f4;
-  --color-neutral-200: #eae7e7;
-  --color-neutral-300: #d7d3d3;
-  --color-neutral-400: #bab6b6;
-  --color-neutral-500: #9b9797;
-  --color-neutral-600: #7d7979;
-  --color-neutral-700: #605d5d;
-  --color-neutral-800: #444141;
-  --color-neutral-900: #2d2b2b;
+  /* Type scale: text-<name> sets size, line height, weight and tracking */
+  --text-display-xl: 64px;
+  --text-display-xl--line-height: 1;
+  --text-display-xl--font-weight: 600;
+  --text-display-xl--letter-spacing: -0.02em;
+  --text-display-lg: 48px;
+  --text-display-lg--line-height: 52px;
+  --text-display-lg--font-weight: 600;
+  --text-display-lg--letter-spacing: -0.02em;
+  --text-display: 36px;
+  --text-display--line-height: 40px;
+  --text-display--font-weight: 600;
+  --text-display--letter-spacing: -0.015em;
+  --text-title-lg: 26px;
+  --text-title-lg--line-height: 32px;
+  --text-title-lg--font-weight: 600;
+  --text-title-lg--letter-spacing: -0.01em;
+  --text-title: 20px;
+  --text-title--line-height: 26px;
+  --text-title--font-weight: 600;
+  --text-title--letter-spacing: -0.005em;
+  --text-title-sm: 17px;
+  --text-title-sm--line-height: 22px;
+  --text-title-sm--font-weight: 600;
+  --text-body-lg: 17px;
+  --text-body-lg--line-height: 26px;
+  --text-body: 15px;
+  --text-body--line-height: 22px;
+  --text-caption: 13px;
+  --text-caption--line-height: 18px;
+  --text-eyebrow: 12px;
+  --text-eyebrow--line-height: 16px;
+  --text-eyebrow--font-weight: 600;
+  --text-eyebrow--letter-spacing: 0.02em;
+  --text-micro: 11px;
+  --text-micro--line-height: 14px;
+  --text-micro--font-weight: 500;
+  --text-micro--letter-spacing: 0.01em;
+  --text-numeric-lg: 22px;
+  --text-numeric-lg--line-height: 26px;
+  --text-numeric-lg--font-weight: 600;
+  --text-numeric-lg--letter-spacing: -0.01em;
 
-  /* Salmon secondary ramp — cardio's voice in a monochrome+red system */
-  --color-accent2-500: #ef6853;
-  --color-accent2-700: #9e3526;
-  --color-accent2-100: #fff2ef;
-  --color-accent2-800: #71261b;
-
-  /* Warm companions to the red — chart series variety that stays in the
-     Modernist family (burnt orange, mustard gold). */
-  --color-orange-500: #f57d1f;
-  --color-orange-600: #d96a10;
-  --color-orange-700: #a34e08;
-  --color-gold-500: #e0a112;
-  --color-gold-600: #c08c0e;
-  --color-gold-700: #8f6807;
+  --animate-live: live 2s cubic-bezier(0.2, 0, 0, 1) infinite;
+  @keyframes live {
+    50% {
+      opacity: 0.35;
+      transform: scale(0.85);
+    }
+  }
 }
 
 @layer base {
   html {
-    background: var(--color-paper);
+    background: var(--canvas);
   }
   body {
-    background: var(--color-paper);
-    color: var(--color-ink);
+    background: var(--canvas);
+    color: var(--ink);
     font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
   }
   ::selection {
-    background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+    background: var(--brand-soft);
+    color: var(--brand-strong);
   }
   :focus {
     outline: none;
   }
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--brand);
     outline-offset: 2px;
   }
   input,
   textarea {
-    caret-color: var(--color-accent);
+    caret-color: var(--brand);
   }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0ms !important;
+      animation-duration: 0ms !important;
+    }
+  }
+}
+
+/* Motion primitives */
+@utility motion-quick {
+  transition-duration: var(--motion-quick);
+  transition-timing-function: var(--ease-standard);
+}
+@utility motion-base {
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-standard);
+}
+@utility motion-slow {
+  transition-duration: var(--motion-slow);
+  transition-timing-function: var(--ease-standard);
+}
+@utility motion-sheet {
+  transition-duration: var(--motion-sheet);
+  transition-timing-function: var(--ease-out);
+}
+@utility pressable {
+  transition:
+    transform var(--motion-quick) var(--ease-standard),
+    background-color var(--motion-quick) var(--ease-standard);
+  &:active {
+    transform: scale(0.98);
+  }
+}
+@utility backdrop-bar {
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 @layer components {
-  /* Uppercase letterspaced micro-label that opens every section */
-  .kicker {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-accent);
-  }
+  /* Ledger leftovers, restyled as Cadence eyebrows until each screen is
+     rebuilt: sentence case, no tracking, secondary ink. */
+  .kicker,
   .kicker-muted {
-    font-size: 10px;
+    font-size: 12px;
+    line-height: 16px;
     font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: color-mix(in srgb, var(--color-ink) 55%, transparent);
+    letter-spacing: 0.02em;
+    color: var(--ink-2);
   }
 }
 
-/* Thin, ink horizontal scrollbars for overflowing chip rows */
+/* Chip rows scroll sideways without a visible scrollbar */
 .scroll-thin {
-  scrollbar-width: thin;
-  scrollbar-color: #bab6b6 transparent;
+  scrollbar-width: none;
 }
 .scroll-thin::-webkit-scrollbar {
-  height: 6px;
-}
-.scroll-thin::-webkit-scrollbar-thumb {
-  background: #bab6b6;
-}
-.scroll-thin::-webkit-scrollbar-track {
-  background: transparent;
+  display: none;
 }
