@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import type { Api } from '../lib/api'
 import { maybeResumeLockScreen } from '../lib/lockScreen'
 import {
@@ -9,8 +9,24 @@ import {
   subscribeOverlay,
 } from '../lib/sessionBus'
 import { fmtSec } from '../lib/templates'
-import { loadDraft, loadTimerDraft, timerSnapshot } from '../lib/workouts'
-import { PulseMark } from './ui'
+import {
+  loadDraft,
+  loadTimerDraft,
+  saveTimerDraft,
+  skipSection,
+  timerSnapshot,
+} from '../lib/workouts'
+import { Chips } from './shell/Chips'
+import {
+  Dock,
+  type DockLive,
+  type DockMode,
+  type DockTab,
+  type DockTimer,
+  type TimerTone,
+} from './shell/Dock'
+import { SettingsSheet } from './shell/SettingsSheet'
+import { TopBar } from './shell/TopBar'
 import { Workouts, type WorkoutsTab } from './Workouts'
 
 // Recharts only loads when someone opens a chart view — keeps the login
@@ -19,14 +35,18 @@ const Recovery = lazy(() =>
   import('./Recovery').then((m) => ({ default: m.Recovery })),
 )
 
-const TABS = ['today', 'history', 'plan', 'progress', 'recovery'] as const
-type Tab = (typeof TABS)[number]
+type Tab = DockTab
+type TrendsView = 'strength' | 'recovery'
 
-function headerDate(): string {
-  const d = new Date()
-  const wd = d.toLocaleDateString(undefined, { weekday: 'short' })
-  const md = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  return `${wd} · ${md}`.toUpperCase()
+const TRENDS: Array<{ value: TrendsView; label: string }> = [
+  { value: 'strength', label: 'Strength' },
+  { value: 'recovery', label: 'Recovery' },
+]
+
+const WORKOUTS_TAB: Record<Exclude<Tab, 'trends'>, WorkoutsTab> = {
+  today: 'today',
+  log: 'history',
+  plan: 'plan',
 }
 
 export function AppShell({
@@ -41,22 +61,153 @@ export function AppShell({
   onSignOut: () => void
 }) {
   // The WHOOP OAuth redirect (?whoop=connected|error) must land where its
-  // result banner lives — Recovery — instead of the usual Today landing.
-  const [tab, setTab] = useState<Tab>(() =>
-    new URLSearchParams(window.location.search).has('whoop')
-      ? 'recovery'
-      : 'today',
+  // result banner lives — Recovery, under Trends — instead of Today.
+  const [whoopLanding] = useState(() =>
+    new URLSearchParams(window.location.search).has('whoop'),
   )
+  const [tab, setTab] = useState<Tab>(whoopLanding ? 'trends' : 'today')
+  const [trendsView, setTrendsView] = useState<TrendsView>(
+    whoopLanding ? 'recovery' : 'strength',
+  )
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // Tab switches crossfade the content in; reduced motion skips it.
+  const contentRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = contentRef.current
+    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return
+    }
+    const anim = el.animate(
+      [
+        { opacity: 0, transform: 'translateY(4px)' },
+        { opacity: 1, transform: 'none' },
+      ],
+      { duration: 200, easing: 'cubic-bezier(.2,0,0,1)' },
+    )
+    return () => anim.cancel()
+  }, [tab])
+
+  const showRecovery = tab === 'trends' && trendsView === 'recovery'
+  const workoutsTab: WorkoutsTab =
+    tab === 'trends' ? 'progress' : WORKOUTS_TAB[tab]
+
+  return (
+    <div className="min-h-dvh bg-canvas text-ink">
+      <TopBar demo={demo} onSettings={() => setSettingsOpen(true)} />
+
+      <main className="mx-auto flex max-w-column flex-col gap-4 px-gutter pt-3 pb-[calc(88px+env(safe-area-inset-bottom))]">
+        {demo && (
+          <p className="block rounded-md bg-surface-2 px-4 py-3 text-caption text-ink-2">
+            Demo. Changes stay in this browser.
+          </p>
+        )}
+
+        <div ref={contentRef} className="flex flex-col gap-4">
+          {tab === 'trends' && (
+            <Chips
+              options={TRENDS}
+              value={trendsView}
+              onChange={setTrendsView}
+              ariaLabel="Trends"
+            />
+          )}
+          <Suspense
+            fallback={
+              <p className="py-12 text-center text-body text-ink-3">Loading</p>
+            }
+          >
+            {/* One Workouts instance stays mounted across today, log, plan
+                and strength trends so drafts and caches survive tab hops. */}
+            {showRecovery ? (
+              <Recovery api={api} />
+            ) : (
+              <Workouts api={api} tab={workoutsTab} />
+            )}
+          </Suspense>
+        </div>
+      </main>
+
+      <ShellDock
+        tab={tab}
+        onTab={setTab}
+        onOpen={() => {
+          setTab('today')
+          requestResume()
+        }}
+      />
+
+      <SettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        demo={demo}
+        email={email}
+        onSignOut={onSignOut}
+      />
+    </div>
+  )
+}
+
+function toneFor(label: string): TimerTone {
+  const l = label.toLowerCase()
+  if (l.includes('work')) return 'effort'
+  if (l.includes('rest')) return 'rest'
+  if (l.includes('warm')) return 'caution'
+  return 'neutral'
+}
+
+function togglePause(): void {
+  const d = loadTimerDraft()
+  if (!d || timerSnapshot(d, Date.now()).finished) return
+  saveTimerDraft(
+    d.paused
+      ? {
+          ...d,
+          paused: false,
+          startEpoch: Date.now(),
+          skipOffsetMs: d.pausedElapsedMs,
+        }
+      : {
+          ...d,
+          paused: true,
+          pausedElapsedMs: Date.now() - d.startEpoch + d.skipOffsetMs,
+        },
+  )
+}
+
+function skip(): void {
+  const d = loadTimerDraft()
+  if (!d) return
+  saveTimerDraft(skipSection(d, Date.now()))
+}
+
+/**
+ * The dock plus the state that picks its face. Owns the once-a-second
+ * draft poll so the timer readout never re-renders the whole shell (and
+ * whichever tab is open). Bus subscriptions flip the moment a flow
+ * opens/closes; the poll catches draft changes inside the Workouts subtree.
+ * Seed AFTER subscribing: on a reload with a live draft, Workouts' child
+ * effect sets the bus before these effects run, so the initial state is
+ * already stale by the time we get here.
+ */
+function ShellDock({
+  tab,
+  onTab,
+  onOpen,
+}: {
+  tab: Tab
+  onTab: (t: Tab) => void
+  onOpen: () => void
+}) {
   const [inSession, setInSession] = useState(false)
   const [overlay, setOverlay] = useState(false)
-  const [liveKind, setLiveKind] = useState<'strength' | 'timer' | null>(null)
+  const [live, setLive] = useState<Omit<DockLive, 'onOpen'> | null>(null)
+  const [timer, setTimer] = useState<Omit<
+    DockTimer,
+    'onOpen' | 'onPauseToggle' | 'onSkip'
+  > | null>(null)
+  const [timerFinished, setTimerFinished] = useState(false)
 
-  // The resume bar shows whenever a draft is parked but no session is on
-  // screen. Bus subscriptions flip the moment a flow opens/closes; the
-  // poll catches draft changes that happen inside the Workouts subtree.
-  // Seed AFTER subscribing: on a reload with a live draft, Workouts'
-  // child effect sets the bus before these parent effects run, so the
-  // initial useState(false) is already stale by the time we get here.
   useEffect(() => {
     const un = subscribeInSession(() => setInSession(isInSession()))
     setInSession(isInSession())
@@ -70,184 +221,78 @@ export function AppShell({
 
   useEffect(() => {
     const check = () => {
-      const kind = loadTimerDraft() ? 'timer' : loadDraft() ? 'strength' : null
-      setLiveKind(kind)
+      const td = loadTimerDraft()
+      const sd = td ? null : loadDraft()
+      if (td) {
+        const snap = timerSnapshot(td, Date.now())
+        const label = snap.finished
+          ? 'Done'
+          : snap.stopwatch
+            ? 'Elapsed'
+            : (snap.section?.label ?? 'Work')
+        setTimer({
+          label,
+          tone: snap.finished ? 'neutral' : toneFor(label),
+          time: snap.stopwatch
+            ? fmtSec(snap.elapsedMs / 1000)
+            : snap.finished
+              ? fmtSec(snap.totalSec)
+              : fmtSec(Math.ceil(snap.remainingSec)),
+          paused: td.paused,
+        })
+        setTimerFinished(snap.finished)
+        setLive(null)
+      } else if (sd) {
+        const elapsed = (Date.now() - new Date(sd.start).getTime()) / 1000
+        let done = 0
+        let total = 0
+        for (const ex of sd.exercises) {
+          for (const s of ex.sets) {
+            total += 1
+            if (s.done) done += 1
+          }
+        }
+        setLive({
+          title: sd.title || 'Strength',
+          sub: `${fmtSec(elapsed)} · ${done} of ${total} sets`,
+        })
+        setTimer(null)
+      } else {
+        setTimer(null)
+        setLive(null)
+      }
       // A reload mid-session lands here with a live draft but no gesture —
       // let the lock-screen widget try to come back up if it was on.
-      if (kind) maybeResumeLockScreen()
+      if (td || sd) maybeResumeLockScreen()
     }
     check()
     const t = setInterval(check, 1000)
     return () => clearInterval(t)
   }, [])
 
+  // Full-screen flows (live session, wizards) own the whole viewport —
+  // the dock yields to their action bars.
+  if (overlay) return null
+
+  const mode: DockMode =
+    timer && !inSession ? 'timer' : live && !inSession ? 'live' : 'tabs'
+
   return (
-    <div className="min-h-dvh bg-paper text-ink">
-      {/* Sticky brand bar; session sub-headers tuck under it at
-          top-[58px] = h-14 content + the 2px rule. */}
-      <header className="sticky top-0 z-40 border-b-2 border-ink/40 bg-paper">
-        <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <PulseMark className="h-6 w-6" />
-            <span className="text-base font-extrabold tracking-wide">FIT</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] font-semibold tracking-widest text-ink/55">
-              {headerDate()}
-            </span>
-            {demo && (
-              <span className="bg-accent-200 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-accent-800">
-                demo
-              </span>
-            )}
-            <button
-              onClick={onSignOut}
-              title={demo ? 'Exit demo' : `Sign out ${email}`}
-              className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
-            >
-              {demo ? 'Exit' : 'Sign out'}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {demo && (
-        <p className="mx-auto max-w-3xl px-4 pb-1 pt-2 text-xs text-ink/55">
-          Demo mode — everything below is synthetic data, and changes stay in
-          this browser only.
-        </p>
-      )}
-
-      {/* pt-4 keeps page content off the header rule; session screens pull
-          their full-bleed bars back up with -mt-4. pb clears the tab bar. */}
-      <main className="mx-auto flex max-w-3xl flex-col gap-4 px-4 pb-28 pt-4">
-        <Suspense
-          fallback={
-            <p className="py-12 text-center text-sm text-ink/45">Loading…</p>
-          }
-        >
-          {tab === 'recovery' ? (
-            <Recovery api={api} />
-          ) : (
-            <Workouts api={api} tab={tab as WorkoutsTab} />
-          )}
-        </Suspense>
-        <p className="pt-4 text-center text-[10px] font-semibold uppercase tracking-widest text-ink/35">
-          fit — a zackwithers.com project ·{' '}
-          <a
-            href="https://github.com/legendaryzoac/fit"
-            className="hover:text-ink/60"
-          >
-            source
-          </a>
-        </p>
-      </main>
-
-      {liveKind && !inSession && (
-        <ResumeBar
-          kind={liveKind}
-          navVisible={!overlay}
-          onResume={() => {
-            setTab('today')
-            requestResume()
-          }}
-        />
-      )}
-
-      {/* Full-screen flows (live session, wizards) own the whole viewport —
-          the tab bar yields to their action bars. */}
-      {!overlay && (
-        <nav className="fixed inset-x-0 bottom-0 z-30 border-t-2 border-ink/40 bg-paper pb-[env(safe-area-inset-bottom)]">
-          {/* fixed h-12 so the resume bar can sit flush at bottom-12 */}
-          <div className="mx-auto grid h-12 max-w-3xl grid-cols-5">
-            {TABS.map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`flex items-center justify-center text-[9.5px] uppercase tracking-wider ${
-                  tab === t
-                    ? 'font-extrabold text-accent-700 shadow-[inset_0_3px_0_#ec3013]'
-                    : 'font-semibold text-ink/50 hover:text-ink'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </nav>
-      )}
-    </div>
-  )
-}
-
-/**
- * Bottom bar for a session that's live but off-screen. Owns its own
- * once-a-second tick so the timer readout doesn't force the whole shell
- * (and whichever tab is open) to re-render every second.
- */
-function ResumeBar({
-  kind,
-  navVisible,
-  onResume,
-}: {
-  kind: 'strength' | 'timer'
-  navVisible: boolean
-  onResume: () => void
-}) {
-  const [label, setLabel] = useState('')
-
-  useEffect(() => {
-    const update = () => {
-      if (kind === 'timer') {
-        const d = loadTimerDraft()
-        if (!d) return
-        const snap = timerSnapshot(d, Date.now())
-        if (snap.finished) {
-          setLabel('Timer done — save your session')
-        } else if (snap.stopwatch) {
-          setLabel(
-            `Live ${d.kind} timer · ${fmtSec(snap.elapsedMs / 1000)}` +
-              (d.paused ? ' · paused' : ''),
-          )
-        } else {
-          setLabel(
-            `${snap.section?.label ?? 'Work'} ${snap.index + 1}/${d.sections.length}` +
-              ` · ${fmtSec(Math.ceil(snap.remainingSec))} left` +
-              (d.paused ? ' · paused' : ''),
-          )
-        }
-      } else {
-        const d = loadDraft()
-        if (!d) return
-        const elapsed = (Date.now() - new Date(d.start).getTime()) / 1000
-        setLabel(`Live strength · ${fmtSec(elapsed)}`)
+    <Dock
+      tab={tab}
+      onTab={onTab}
+      mode={mode}
+      live={live ? { ...live, onOpen } : undefined}
+      timer={
+        timer
+          ? {
+              ...timer,
+              onOpen,
+              onPauseToggle: timerFinished ? undefined : togglePause,
+              onSkip: timerFinished ? undefined : skip,
+            }
+          : undefined
       }
-    }
-    update()
-    const t = setInterval(update, 1000)
-    return () => clearInterval(t)
-  }, [kind])
-
-  return (
-    <div
-      className={`fixed inset-x-0 z-30 border-t-2 border-ink/40 bg-paper ${
-        navVisible
-          ? 'bottom-[calc(3rem+env(safe-area-inset-bottom))]'
-          : 'bottom-0 pb-[env(safe-area-inset-bottom)]'
-      }`}
-    >
-      <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-2">
-        <span className="min-w-0 truncate text-sm font-semibold tabular-nums text-ink">
-          <span className="mr-1.5 inline-block h-2 w-2 animate-pulse bg-accent" />
-          {label}
-        </span>
-        <button
-          onClick={onResume}
-          className="shrink-0 bg-accent px-4 py-1.5 text-sm font-extrabold text-paper hover:bg-accent-600"
-        >
-          Resume
-        </button>
-      </div>
-    </div>
+    />
   )
 }

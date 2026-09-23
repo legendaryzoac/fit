@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type {
   DifficultyRating,
   MuscleFeedback,
   VolumeRating,
   WorkoutFeedback,
 } from '../lib/workouts'
-import { buttonClass } from './ui'
+import { Sheet } from './shell/Sheet'
 
 const DIFFICULTY: Array<{ value: DifficultyRating; label: string }> = [
   { value: 'easy', label: 'Too easy' },
@@ -78,67 +78,76 @@ export function FeedbackModal({
     (m) => ratings[m]?.difficulty && ratings[m]?.volume,
   )
 
+  // Save and Skip both unmount this screen in the parent, so the sheet
+  // is dropped first and the real callback waits for the exit to finish.
+  const [open, setOpen] = useState(true)
+  const pending = useRef<(() => void) | null>(null)
+  const dismiss = (then: () => void) => {
+    if (pending.current) return
+    pending.current = then
+    setOpen(false)
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-neutral-900/50 sm:items-center">
-      <div className="max-h-[88dvh] w-full max-w-md overflow-y-auto border-2 border-ink bg-paper p-5">
-        <h2 className="text-xl font-extrabold tracking-tight text-ink">
-          How did it go?
-        </h2>
-        <p className="mb-4 mt-1 text-xs text-ink/55">
-          30 seconds of honesty — this steers your next session’s sets and
-          weights.
-        </p>
-
-        <div className="flex flex-col gap-5">
-          {muscles.map((muscle) => (
-            <section key={muscle} className="flex flex-col gap-2">
-              <h3 className="kicker">{muscle}</h3>
-              <Segmented
-                options={DIFFICULTY}
-                value={ratings[muscle]?.difficulty}
-                onChange={(v) => patch(muscle, { difficulty: v })}
-              />
-              <Segmented
-                options={VOLUME}
-                value={ratings[muscle]?.volume}
-                onChange={(v) => patch(muscle, { volume: v })}
-              />
-            </section>
-          ))}
-
-          <section className="flex flex-col gap-2 border-t-2 border-ink/40 pt-2.5">
-            <h3 className="kicker-muted">whole workout</h3>
+    <Sheet
+      open={open}
+      onClose={() => dismiss(onSkip)}
+      onExited={() => pending.current?.()}
+      title="How did it go?"
+    >
+      <div className="flex flex-col gap-5">
+        {muscles.map((muscle) => (
+          <section key={muscle} className="flex flex-col gap-2">
+            <h3 className="kicker">{muscle}</h3>
             <Segmented
               options={DIFFICULTY}
-              value={overall}
-              onChange={setOverall}
+              value={ratings[muscle]?.difficulty}
+              onChange={(v) => patch(muscle, { difficulty: v })}
+            />
+            <Segmented
+              options={VOLUME}
+              value={ratings[muscle]?.volume}
+              onChange={(v) => patch(muscle, { volume: v })}
             />
           </section>
-        </div>
+        ))}
 
-        <div className="mt-5 flex items-center gap-3">
-          <button
-            disabled={!complete}
-            onClick={() =>
+        <section className="flex flex-col gap-2 border-t-2 border-ink/40 pt-2.5">
+          <h3 className="kicker-muted">whole workout</h3>
+          <Segmented
+            options={DIFFICULTY}
+            value={overall}
+            onChange={setOverall}
+          />
+        </section>
+      </div>
+
+      <div className="mt-6 flex items-center gap-3">
+        <button
+          type="button"
+          disabled={!complete}
+          onClick={() =>
+            dismiss(() =>
               onSubmit({
                 overall,
                 muscles: Object.fromEntries(
                   muscles.map((m) => [m, ratings[m] as MuscleFeedback]),
                 ),
-              })
-            }
-            className={`${buttonClass} flex-1`}
-          >
-            Save
-          </button>
-          <button
-            onClick={onSkip}
-            className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
-          >
-            Skip
-          </button>
-        </div>
+              }),
+            )
+          }
+          className="pressable flex h-touch flex-1 items-center justify-center rounded-pill bg-brand px-5 text-body font-semibold text-on-brand disabled:opacity-45"
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={() => dismiss(onSkip)}
+          className="pressable flex h-touch items-center justify-center rounded-pill px-4 text-body font-semibold text-ink-2 hover:bg-surface-2"
+        >
+          Skip
+        </button>
       </div>
-    </div>
+    </Sheet>
   )
 }
