@@ -14,6 +14,12 @@ import {
   workoutsInWeek,
   type Mesocycle,
 } from '../lib/mesocycle'
+import {
+  routineById,
+  routineMinutes,
+  SLEEP_ROUTINE_ID,
+  type Routine,
+} from '../lib/routines'
 import { fmtSec, totalSec } from '../lib/templates'
 import type { Workout } from '../lib/workouts'
 import { buttonClass } from './ui'
@@ -113,6 +119,7 @@ export function Today({
   bodyWeightLb,
   onStartMesoDay,
   onStartWorkout,
+  onStartRoutine,
   onPlan,
   onEndMeso,
 }: {
@@ -123,6 +130,7 @@ export function Today({
   bodyWeightLb?: number
   onStartMesoDay: (dayIndex: number) => void
   onStartWorkout: () => void
+  onStartRoutine: (routine: Routine) => void
   onPlan: () => void
   onEndMeso: () => void
 }) {
@@ -233,8 +241,17 @@ export function Today({
     const today = new Date()
     const monday = new Date(today)
     monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+    // Recovery sessions get their own quiet mark: a stretch must not read
+    // as a training day, and a missed lift must not hide behind one.
     const trained = new Set(
-      workouts.map((w) => new Date(w.start).toDateString()),
+      workouts
+        .filter((w) => w.kind !== 'recovery')
+        .map((w) => new Date(w.start).toDateString()),
+    )
+    const recovered = new Set(
+      workouts
+        .filter((w) => w.kind === 'recovery')
+        .map((w) => new Date(w.start).toDateString()),
     )
     // Planned squares budget per MESO week — the calendar row can straddle
     // a meso-week boundary, so each grid day draws from its own week's
@@ -298,12 +315,24 @@ export function Today({
         num: d.getDate(),
         done,
         plan,
+        recovered: recovered.has(d.toDateString()),
         isToday,
       }
     })
   }, [workouts, meso])
 
   const pr = useMemo(() => lastPr(workouts), [workouts])
+
+  // Evening nudge for the bedtime routine, gone once it's been done today.
+  const sleepRoutine = routineById(SLEEP_ROUTINE_ID)
+  const todayKey = new Date().toDateString()
+  const sleepDone = workouts.some(
+    (w) =>
+      w.kind === 'recovery' &&
+      w.title === sleepRoutine?.name &&
+      new Date(w.start).toDateString() === todayKey,
+  )
+  const showTonight = new Date().getHours() >= 20 && !sleepDone
 
   return (
     <div className="flex flex-col gap-4">
@@ -511,11 +540,29 @@ export function Today({
         )}
       </section>
 
+      {showTonight && sleepRoutine && (
+        <section className="flex items-center justify-between border border-ink/40 p-2.5">
+          <span className="min-w-0 truncate text-sm font-semibold text-ink">
+            Tonight · {sleepRoutine.name} routine
+            <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
+              {routineMinutes(sleepRoutine)} min
+            </span>
+          </span>
+          <button
+            onClick={() => onStartRoutine(sleepRoutine)}
+            className="shrink-0 bg-accent px-3 py-1.5 text-xs font-extrabold text-paper hover:bg-accent-600"
+          >
+            Start
+          </button>
+        </section>
+      )}
+
       <section>
         <div className="mb-1.5 flex items-baseline justify-between">
           <span className="kicker-muted">This week</span>
           <span className="text-[9px] font-semibold tracking-widest text-ink/45">
-            ▪ DONE · ▫ PLANNED
+            ▪ DONE · ▫ PLANNED ·{' '}
+            <span className="text-gold-700">▫ RECOVERY</span>
           </span>
         </div>
         <div className="grid grid-cols-7 border border-ink/40">
@@ -542,7 +589,9 @@ export function Today({
                     ? 'bg-accent'
                     : d.plan
                       ? 'border-[1.5px] border-accent'
-                      : ''
+                      : d.recovered
+                        ? 'border-[1.5px] border-gold-600'
+                        : ''
                 }`}
               />
             </div>

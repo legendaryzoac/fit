@@ -10,17 +10,99 @@ export interface TemplateExercise {
   muscle?: string
 }
 
+/** One step of a recovery routine: a hold or a drill, optionally per side. */
+export interface RoutineItem {
+  name: string
+  seconds: number
+  perSide?: boolean
+  cue?: string
+}
+
 export interface Template {
   id: string
   name: string
   kind: WorkoutKind
   exercises?: TemplateExercise[]
   sections?: IntervalSection[]
+  /** Recovery routines. Kept apart from `sections`: planFromSections
+   * assumes the warm/work/rest/cool shape and would mangle a pose list. */
+  items?: RoutineItem[]
+  /** Recovery routines: seconds of lead-in before each item. */
+  transitionSec?: number
   updatedAt?: string
 }
 
 export function hasSlots(t: Template): boolean {
   return (t.exercises ?? []).some((e) => e.muscle !== undefined)
+}
+
+// ---- recovery routines → timer sections ----
+// The timer only understands {label, durationSec}, and the server only
+// stores those two fields on a workout's intervals, so a routine is
+// expanded with a label convention: "Next: X" lead-ins, "X (L)" / "X (R)"
+// per-side holds, and a "Switch sides" beat between them. The player reads
+// the convention back to pick tone and cue text.
+
+export const SWITCH_LABEL = 'Switch sides'
+export const NEXT_PREFIX = 'Next: '
+export const DEFAULT_TRANSITION_SEC = 8
+/** Server label cap on interval sections. */
+const LABEL_MAX = 40
+
+export function isTransition(label: string): boolean {
+  return label === SWITCH_LABEL || label.startsWith(NEXT_PREFIX)
+}
+
+/** "Pigeon (L)" → "Pigeon"; "Next: Pigeon (R)" → "Pigeon". */
+export function holdBaseName(label: string): string {
+  const l = label.startsWith(NEXT_PREFIX) ? label.slice(NEXT_PREFIX.length) : label
+  return l.replace(/ \((L|R)\)$/, '')
+}
+
+export function holdSide(label: string): 'L' | 'R' | undefined {
+  const m = / \((L|R)\)$/.exec(label)
+  return m ? (m[1] as 'L' | 'R') : undefined
+}
+
+function clampLabel(label: string): string {
+  return label.length <= LABEL_MAX ? label : label.slice(0, LABEL_MAX)
+}
+
+export function routineToSections(
+  items: RoutineItem[],
+  transitionSec: number = DEFAULT_TRANSITION_SEC,
+): IntervalSection[] {
+  const out: IntervalSection[] = []
+  const lead = Math.max(0, Math.round(transitionSec))
+  // Sides need at least a moment to swap even when lead-ins are off
+  const swap = Math.max(3, lead)
+  for (const item of items) {
+    const seconds = Math.max(1, Math.round(item.seconds))
+    // Names are trimmed to leave room for the side suffix under the cap
+    const name = item.name.trim().slice(0, LABEL_MAX - NEXT_PREFIX.length - 4)
+    if (lead > 0) {
+      out.push({
+        label: clampLabel(`${NEXT_PREFIX}${name}${item.perSide ? ' (L)' : ''}`),
+        durationSec: lead,
+      })
+    }
+    if (item.perSide) {
+      out.push({ label: clampLabel(`${name} (L)`), durationSec: seconds })
+      out.push({ label: SWITCH_LABEL, durationSec: swap })
+      out.push({ label: clampLabel(`${name} (R)`), durationSec: seconds })
+    } else {
+      out.push({ label: clampLabel(name), durationSec: seconds })
+    }
+  }
+  return out
+}
+
+/** Hold time only — what a routine "is", ignoring lead-ins and swaps. */
+export function routineHoldSec(items: RoutineItem[]): number {
+  return items.reduce(
+    (sum, it) => sum + Math.round(it.seconds) * (it.perSide ? 2 : 1),
+    0,
+  )
 }
 
 export interface QuickIntervalPlan {

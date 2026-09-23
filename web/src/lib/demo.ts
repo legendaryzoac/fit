@@ -6,6 +6,12 @@ import type { Api } from './api'
 import type { Mesocycle } from './mesocycle'
 import type { WeightEntry } from './weights'
 import type { Template } from './templates'
+import {
+  BUILTIN_ROUTINES,
+  recoveryExercisesFromSections,
+  routineSections,
+  type Routine,
+} from './routines'
 import type { SessionRecord, Workout } from './workouts'
 
 const DAY = 86_400_000
@@ -281,6 +287,56 @@ function generate(): DemoStore {
         distanceM: run.distanceM,
         linkedSessionSk: run.sk,
       })
+    }
+  }
+
+  // Recovery sessions on their OWN seed stream — a rand() added to the loop
+  // above would rewrite the entire training story. A cooldown after most
+  // lifts and the Sleep routine most nights, over the last two months.
+  const rrand = rng(20260924)
+  const sleep = BUILTIN_ROUTINES.find((r) => r.id === 'sleep')!
+  const lower = BUILTIN_ROUTINES.find((r) => r.id === 'post-lower')!
+  const upper = BUILTIN_ROUTINES.find((r) => r.id === 'post-upper')!
+  const recoveryWorkout = (
+    id: string,
+    startMs: number,
+    routine: Routine,
+  ): Workout => {
+    const sections = routineSections(routine)
+    const total = sections.reduce((s, x) => s + x.durationSec, 0)
+    return {
+      id,
+      start: new Date(startMs).toISOString(),
+      end: new Date(startMs + total * 1000).toISOString(),
+      kind: 'recovery',
+      modality: 'stretch',
+      title: routine.name,
+      weightUnit: 'lb',
+      exercises: recoveryExercisesFromSections(sections),
+      intervals: sections,
+      durationMin: Math.max(1, Math.round(total / 60)),
+      rating: { post: 3 + Math.floor(rrand() * 3) },
+    }
+  }
+  for (let i = 60; i >= 1; i--) {
+    const dayStart = now - i * DAY
+    const dow = new Date(dayStart).getDay()
+    if ((dow === 1 || dow === 3 || dow === 5) && rrand() < 0.7) {
+      // Right after the lift (which ends at 24h into the day in the loop above)
+      store.workouts.push(
+        recoveryWorkout(
+          `demo-r${i}`,
+          dayStart + 24 * 3_600_000 + 5 * 60_000,
+          dow === 3 ? lower : upper,
+        ),
+      )
+    }
+    if (rrand() < 0.75) {
+      // Bedtime is a clock time, not an offset from "now" like the rest of
+      // the story: 21:45 local on that calendar day.
+      const bedtime = new Date(dayStart)
+      bedtime.setHours(21, 45, 0, 0)
+      store.workouts.push(recoveryWorkout(`demo-z${i}`, bedtime.getTime(), sleep))
     }
   }
 

@@ -17,11 +17,17 @@ import {
   fmtSec,
   hasSlots,
   loadTemplateCache,
+  routineToSections,
   saveTemplateCache,
   totalSec,
   type QuickIntervalPlan,
   type Template,
 } from '../lib/templates'
+import {
+  BUILTIN_ROUTINES,
+  routineMinutes,
+  routineSections,
+} from '../lib/routines'
 import {
   enqueue,
   finalizeWorkout,
@@ -110,6 +116,7 @@ const KIND_STYLE: Record<WorkoutKind, string> = {
   strength: 'bg-accent-100 text-accent-800',
   speed: 'bg-ink text-paper',
   cardio: 'bg-accent2-100 text-accent2-800',
+  recovery: 'bg-gold-500/25 text-gold-700',
 }
 
 function KindPill({ kind }: { kind: WorkoutKind }) {
@@ -140,6 +147,10 @@ function toLocalInput(iso: string): string {
 }
 
 function prevSummary(kind: WorkoutKind, s: WorkoutSet): string | null {
+  if (kind === 'recovery') {
+    if (s.durationSec == null) return null
+    return `${s.durationSec}s${s.side ? ` ${s.side}` : ''}`
+  }
   if (kind === 'speed') {
     if (s.distanceM == null && s.durationSec == null) return null
     const yd = s.distanceM != null ? `${Math.round(s.distanceM / YD)}yd` : ''
@@ -921,6 +932,7 @@ const KIND_BLURB: Record<WorkoutKind, string> = {
   strength: 'Sets, reps, and RPE with last-time ghosts',
   speed: 'Interval timer for sprint and drill work',
   cardio: 'Interval timer, log the miles afterwards',
+  recovery: 'Guided stretch and mobility routines',
 }
 
 function StartPicker({
@@ -947,6 +959,10 @@ function StartPicker({
       const sets = t.exercises.reduce((n, e) => n + e.setCount, 0)
       return `${t.exercises.length} exercises · ${sets} sets`
     }
+    if (t.items) {
+      const total = totalSec(routineToSections(t.items, t.transitionSec))
+      return `${t.items.length} stretches · ${fmtSec(total)}`
+    }
     if (t.sections) {
       return `${t.sections.length} sections · ${fmtSec(totalSec(t.sections))}`
     }
@@ -955,7 +971,9 @@ function StartPicker({
 
   function startTemplate(t: Template) {
     if (t.kind === 'strength') onStrength(t)
-    else if (t.sections) onTimer(t.kind, t.sections, t.name)
+    else if (t.items) {
+      onTimer('recovery', routineToSections(t.items, t.transitionSec), t.name)
+    } else if (t.sections) onTimer(t.kind, t.sections, t.name)
   }
 
   return (
@@ -973,7 +991,7 @@ function StartPicker({
       </div>
 
       {kind === null &&
-        (['strength', 'speed', 'cardio'] as const).map((k) => (
+        (['strength', 'speed', 'cardio', 'recovery'] as const).map((k) => (
           <button
             key={k}
             onClick={() => setKind(k)}
@@ -990,6 +1008,19 @@ function StartPicker({
 
       {kind !== null && (
         <>
+          {kind === 'recovery' &&
+            BUILTIN_ROUTINES.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => onTimer('recovery', routineSections(r), r.name)}
+                className="border border-ink/40 p-3 text-left hover:bg-ink/5"
+              >
+                <p className="text-base font-extrabold text-ink">{r.name}</p>
+                <p className="text-xs text-ink/55">
+                  {r.blurb} · {routineMinutes(r)} min
+                </p>
+              </button>
+            ))}
           {matching.map((t) => (
             <div
               key={t.id}
@@ -1011,7 +1042,7 @@ function StartPicker({
               </button>
             </div>
           ))}
-          {matching.length === 0 && (
+          {matching.length === 0 && kind !== 'recovery' && (
             <p className="text-sm text-ink/45">
               No {kind} templates yet — build one from the Plan tab.
             </p>
@@ -1030,6 +1061,13 @@ function StartPicker({
               className={`${buttonClass} w-full justify-between`}
             >
               Start timer<span>→</span>
+            </button>
+          ) : kind === 'recovery' ? (
+            <button
+              onClick={() => onTimer('recovery', [], 'Free stretch')}
+              className={`${secondaryButton} w-full`}
+            >
+              Free stretch (stopwatch)
             </button>
           ) : showCustom ? (
             <div className="flex flex-col gap-3 border border-ink/40 p-3">
@@ -1076,7 +1114,16 @@ function WorkoutCard({
       metaParts.push(`${Math.round(volume).toLocaleString()} ${workout.weightUnit}`)
     }
   }
-  if (workout.intervals && workout.intervals.length > 0) {
+  if (workout.kind === 'recovery') {
+    const holds = workout.exercises.reduce((n, e) => n + e.sets.length, 0)
+    if (workout.modality && workout.modality !== 'stretch') {
+      metaParts.push(workout.modality)
+    }
+    if (holds > 0) metaParts.push(`${holds} holds`)
+    if (workout.rating?.post != null) {
+      metaParts.push(`feel ${workout.rating.post}/5`)
+    }
+  } else if (workout.intervals && workout.intervals.length > 0) {
     metaParts.push(`${workout.intervals.length} intervals`)
   }
   if (workout.durationMin != null) metaParts.push(`${workout.durationMin} min`)
@@ -1121,7 +1168,7 @@ function WorkoutCard({
         >
           Edit
         </button>
-        {workout.kind === 'strength' && (
+        {(workout.kind === 'strength' || workout.kind === 'recovery') && (
           <button
             onClick={onRepeat}
             className="text-[10px] font-extrabold uppercase tracking-widest text-accent-700 hover:text-accent-600"
@@ -1696,6 +1743,7 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
           if (m) startMesoDay(m, i)
         }}
         onStartWorkout={() => setMode({ m: 'pick' })}
+        onStartRoutine={(r) => startTimer('recovery', routineSections(r), r.name)}
         onPlan={() => setMode({ m: 'meso-setup' })}
         onEndMeso={() => {
           const m = activeMeso(mesos)
@@ -1837,9 +1885,12 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
               workout={w}
               onEdit={() => setMode({ m: 'strength', workout: w, isNew: false })}
               onRepeat={() =>
-                // Through beginStrength: guards a live draft like every
-                // other session start.
-                beginStrength({
+                w.kind === 'recovery'
+                  ? // A recovery repeat re-runs the same routine in the timer
+                    startTimer('recovery', w.intervals ?? [], w.title)
+                  : // Through beginStrength: guards a live draft like every
+                    // other session start.
+                    beginStrength({
                   ...w,
                   id: crypto.randomUUID(),
                   start: new Date().toISOString(),

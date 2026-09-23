@@ -24,6 +24,7 @@ export const KIND_STYLE: Record<WorkoutKind, string> = {
   strength: 'bg-accent-100 text-accent-800',
   speed: 'bg-ink text-paper',
   cardio: 'bg-accent2-100 text-accent2-800',
+  recovery: 'bg-gold-500/25 text-gold-700',
 }
 
 const PLAN_FIELDS: Array<{

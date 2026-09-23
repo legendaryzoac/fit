@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { cue } from '../lib/cue'
+import { cue, warnCue } from '../lib/cue'
 import { SPEED_DRILLS } from '../lib/exercises'
 import { registerTimerControls } from '../lib/lockScreen'
+import { recoveryExercisesFromSections } from '../lib/routines'
+import { stretchByName } from '../lib/stretches'
 import {
   fmtSec,
+  holdBaseName,
+  holdSide,
+  isTransition,
   sectionTone,
+  SWITCH_LABEL,
   totalSec,
   type SectionTone,
 } from '../lib/templates'
+import { acquireWakeLock, releaseWakeLock } from '../lib/wakeLock'
 import {
   backSection,
   saveTimerDraft,
@@ -18,6 +25,7 @@ import {
   type Workout,
   type WorkoutExercise,
 } from '../lib/workouts'
+import { Segmented } from './Feedback'
 import { LockScreenToggle } from './LockScreenToggle'
 import {
   buttonClass,
@@ -182,6 +190,21 @@ const TONE: Record<SectionTone, { pill: string; text: string; bar: string }> = {
   other: { pill: 'bg-surface text-neutral-800', text: 'text-ink', bar: 'bg-neutral-400' },
 }
 
+// Guided recovery keeps the red out of it: gold for the hold, ink for the
+// lead-in and side-switch beats.
+const CALM = {
+  hold: { pill: 'bg-gold-500 text-ink', text: 'text-ink', bar: 'bg-gold-500' },
+  transition: { pill: 'bg-ink text-paper', text: 'text-ink/60', bar: 'bg-ink' },
+} as const
+
+const FEEL: Array<{ value: '1' | '2' | '3' | '4' | '5'; label: string }> = [
+  { value: '1', label: '1' },
+  { value: '2', label: '2' },
+  { value: '3', label: '3' },
+  { value: '4', label: '4' },
+  { value: '5', label: '5' },
+]
+
 export function IntervalSession({
   initial,
   sessions,
@@ -203,7 +226,9 @@ export function IntervalSession({
   const [notes, setNotes] = useState('')
   const [linkedSk, setLinkedSk] = useState<string | undefined>()
   const [drills, setDrills] = useState<WorkoutExercise[]>([])
+  const [postFeel, setPostFeel] = useState<number | undefined>()
   const lastIdxRef = useRef(0)
+  const lastWarnRef = useRef(-1)
   const doneElapsedRef = useRef(0)
   // When the timer actually ENDED — lingering on the summary screen must
   // not drift the workout's date (a meso session bucketed by start date
@@ -250,6 +275,7 @@ export function IntervalSession({
     if (phase !== 'run') return
     if (!finished && idx !== lastIdxRef.current) {
       lastIdxRef.current = idx
+      lastWarnRef.current = -1
       cue(2)
     }
     if (finished) {
@@ -276,6 +302,39 @@ export function IntervalSession({
       }),
     [],
   )
+
+  // Keep the screen on while the countdown is on it; a minimized or
+  // finished session gives the lock back.
+  useEffect(() => {
+    if (phase !== 'run') return
+    acquireWakeLock()
+    return () => releaseWakeLock()
+  }, [phase])
+
+  // Guided holds: a soft tick at three seconds left so the next position
+  // can be set up before the change beep. Once per section.
+  const recovery = draft.kind === 'recovery'
+  const secLeft = Math.ceil(remaining)
+  useEffect(() => {
+    if (!recovery || stopwatch || phase !== 'run' || finished || draft.paused) {
+      return
+    }
+    if (isTransition(current.label) || current.durationSec < 15) return
+    if (secLeft <= 3 && secLeft > 0 && lastWarnRef.current !== idx) {
+      lastWarnRef.current = idx
+      warnCue()
+    }
+  }, [
+    recovery,
+    stopwatch,
+    phase,
+    finished,
+    draft.paused,
+    current.label,
+    current.durationSec,
+    secLeft,
+    idx,
+  ])
 
   // These also fire from lock-screen media keys, which arrive in any state
   // (a headset can send play while running) and possibly while the 250ms
@@ -324,6 +383,16 @@ export function IntervalSession({
   function save() {
     const durMs = doneElapsedRef.current
     const doneAt = doneAtRef.current
+    // A session ended early only logs the holds it reached. (A skipped
+    // hold still counts — skipping advances the clock — which is the
+    // honest limit of what the draft records today.)
+    const reached: typeof sections = []
+    let acc = 0
+    for (const s of sections) {
+      if (acc * 1000 >= durMs) break
+      reached.push(s)
+      acc += s.durationSec
+    }
     onSave({
       id: crypto.randomUUID(),
       // Approximate: paused time is excluded from the duration on purpose
@@ -332,7 +401,12 @@ export function IntervalSession({
       kind: draft.kind,
       title: title || undefined,
       weightUnit: 'lb',
-      exercises: drills,
+      // Recovery: per-stretch holds recovered from the executed sections so
+      // history has structure; speed keeps its hand-logged drills.
+      exercises: recovery ? recoveryExercisesFromSections(reached) : drills,
+      ...(recovery && { modality: 'stretch' as const }),
+      ...(recovery &&
+        postFeel !== undefined && { rating: { post: postFeel } }),
       ...(sections.length > 0 && { intervals: sections }),
       durationMin: Math.max(1, Math.round(durMs / 60_000)),
       distanceM: miles ? Math.round(Number(miles) * MILE) : undefined,
@@ -361,6 +435,22 @@ export function IntervalSession({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
+        {recovery && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-ink/55">
+              How do you feel now? 1 = stiff · 5 = loose (optional)
+            </p>
+            <Segmented
+              options={FEEL}
+              value={
+                postFeel === undefined
+                  ? undefined
+                  : (String(postFeel) as (typeof FEEL)[number]['value'])
+              }
+              onChange={(v) => setPostFeel(Number(v))}
+            />
+          </div>
+        )}
         {draft.kind === 'speed' && (
           <DrillSetsEditor drills={drills} onChange={setDrills} />
         )}
@@ -410,7 +500,7 @@ export function IntervalSession({
         />
         <div className="flex items-center gap-3">
           <button onClick={save} className={`${buttonClass} flex-1`}>
-            Save workout
+            Save {recovery ? 'session' : 'workout'}
           </button>
           <button
             onClick={onCancel}
@@ -423,7 +513,31 @@ export function IntervalSession({
     )
   }
 
-  const tone = TONE[sectionTone(current.label)]
+  // Recovery reads the routine label convention back: lead-ins and side
+  // swaps are quiet ink beats, holds are gold and carry the stretch's cues.
+  const transition = recovery && isTransition(current.label)
+  const tone = recovery
+    ? transition
+      ? CALM.transition
+      : CALM.hold
+    : TONE[sectionTone(current.label)]
+  const pillText = recovery && !transition ? holdBaseName(current.label) : current.label
+  // Which stretch to explain: the hold itself, the one a lead-in
+  // announces, or (on a side swap) the one coming next.
+  const explainLabel =
+    current.label === SWITCH_LABEL ? (next?.label ?? '') : current.label
+  const stretch = recovery ? stretchByName(holdBaseName(explainLabel)) : undefined
+  const side = recovery ? holdSide(explainLabel) : undefined
+  const sideLabel = side === 'L' ? 'left side' : side === 'R' ? 'right side' : null
+  const nextText = !next
+    ? 'Final section'
+    : !recovery
+      ? `Next · ${next.label} ${fmtSec(next.durationSec)}`
+      : next.label === SWITCH_LABEL
+        ? 'Then · switch sides'
+        : isTransition(next.label)
+          ? `Then · ${holdBaseName(next.label)}`
+          : `Next · ${holdBaseName(next.label)} ${fmtSec(next.durationSec)}`
   return (
     <div className="-mt-4 flex min-h-[78dvh] flex-col">
       {/* top-[58px] (header 56px + 2px rule) tucks under the sticky app header; 1fr_auto_1fr keeps the
@@ -486,9 +600,9 @@ export function IntervalSession({
         ) : (
           <>
             <span
-              className={`px-4 py-1.5 text-sm font-extrabold uppercase tracking-widest ${tone.pill}`}
+              className={`max-w-full truncate px-4 py-1.5 text-sm font-extrabold uppercase tracking-widest ${tone.pill}`}
             >
-              {current.label}
+              {pillText}
             </span>
             <p
               className={`text-[5.5rem] font-extrabold leading-none tracking-tight tabular-nums sm:text-[7rem] ${tone.text}`}
@@ -503,11 +617,17 @@ export function IntervalSession({
                 }}
               />
             </div>
-            <p className="text-sm font-semibold text-ink/55">
-              {next
-                ? `Next · ${next.label} ${fmtSec(next.durationSec)}`
-                : 'Final section'}
-            </p>
+            {recovery && (sideLabel || stretch) && (
+              <div className="max-w-sm px-2 text-center">
+                {sideLabel && <p className="kicker-muted mb-1">{sideLabel}</p>}
+                {stretch?.cues.map((c, i) => (
+                  <p key={i} className="text-sm leading-snug text-ink/75">
+                    {c}
+                  </p>
+                ))}
+              </div>
+            )}
+            <p className="text-sm font-semibold text-ink/55">{nextText}</p>
           </>
         )}
         {draft.paused && (

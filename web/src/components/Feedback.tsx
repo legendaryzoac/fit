@@ -19,7 +19,7 @@ const VOLUME: Array<{ value: VolumeRating; label: string }> = [
   { value: 'high', label: 'Too much' },
 ]
 
-function Segmented<T extends string>({
+export function Segmented<T extends string>({
   options,
   value,
   onChange,

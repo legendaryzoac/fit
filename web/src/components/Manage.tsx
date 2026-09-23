@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import type { Api } from '../lib/api'
 import { MUSCLE_GROUPS, type CustomExercise } from '../lib/exercises'
-import { fmtSec, totalSec, type Template } from '../lib/templates'
+import {
+  fmtSec,
+  routineToSections,
+  totalSec,
+  type Template,
+} from '../lib/templates'
 import type { Workout, WorkoutKind } from '../lib/workouts'
 import { KIND_STYLE } from './TemplateBuilder'
 import { buttonClass, inputClass } from './ui'
@@ -14,6 +19,10 @@ function templateMeta(t: Template): string {
   if (t.kind === 'strength' && t.exercises) {
     const sets = t.exercises.reduce((n, e) => n + e.setCount, 0)
     return `${t.exercises.length} exercises · ${sets} sets`
+  }
+  if (t.items) {
+    const total = totalSec(routineToSections(t.items, t.transitionSec))
+    return `${t.items.length} stretches · ${fmtSec(total)}`
   }
   if (t.sections) {
     return `${t.sections.length} sections · ${fmtSec(totalSec(t.sections))}`
