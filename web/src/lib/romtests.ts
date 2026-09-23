@@ -36,7 +36,7 @@ export const ROM_TESTS: Array<{
     label: 'Toe touch',
     mdcCm: 5,
     better: 'lower',
-    how: 'Stand on a step, legs straight, reach down. Fingertips to step edge in cm; negative once you reach past it.',
+    how: 'Stand on a step, legs straight, reach down. Fingertips to step edge in cm, negative past it.',
   },
   {
     key: 'kneeToWallLCm',
@@ -44,7 +44,7 @@ export const ROM_TESTS: Array<{
     side: 'L',
     mdcCm: 2,
     better: 'higher',
-    how: 'Big toe to wall in cm with the heel down and the knee touching. Same shoes (or none) every time.',
+    how: 'Big toe to wall in cm, heel down, knee touching.',
   },
   {
     key: 'kneeToWallRCm',
@@ -52,7 +52,7 @@ export const ROM_TESTS: Array<{
     side: 'R',
     mdcCm: 2,
     better: 'higher',
-    how: 'As left. A side-to-side gap over 2–3 cm is worth noting.',
+    how: 'As left.',
   },
   {
     key: 'handBehindBackLCm',
@@ -60,7 +60,7 @@ export const ROM_TESTS: Array<{
     side: 'L',
     mdcCm: 2.5,
     better: 'lower',
-    how: 'Left arm over the shoulder, right arm up the back; gap between fingertips in cm (0 if they touch).',
+    how: 'Left arm over the shoulder, right arm up the back. Gap between fingertips in cm.',
   },
   {
     key: 'handBehindBackRCm',

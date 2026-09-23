@@ -8,13 +8,7 @@ import {
 } from '../lib/checkins'
 import { MUSCLE_GROUPS } from '../lib/exercises'
 import { localToday } from '../lib/weights'
-import {
-  baselineAt,
-  compliance,
-  dailySeries,
-  flagFor,
-  MIN_ENTRIES_FOR_FLAGS,
-} from '../lib/wellness'
+import { baselineAt, dailySeries, flagFor } from '../lib/wellness'
 import { Segmented } from './Feedback'
 import { buttonClass } from './ui'
 
@@ -141,7 +135,6 @@ export function CheckinCard({
       ),
     [checkins, today],
   )
-  const logged = compliance(checkins, 14, today)
 
   function submit() {
     if (!complete) return
@@ -160,7 +153,12 @@ export function CheckinCard({
     return (
       <section className="border-t-2 border-ink/40 pt-2.5">
         <div className="mb-2 flex items-baseline justify-between">
-          <p className="kicker">{title} · how are you today?</p>
+          <p className="kicker">
+            {title}
+            <span className="ml-2 font-semibold normal-case tracking-normal text-ink/45">
+              higher is better
+            </span>
+          </p>
           {!checkinComplete(current) && !editing && (
             <button
               onClick={() => setLater(true)}
@@ -186,9 +184,6 @@ export function CheckinCard({
             <div key={it.key}>
               <div className="mb-1 flex items-baseline justify-between text-[10px] font-semibold uppercase tracking-wider">
                 <span className="text-ink">{it.label}</span>
-                <span className="text-ink/45">
-                  {it.low} → {it.high}
-                </span>
               </div>
               <Segmented
                 options={SCALE}
@@ -207,7 +202,7 @@ export function CheckinCard({
           {value('soreness') != null && (value('soreness') as number) <= 3 && (
             <div>
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink/45">
-                sore where? (optional)
+                Sore where
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {REGIONS.map((r) => {
@@ -292,11 +287,8 @@ export function CheckinCard({
         ))}
       </div>
       <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 text-[9px] font-semibold tracking-widest text-ink/45">
-        <span>28 DAYS · DOTTED = YOUR BASELINE</span>
-        <span>
-          LOGGED {logged.logged} OF LAST {logged.days}
-          {current?.prs != null ? ` · PRS ${current.prs}/10` : ''}
-        </span>
+        <span>28D</span>
+        {current?.prs != null && <span>PRS {current.prs}</span>}
       </div>
       {flags.length > 0 && (
         <div className="mt-2 flex flex-col gap-0.5">
@@ -305,16 +297,11 @@ export function CheckinCard({
             return (
               <p key={f.key} className="text-xs font-semibold text-accent-700">
                 {label} {Math.abs(f.z).toFixed(1)} SD {f.z < 0 ? 'below' : 'above'}{' '}
-                your 4-week baseline for {f.days} days
+                baseline, {f.days}d
               </p>
             )
           })}
         </div>
-      )}
-      {logged.logged < MIN_ENTRIES_FOR_FLAGS && checkins.length < MIN_ENTRIES_FOR_FLAGS && (
-        <p className="mt-1 text-[10px] text-ink/45">
-          Baselines and flags appear after {MIN_ENTRIES_FOR_FLAGS} check-ins.
-        </p>
       )}
     </section>
   )

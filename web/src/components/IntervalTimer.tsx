@@ -10,7 +10,6 @@ import {
 import { SPEED_DRILLS } from '../lib/exercises'
 import { registerTimerControls } from '../lib/lockScreen'
 import { recoveryExercisesFromSections } from '../lib/routines'
-import { loadPoseFigure } from '../lib/poseFigures'
 import { stretchByName } from '../lib/stretches'
 import {
   fmtSec,
@@ -96,9 +95,7 @@ function DrillSetsEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-ink/55">
-        Log your rep times (optional — powers the speed trend chart):
-      </p>
+      <p className="text-xs text-ink/55">Rep times</p>
       {drills.map((d, di) => (
         <div key={di} className="border-t-2 border-ink/40 pt-2">
           <div className="mb-1.5 flex items-baseline justify-between">
@@ -171,7 +168,7 @@ function DrillSetsEditor({
         <input
           className={inputClass}
           list="drill-names"
-          placeholder="add drill…"
+          placeholder="add drill"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && addDrill()}
@@ -212,30 +209,6 @@ function phraseFor(label: string): string {
   const side = holdSide(label)
   const sideText = side === 'L' ? ', left side' : side === 'R' ? ', right side' : ''
   return isTransition(label) ? `Next, ${base}${sideText}` : `${base}${sideText}`
-}
-
-/** Stick-figure drawing of a stretch, lazy-loaded and inlined so it takes
- * the text colour. Our own validated SVG, so inlining is safe. */
-function PoseFigure({ name }: { name: string }) {
-  const [svg, setSvg] = useState<string | null>(null)
-  useEffect(() => {
-    let alive = true
-    setSvg(null)
-    void loadPoseFigure(name).then((s) => {
-      if (alive) setSvg(s)
-    })
-    return () => {
-      alive = false
-    }
-  }, [name])
-  if (!svg) return <div className="h-28 w-28" aria-hidden="true" />
-  return (
-    <div
-      className="h-28 w-28 text-ink [&>svg]:h-full [&>svg]:w-full"
-      aria-hidden="true"
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
-  )
 }
 
 /** Opt-in spoken pose names, foreground only. */
@@ -505,12 +478,12 @@ export function IntervalSession({
         </p>
         <input
           className={inputClass}
-          placeholder="title (optional)"
+          placeholder="title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
         <ScaleRow
-          label="How hard was that?"
+          label="Effort"
           low="rest"
           high="max"
           value={rpe}
@@ -518,9 +491,7 @@ export function IntervalSession({
         />
         {recovery && (
           <div className="flex flex-col gap-2">
-            <p className="text-xs text-ink/55">
-              How do you feel now? 1 = stiff · 5 = loose (optional)
-            </p>
+            <p className="text-xs text-ink/55">Feel, stiff to loose</p>
             <Segmented
               options={FEEL}
               value={
@@ -541,15 +512,13 @@ export function IntervalSession({
               className={inputClass}
               type="number"
               inputMode="decimal"
-              placeholder="distance (miles)"
+              placeholder="miles"
               value={miles}
               onChange={(e) => setMiles(e.target.value)}
             />
             {linkCandidates.length > 0 && (
               <div className="flex flex-col gap-1.5">
-                <p className="text-xs text-ink/55">
-                  Attach WHOOP heart-rate data:
-                </p>
+                <p className="text-xs text-ink/55">Attach heart rate</p>
                 {linkCandidates.map((s) => (
                   <button
                     key={s.sk}
@@ -575,7 +544,7 @@ export function IntervalSession({
         )}
         <textarea
           className={`${inputClass} min-h-16`}
-          placeholder="notes (optional)"
+          placeholder="notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
@@ -690,7 +659,6 @@ export function IntervalSession({
           </>
         ) : (
           <>
-            {recovery && stretch && <PoseFigure name={stretch.name} />}
             <span
               className={`max-w-full truncate px-4 py-1.5 text-sm font-extrabold uppercase tracking-widest ${tone.pill}`}
             >

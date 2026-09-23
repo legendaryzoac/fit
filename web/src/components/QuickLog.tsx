@@ -215,7 +215,7 @@ export function QuickLog({
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
           className={inputClass}
-          placeholder={`title (optional, defaults to ${modalityLabel(modality)})`}
+          placeholder={modalityLabel(modality)}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
@@ -230,15 +230,12 @@ export function QuickLog({
 
       {guided && initial && (
         <p className="text-xs text-ink/55">
-          {initial.exercises.length} stretches from the guided session are kept
-          as logged.
+          {initial.exercises.length} stretches kept
         </p>
       )}
 
       <div className="flex flex-col gap-2">
-        <p className="text-xs text-ink/55">
-          How do you feel afterwards? 1 = stiff · 5 = loose (optional)
-        </p>
+        <p className="text-xs text-ink/55">Feel, stiff to loose</p>
         <Segmented
           options={FEEL}
           value={
@@ -251,7 +248,7 @@ export function QuickLog({
       </div>
 
       <ScaleRow
-        label="Effort (optional)"
+        label="Effort"
         low="rest"
         high="max"
         value={rpe}
@@ -260,7 +257,7 @@ export function QuickLog({
 
       <textarea
         className={`${inputClass} min-h-16`}
-        placeholder="notes (optional)"
+        placeholder="notes"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
       />

@@ -24,7 +24,7 @@ export function LockScreenToggle({ className }: { className?: string }) {
       <button
         onClick={() => void setLockScreenEnabled(!on)}
         aria-pressed={on}
-        title="Show this session on the lock screen (plays a silent track, so it pauses other audio)"
+        title="Lock screen (pauses other audio)"
         className={`border px-3 py-1 text-xs font-semibold ${
           on
             ? 'border-accent bg-accent text-paper'

@@ -89,9 +89,6 @@ export function BodyWeight({
     <section className="border-t-2 border-ink/40 pt-2.5">
       <div className="mb-2.5">
         <h2 className="kicker">Body weight</h2>
-        <p className="mt-0.5 text-xs font-semibold text-ink/50">
-          logged by hand · used for bodyweight lifts
-        </p>
       </div>
 
       <div className="flex items-end justify-between">
@@ -178,7 +175,7 @@ export function BodyWeight({
           inputMode="decimal"
           step="0.1"
           aria-label="today's body weight in pounds"
-          placeholder={`today — lb${newest ? ` (last ${newest.lb})` : ''}`}
+          placeholder={`lb${newest ? ` (last ${newest.lb})` : ''}`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && save()}

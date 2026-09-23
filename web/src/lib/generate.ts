@@ -182,12 +182,12 @@ export function generateRoutine(opts: GenerateOptions): Routine | null {
 
   if (picked.length === 0) return null
   const label = isFullBody(opts.muscles)
-    ? 'a full-body session'
-    : opts.muscles.slice(0, 3).join(', ') || 'this session'
+    ? 'Full-body'
+    : opts.muscles.slice(0, 3).join(', ') || 'This session'
   return {
     id: `gen-${phase}`,
     name: phase === 'pre' ? 'Warm-up' : 'Cool-down',
-    blurb: `Built for ${label}`,
+    blurb: label,
     tags: [phase],
     transitionSec,
     items: picked,

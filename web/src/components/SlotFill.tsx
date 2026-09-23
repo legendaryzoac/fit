@@ -69,7 +69,7 @@ export function SlotFill({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-extrabold tracking-tight text-ink">
-          {template.name} — pick today’s exercises
+          {template.name}, pick exercises
         </h1>
         <button
           onClick={onCancel}
@@ -105,7 +105,7 @@ export function SlotFill({
             <input
               className={inputClass}
               list={`slot-choices-${i}`}
-              placeholder={`pick a ${entry.muscle} exercise…`}
+              placeholder={`${entry.muscle} exercise`}
               value={picks[i]}
               onChange={(e) =>
                 setPicks((prev) =>

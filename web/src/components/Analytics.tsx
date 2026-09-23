@@ -229,10 +229,7 @@ export function Analytics({
 
   return (
     <div className="flex flex-col gap-4">
-      <Card
-        title="Load vs recovery"
-        subtitle="daily strain (bars) against recovery score (line)"
-      >
+      <Card title="Load vs recovery">
         {overlay.length > 0 ? (
           <ResponsiveContainer width="100%" height={220}>
             <ComposedChart
@@ -285,10 +282,7 @@ export function Analytics({
       </Card>
 
       {hasWellness && (
-        <Card
-          title="Readiness"
-          subtitle="daily check-in, 1–5, higher is better · gaps are unlogged days"
-        >
+        <Card title="Readiness" subtitle="1 to 5, higher is better">
           <ResponsiveContainer width="100%" height={200}>
             <LineChart
               data={wellness}
@@ -317,18 +311,10 @@ export function Analytics({
               ))}
             </LineChart>
           </ResponsiveContainer>
-          <p className="mt-1 text-xs text-ink/45">
-            Read each line against its own history, not the others; a
-            sustained dip in energy and soreness across a block is the pattern
-            that matters.
-          </p>
         </Card>
       )}
 
-      <Card
-        title="Training load"
-        subtitle="session effort (0–10) × minutes, per week · every kind counts"
-      >
+      <Card title="Training load" subtitle="effort (0–10) × minutes, per week">
         {ratedAny ? (
           <>
             <ResponsiveContainer width="100%" height={180}>
@@ -380,28 +366,23 @@ export function Analytics({
               </div>
             )}
             <p className="mt-1 text-xs text-ink/45">
-              Monotony is mean ÷ SD of the seven daily loads; above ~2 means
-              the week has no easy days. Strain is load × monotony. Only
-              rated sessions count ({thisWeek?.rated ?? 0} of {thisWeek?.sessions ?? 0} this week).
+              {thisWeek?.rated ?? 0} of {thisWeek?.sessions ?? 0} rated this week
             </p>
           </>
         ) : (
           <p className="py-6 text-center text-sm text-ink/45">
-            Rate sessions 0–10 when you save them and weekly load, monotony
-            and strain appear here.
+            No rated sessions yet.
           </p>
         )}
       </Card>
 
       <Card
         title="What helps"
-        subtitle="next-morning check-in after a recovery session vs without · association, not causation"
+        subtitle="next-morning check-in, with a recovery session vs without"
       >
         {impacts.length === 0 ? (
           <p className="py-6 text-center text-sm text-ink/45">
-            Needs at least {IMPACT_MIN_N} mornings after each recovery type
-            and {IMPACT_MIN_N} without, in the last 90 days, with the check-in
-            logged.
+            Needs {IMPACT_MIN_N}+ mornings with and without, in 90 days.
           </p>
         ) : (
           <div className="flex flex-col">
@@ -471,10 +452,10 @@ export function Analytics({
         </Card>
       )}
 
-      <Card title="Strength" subtitle="estimated 1RM (Epley) per training day">
+      <Card title="Strength" subtitle="e1RM (Epley) per training day">
         {exercises.length === 0 ? (
           <p className="py-6 text-center text-sm text-ink/45">
-            Log strength workouts with weight × reps to see e1RM trends and PRs.
+            No strength workouts logged.
           </p>
         ) : (
           <div className="flex flex-col gap-3">
@@ -532,7 +513,7 @@ export function Analytics({
               </ResponsiveContainer>
             ) : (
               <p className="py-4 text-center text-sm text-ink/45">
-                One session logged — the trend appears after the next one.
+                One session logged.
               </p>
             )}
           </div>
@@ -674,7 +655,7 @@ export function Analytics({
       )}
 
       {drills.length > 0 && (
-        <Card title="Speed" subtitle="fastest rep per day — lower is better">
+        <Card title="Speed" subtitle="fastest rep per day, lower is better">
           <div className="mb-2 flex gap-1 overflow-x-auto pb-1">
             {drills.slice(0, 6).map((name) => (
               <Chip
@@ -720,7 +701,7 @@ export function Analytics({
             </ResponsiveContainer>
           ) : (
             <p className="py-4 text-center text-sm text-ink/45">
-              Two timed sessions of a drill unlock the trend.
+              Needs two timed sessions.
             </p>
           )}
         </Card>
@@ -779,18 +760,11 @@ export function Analytics({
               />
             </ComposedChart>
           </ResponsiveContainer>
-          <p className="mt-1 text-xs text-ink/45">
-            Faster pace at the same heart rate = improving aerobic fitness.
-            (Pace axis is reversed so up means faster.)
-          </p>
         </Card>
       )}
 
       {zones.length > 0 && (
-        <Card
-          title="HR zone mix"
-          subtitle="hours per heart-rate zone per week, all captured activity"
-        >
+        <Card title="HR zone mix" subtitle="hours per zone, per week">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart
               data={zones}
@@ -811,10 +785,6 @@ export function Analytics({
               <Bar dataKey="z5" stackId="z" fill="#ae1800" name="zone 5" />
             </BarChart>
           </ResponsiveContainer>
-          <p className="mt-1 text-xs text-ink/45">
-            Polarized training shows as tall grey/blue bases with thin red
-            caps — big moderate middles mean junk-mileage risk.
-          </p>
         </Card>
       )}
 

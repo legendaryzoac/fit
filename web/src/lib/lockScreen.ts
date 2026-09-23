@@ -315,7 +315,7 @@ function tick(): void {
           firedDone = true
           if (!delegate) cue(3)
         }
-        setMeta('Timer done', 'Open fit to save your session')
+        setMeta('Timer done', 'Save your session')
         setPosition(snap.totalSec, snap.totalSec, false)
         navigator.mediaSession.playbackState = 'playing'
         return

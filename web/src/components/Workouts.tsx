@@ -594,13 +594,13 @@ function ActiveWorkout({
           className="flex w-full items-center justify-between border border-ink/40 px-3 py-2 text-left hover:bg-ink/5"
         >
           <span className="text-sm font-semibold text-ink">
-            Warm up first
+            Warm up
             <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
               {suggestedMinutes(
                 [...new Set(w.exercises.map((e) => lookup(e.name)).filter(Boolean))] as string[],
                 'pre',
               )}{' '}
-              min · dynamic, for today’s muscles
+              min
             </span>
           </span>
           <span className="text-accent-700">→</span>
@@ -610,8 +610,8 @@ function ActiveWorkout({
       {isNew && onPrs && doneCount === 0 && (
         <div>
           <div className="mb-1 flex items-baseline justify-between text-[10px] font-semibold uppercase tracking-wider">
-            <span className="text-ink">How recovered do you feel?</span>
-            <span className="text-ink/45">0 not at all → 10 fully</span>
+            <span className="text-ink">Recovered</span>
+            <span className="text-ink/45">0 to 10</span>
           </div>
           <div className="grid grid-cols-11 border border-ink/40">
             {Array.from({ length: 11 }, (_, n) => (
@@ -637,7 +637,7 @@ function ActiveWorkout({
       {coach.length > 0 && !coachHidden && (
         <div className="border-y-2 border-ink/40 py-2.5">
           <div className="mb-1.5 flex items-center justify-between">
-            <p className="kicker">coach — from last time’s ratings</p>
+            <p className="kicker">Coach</p>
             <button
               onClick={() => setCoachHidden(true)}
               aria-label="dismiss coach suggestions"
@@ -652,9 +652,8 @@ function ActiveWorkout({
                 <span className="font-extrabold capitalize text-ink">
                   {r.muscle}
                 </span>
-                {' — '}
+                {': '}
                 {r.summary}
-                <span className="block text-xs text-ink/50">{r.reason}</span>
               </p>
             ))}
           </div>
@@ -664,7 +663,7 @@ function ActiveWorkout({
       <div className="flex flex-col gap-2 sm:flex-row">
         <input
           className={inputClass}
-          placeholder="session title (optional)"
+          placeholder="title"
           value={w.title ?? ''}
           onChange={(e) => setW({ ...w, title: e.target.value || undefined })}
         />
@@ -941,7 +940,7 @@ function ActiveWorkout({
           </div>
           {typedUnknown && (
             <label className="flex items-center gap-2 text-xs text-ink/55">
-              new exercise — muscle group:
+              muscle:
               <select
                 className={`${inputClass} w-auto py-1.5`}
                 value={newMuscle}
@@ -960,7 +959,7 @@ function ActiveWorkout({
 
       <textarea
         className={`${inputClass} min-h-16`}
-        placeholder="notes (optional)"
+        placeholder="notes"
         value={w.notes ?? ''}
         onChange={(e) => setW({ ...w, notes: e.target.value || undefined })}
       />
@@ -1001,13 +1000,6 @@ function ActiveWorkout({
 // ---------------------------------------------------------------------------
 // Start flow: pick a kind, then a template of that kind (or blank/custom)
 // ---------------------------------------------------------------------------
-
-const KIND_BLURB: Record<WorkoutKind, string> = {
-  strength: 'Sets, reps, and RPE with last-time ghosts',
-  speed: 'Interval timer for sprint and drill work',
-  cardio: 'Interval timer, log the miles afterwards',
-  recovery: 'Guided stretch and mobility routines',
-}
 
 function StartPicker({
   templates,
@@ -1080,7 +1072,6 @@ function StartPicker({
             >
               {k}
             </span>
-            <p className="mt-1.5 text-sm text-ink/70">{KIND_BLURB[k]}</p>
           </button>
         ))}
 
@@ -1094,9 +1085,7 @@ function StartPicker({
                 className="border border-ink/40 p-3 text-left hover:bg-ink/5"
               >
                 <p className="text-base font-extrabold text-ink">{r.name}</p>
-                <p className="text-xs text-ink/55">
-                  {r.blurb} · {routineMinutes(r)} min
-                </p>
+                <p className="text-xs text-ink/55">{routineMinutes(r)} min</p>
               </button>
             ))}
           {matching.map((t) => (
@@ -1121,9 +1110,7 @@ function StartPicker({
             </div>
           ))}
           {matching.length === 0 && kind !== 'recovery' && (
-            <p className="text-sm text-ink/45">
-              No {kind} templates yet — build one from the Plan tab.
-            </p>
+            <p className="text-sm text-ink/45">No {kind} templates yet.</p>
           )}
 
           {kind === 'strength' ? (
@@ -1523,7 +1510,7 @@ export function Workouts({
       })
       setMode({ m: 'list' })
     } catch {
-      setError('Deleting needs a connection — try again when online.')
+      setError('Deleting needs a connection.')
     }
   }
 
@@ -1587,7 +1574,7 @@ export function Workouts({
       if (
         (loadDraft() || loadTimerDraft()) &&
         !window.confirm(
-          'A session is already live — discard it and start this one?',
+          'A session is already live. Discard it and start this one?',
         )
       ) {
         return
@@ -1627,7 +1614,7 @@ export function Workouts({
     // A minimized live session's draft must not be silently clobbered
     if (
       (loadDraft() || loadTimerDraft()) &&
-      !window.confirm('A session is already live — discard it and start this one?')
+      !window.confirm('A session is already live. Discard it and start this one?')
     ) {
       return
     }
@@ -1815,14 +1802,10 @@ export function Workouts({
       <div className="flex flex-col gap-4">
         <p className="kicker">Session saved</p>
         <h2 className="text-3xl font-extrabold leading-none tracking-tight">
-          Cool down?
+          {r
+            ? `Cool down · ${mode.muscles.slice(0, 3).join(', ')} · ${routineMinutes(r)} min`
+            : 'Cool down'}
         </h2>
-        {r && (
-          <p className="text-sm text-ink/70">
-            {r.items.length} stretches for {mode.muscles.join(', ')} ·{' '}
-            {routineMinutes(r)} min. Static holds, 30–60 s each.
-          </p>
-        )}
         <button
           onClick={() => {
             if (!r) return
@@ -2101,7 +2084,7 @@ export function Workouts({
 
       {offline && (
         <p className="bg-accent-200 px-2 py-1 text-xs font-semibold text-accent-800">
-          Offline — showing cached workouts.
+          Offline, showing cached workouts.
           {pendingCount > 0 && ` ${pendingCount} pending sync.`}
         </p>
       )}
@@ -2118,7 +2101,7 @@ export function Workouts({
         <div className="flex flex-col gap-3">
           {workouts.length === 0 && (
             <p className="py-8 text-center text-sm text-ink/45">
-              Nothing logged yet — hit “Start workout” at the gym.
+              Nothing logged yet.
             </p>
           )}
           {workouts.slice(0, visibleCount).map((w) => (
@@ -2184,8 +2167,7 @@ export function Workouts({
             <div className="flex flex-col gap-3">
               {sessions.length === 0 && (
                 <p className="py-8 text-center text-sm text-ink/45">
-                  No captured activity yet — data from connected wearables lands
-                  here automatically.
+                  No captured activity yet.
                 </p>
               )}
               {visible.map((s) => (

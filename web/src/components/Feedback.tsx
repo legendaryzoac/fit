@@ -76,7 +76,7 @@ export function ScaleRow({
       <div className="mb-1 flex items-baseline justify-between text-[10px] font-semibold uppercase tracking-wider">
         <span className="text-ink">{label}</span>
         <span className="text-ink/45">
-          {min} {low} → {max} {high}
+          {low} to {high}
         </span>
       </div>
       <div
@@ -138,13 +138,9 @@ export function FeedbackModal({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-neutral-900/50 sm:items-center">
       <div className="max-h-[88dvh] w-full max-w-md overflow-y-auto border-2 border-ink bg-paper p-5">
-        <h2 className="text-xl font-extrabold tracking-tight text-ink">
+        <h2 className="mb-4 text-xl font-extrabold tracking-tight text-ink">
           How did it go?
         </h2>
-        <p className="mb-4 mt-1 text-xs text-ink/55">
-          30 seconds of honesty — this steers your next session’s sets and
-          weights.
-        </p>
 
         <div className="flex flex-col gap-5">
           {muscles.map((muscle) => (

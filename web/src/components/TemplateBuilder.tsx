@@ -339,11 +339,7 @@ export function TemplateBuilder({
 
       <input
         className={inputClass}
-        placeholder={
-          kind === 'recovery'
-            ? 'routine name (e.g. Evening hips)'
-            : 'template name (e.g. Upper A, Track Tuesday)'
-        }
+        placeholder={kind === 'recovery' ? 'routine name' : 'template name'}
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
@@ -426,7 +422,7 @@ export function TemplateBuilder({
           </div>
           {typedUnknown && (
             <label className="flex items-center gap-2 text-xs text-ink/55">
-              new exercise — muscle group:
+              new exercise, muscle group:
               <select
                 className={`${inputClass} w-auto py-1.5`}
                 value={newMuscle}

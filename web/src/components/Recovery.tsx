@@ -154,9 +154,7 @@ function MobilityTests({
       {!open ? (
         <div className="mt-2 flex items-center justify-between gap-3">
           <span className="text-xs text-ink/55">
-            {due
-              ? 'Retest every ~3 weeks, same time of day, same warm-up.'
-              : `Next test in about ${RETEST_DAYS - (daysSince ?? 0)} days.`}
+            {due ? 'Due' : `Next test in ${RETEST_DAYS - (daysSince ?? 0)} days.`}
           </span>
           <button
             onClick={() => setOpen(true)}
@@ -181,7 +179,7 @@ function MobilityTests({
                 type="number"
                 inputMode="decimal"
                 step="0.5"
-                placeholder={t.how}
+                placeholder="cm"
                 value={draft[t.key]}
                 onChange={(e) => setDraft({ ...draft, [t.key]: e.target.value })}
               />
@@ -190,7 +188,7 @@ function MobilityTests({
           ))}
           <input
             className={inputClass}
-            placeholder="note (optional — shoes, time of day)"
+            placeholder="note"
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
@@ -284,12 +282,12 @@ const RANGES = [30, 90, 180] as const
 function initialBanner(): string | null {
   const q = new URLSearchParams(window.location.search)
   if (q.get('whoop') === 'connected') {
-    return 'WHOOP connected — your history is syncing now.'
+    return 'WHOOP connected.'
   }
   if (q.get('whoop') === 'error') {
     const reason = q.get('reason') ?? 'unknown'
     const detail = q.get('detail')
-    return `WHOOP connection failed (${reason}${detail ? `: ${detail}` : ''}) — please try again.`
+    return `WHOOP connection failed (${reason}${detail ? `: ${detail}` : ''}).`
   }
   return null
 }
@@ -336,9 +334,7 @@ function Wearable({
 
   async function disconnect() {
     if (
-      !window.confirm(
-        'Disconnect WHOOP? Synced history stays; nothing new will arrive.',
-      )
+      !window.confirm('Disconnect WHOOP?')
     ) {
       return
     }
@@ -358,7 +354,6 @@ function Wearable({
     return (
       <Card
         title={me.whoop.status === 'error' ? 'WHOOP needs attention' : 'Wearable'}
-        subtitle="Optional — everything above works without a strap."
       >
         <button
           onClick={connect}
@@ -613,7 +608,7 @@ export function Recovery({
         <div className="mb-1.5 flex items-baseline justify-between">
           <p className="kicker">Recovery work</p>
           <span className="text-[9px] font-semibold tracking-widest text-ink/45">
-            {consistency}% OF THE LAST 28 DAYS
+            {consistency}% · 28D
           </span>
         </div>
         <div className="grid grid-cols-7 border border-ink/40">
@@ -641,7 +636,7 @@ export function Recovery({
         </div>
         <div className="mt-2 flex items-center justify-between gap-3">
           <span className="text-xs text-ink/55">
-            {weekMinutes > 0 ? `${weekMinutes} min this week` : 'Nothing yet this week'}
+            {weekMinutes > 0 ? `${weekMinutes} min this week` : 'Nothing yet'}
           </span>
           <button
             onClick={onStartRecovery}
@@ -706,9 +701,7 @@ export function Recovery({
             <Wearable me={me} onError={setApiError} onChanged={loadMe} api={api} />
           )}
           {me?.whoop.connected && metrics && !hasStrapData && (
-            <p className="mt-1 text-xs text-ink/45">
-              No strap data in the last {days} days.
-            </p>
+            <p className="mt-1 text-xs text-ink/45">No data in this range.</p>
           )}
         </div>
       </section>
@@ -739,7 +732,7 @@ export function Recovery({
             />
           </div>
 
-          <Card title="Recovery score" subtitle="daily · dashed 7-day baseline">
+          <Card title="Recovery score">
             <TrendChart
               data={scoreSeries}
               color="#ec3013"
@@ -748,25 +741,16 @@ export function Recovery({
               baselineLabel="7-day baseline"
             />
           </Card>
-          <Card
-            title="Heart-rate variability"
-            subtitle="RMSSD, ms · dashed 30-day baseline"
-          >
+          <Card title="Heart-rate variability" subtitle="ms">
             <TrendChart data={hrvSeries} color="#d96a10" unit="ms" />
           </Card>
-          <Card
-            title="Resting heart rate"
-            subtitle="bpm · dashed 30-day baseline"
-          >
+          <Card title="Resting heart rate" subtitle="bpm">
             <TrendChart data={rhrSeries} color="#ae1800" unit="bpm" />
           </Card>
           <Card title="Sleep stages" subtitle="hours per night">
             <SleepStagesChart data={sleepSeries} />
           </Card>
-          <Card
-            title="Sleep performance"
-            subtitle="sleep achieved ÷ sleep needed · dashed 30-day baseline"
-          >
+          <Card title="Sleep performance" subtitle="%">
             <TrendChart
               data={sleepPerfSeries}
               color="#ec3013"
@@ -820,10 +804,6 @@ export function Recovery({
                   />
                 </LineChart>
               </ResponsiveContainer>
-              <p className="mt-1 text-xs text-ink/45">
-                Flat lines = consistent circadian rhythm; the vertical gap is your
-                time in bed.
-              </p>
             </Card>
           )}
 

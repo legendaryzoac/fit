@@ -118,8 +118,7 @@ export function AppShell({
 
       {demo && (
         <p className="mx-auto max-w-3xl px-4 pb-1 pt-2 text-xs text-ink/55">
-          Demo mode — everything below is synthetic data, and changes stay in
-          this browser only.
+          Demo mode. Data is synthetic and local.
         </p>
       )}
 
@@ -152,7 +151,7 @@ export function AppShell({
           )}
         </Suspense>
         <p className="pt-4 text-center text-[10px] font-semibold uppercase tracking-widest text-ink/35">
-          fit — a zackwithers.com project ·{' '}
+          fit · zackwithers.com ·{' '}
           <a
             href="https://github.com/legendaryzoac/fit"
             className="hover:text-ink/60"
@@ -222,7 +221,7 @@ function ResumeBar({
         if (!d) return
         const snap = timerSnapshot(d, Date.now())
         if (snap.finished) {
-          setLabel('Timer done — save your session')
+          setLabel('Timer done, save session')
         } else if (snap.stopwatch) {
           setLabel(
             `Live ${d.kind} timer · ${fmtSec(snap.elapsedMs / 1000)}` +

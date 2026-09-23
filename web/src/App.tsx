@@ -75,7 +75,7 @@ export default function App() {
             }}
             className="text-sm font-semibold text-accent-700 underline-offset-4 hover:text-accent-600 hover:underline"
           >
-            No account? Explore the live demo →
+            No account? Try the demo
           </button>
         </>
       )}

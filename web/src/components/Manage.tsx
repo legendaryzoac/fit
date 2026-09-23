@@ -146,7 +146,7 @@ export function Manage({
       ])
       setEditing(null)
     } catch {
-      setError('Saving needs a connection — try again when online.')
+      setError('Saving needs a connection. Try again online.')
     } finally {
       setBusy(false)
     }
@@ -162,7 +162,7 @@ export function Manage({
       if (!res.ok) throw new Error(`API responded ${res.status}`)
       onCustomsChange(customs.filter((c) => !matches(c.name, exercise.name)))
     } catch {
-      setError('Deleting needs a connection — try again when online.')
+      setError('Deleting needs a connection. Try again online.')
     }
   }
 
@@ -185,9 +185,7 @@ export function Manage({
       <section className="flex flex-col gap-2 border-t-2 border-ink/40 pt-2.5">
         <p className="kicker">Templates</p>
         {templates.length === 0 && (
-          <p className="text-sm text-ink/45">
-            No templates yet — they make starting a workout one tap.
-          </p>
+          <p className="text-sm text-ink/45">No templates yet.</p>
         )}
         {templates.map((t) => (
           <div
@@ -228,10 +226,7 @@ export function Manage({
       <section className="flex flex-col gap-2 border-t-2 border-ink/40 pt-2.5">
         <p className="kicker">Custom exercises</p>
         {customs.length === 0 && (
-          <p className="text-sm text-ink/45">
-            Exercises you type in during a session are saved here for
-            renaming or muscle-group fixes.
-          </p>
+          <p className="text-sm text-ink/45">No custom exercises yet.</p>
         )}
         {customs
           .slice()
@@ -264,7 +259,7 @@ export function Manage({
                 </div>
                 {affectedCount > 0 && (
                   <p className="bg-accent-200 px-2 py-1 text-xs font-semibold text-accent-800">
-                    Also renames it in {affectedCount} logged workout
+                    Renames in {affectedCount} logged workout
                     {affectedCount === 1 ? '' : 's'}.
                   </p>
                 )}

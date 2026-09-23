@@ -752,7 +752,7 @@ export const MESO_TEMPLATES: MesoTemplate[] = [
   {
     id: 'leg-focus',
     name: 'Leg block',
-    blurb: 'Quads + hamstrings ramp; upper body holds; one engine day.',
+    blurb: 'Quads and hamstrings',
     weeks: 5,
     focus: ['quads', 'hamstrings'],
     days: [
@@ -798,7 +798,7 @@ export const MESO_TEMPLATES: MesoTemplate[] = [
   {
     id: 'chest-focus',
     name: 'Chest block',
-    blurb: 'Two pressing days ramp the chest; pull and legs hold.',
+    blurb: 'Two pressing days',
     weeks: 5,
     focus: ['chest'],
     days: [
@@ -846,7 +846,7 @@ export const MESO_TEMPLATES: MesoTemplate[] = [
   {
     id: 'back-focus',
     name: 'Back block',
-    blurb: 'Rowing and pulling volume ramps; pressing holds steady.',
+    blurb: 'Rowing and pulling',
     weeks: 5,
     focus: ['back'],
     days: [
@@ -893,8 +893,7 @@ export const MESO_TEMPLATES: MesoTemplate[] = [
   {
     id: 'ppl-engine',
     name: 'PPL + engine',
-    blurb:
-      'Classic push/pull/legs with a morning row before leg day — a double.',
+    blurb: 'Push, pull, legs, engine',
     weeks: 4,
     focus: [],
     days: [

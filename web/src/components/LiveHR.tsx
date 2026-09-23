@@ -83,9 +83,7 @@ export function LiveHR() {
     return (
       <Card title="Live heart rate">
         <p className="text-sm text-ink/55">
-          Live HR needs Web Bluetooth — use Chrome or Edge on desktop or
-          Android, and turn on your strap&rsquo;s Broadcast Heart Rate mode.
-          This browser doesn&rsquo;t support it.
+          Needs Web Bluetooth. Chrome or Edge, desktop or Android.
         </p>
       </Card>
     )
@@ -213,8 +211,7 @@ function LiveHRConnected() {
             )}
           </div>
           <p className="text-xs text-ink/45">
-            Pairs with any BLE chest strap, or a WHOOP with Broadcast Heart
-            Rate enabled.
+            Pairs with any BLE chest strap or WHOOP (Broadcast HR).
           </p>
           {error && (
             <p className="text-xs font-semibold text-accent-700">{error}</p>

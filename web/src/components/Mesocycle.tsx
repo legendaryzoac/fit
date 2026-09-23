@@ -62,7 +62,7 @@ export function MesoCard({
         onClick={onPlan}
         className="border border-dashed border-ink/40 p-3 text-left text-sm font-semibold text-ink/55 hover:bg-ink/5 hover:text-ink"
       >
-        + Plan a mesocycle — focused block with per-session prescriptions
+        + Plan a mesocycle
       </button>
     )
   }
@@ -472,9 +472,7 @@ export function MesoSetup({
     // The API rejects bodies over 32KB — catch it here instead of letting
     // an optimistic save be silently wiped on the next refresh.
     if (JSON.stringify(meso).length > 30_000) {
-      return setError(
-        'This plan is too large to sync — trim exercises or shorten names.',
-      )
+      return setError('Plan too large. Trim exercises or shorten names.')
     }
     onSave(meso)
   }
@@ -565,7 +563,6 @@ export function MesoSetup({
                     {t.weeks} wks · {t.days.length} sessions
                   </span>
                 </div>
-                <p className="mt-0.5 text-xs text-ink/60">{t.blurb}</p>
                 {t.focus.length > 0 && (
                   <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-accent-700">
                     focus: {t.focus.join(' + ')}
@@ -615,14 +612,11 @@ export function MesoSetup({
               value={weeks}
               onCommit={setWeeks}
             />
-            weeks — 4–6 recommended, the last one is a deload
+            weeks, last is deload
           </label>
 
           <div className="flex flex-col gap-1.5">
-            <p className="kicker">
-              focus muscles (up to 3) — these ramp toward their weekly max
-              while everything else holds steady
-            </p>
+            <p className="kicker">focus muscles, up to 3</p>
             <div className="flex flex-wrap gap-1.5">
               {FOCUS_CHOICES.map((m) => (
                 <button
@@ -644,10 +638,7 @@ export function MesoSetup({
 
       {step === 2 && (
         <>
-          <p className="text-xs text-ink/55">
-            Pick a weekday for every session. Two sessions can share a day —
-            cardio in the morning before an evening lift, for example.
-          </p>
+          <p className="text-xs text-ink/55">Pick a weekday for every session.</p>
 
           {days.map((day, di) => (
             <div
@@ -712,7 +703,7 @@ export function MesoSetup({
                   <p className="text-xs text-ink/55">
                     {day.sections && day.sections.length > 0
                       ? `Interval plan · ${day.sections.length} sections · ${fmtSec(totalSec(day.sections))}`
-                      : 'Stopwatch — open-ended, log miles afterwards.'}
+                      : 'Stopwatch, open-ended.'}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     <button
@@ -903,7 +894,7 @@ export function MesoSetup({
             <div className="mb-1.5 flex items-baseline justify-between">
               <span className="kicker">Week at a glance</span>
               <span className="text-[9px] font-semibold tracking-widest text-ink/45">
-                SETS RAMP → WK {Math.max(1, weeks - 1)} · WK {weeks} DELOAD
+                WK {weeks} DELOAD
               </span>
             </div>
             <div className="overflow-x-auto scroll-thin">
@@ -995,7 +986,7 @@ export function MesoSetup({
             onClick={() => tryAdvanceTo((step + 1) as Step)}
             className={`${buttonClass} flex-1 justify-between`}
           >
-            Continue — {STEPS[step as 1 | 2]}
+            Continue
             <span>→</span>
           </button>
         ) : (

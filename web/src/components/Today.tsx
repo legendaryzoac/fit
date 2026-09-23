@@ -367,8 +367,8 @@ export function Today({
           </div>
           <Spark points={scores} baseline={baseline} />
           <div className="mt-0.5 flex justify-between text-[9px] font-semibold tracking-widest text-ink/45">
-            <span>30 DAYS</span>
-            {baseline != null && <span>DOTTED = BASELINE {Math.round(baseline)}</span>}
+            <span>30D</span>
+            {baseline != null && <span>BASELINE {Math.round(baseline)}</span>}
           </div>
           <div className="mt-3 grid grid-cols-3 border-b-2 border-t border-ink/40">
             <div className="py-2.5">
@@ -435,10 +435,6 @@ export function Today({
             <h2 className="text-3xl font-extrabold leading-none tracking-tight">
               {meso.name}
             </h2>
-            <p className="mt-1 text-xs text-ink/55">
-              All {meso.weeks} weeks are behind you — wrap it up and train
-              free, or plan the next block.
-            </p>
             <button
               onClick={onEndMeso}
               className={`${buttonClass} mt-3 w-full justify-between`}
@@ -468,7 +464,7 @@ export function Today({
               <p className="mt-1 text-xs text-ink/55">
                 {day.sections && day.sections.length > 0
                   ? `Intervals · ${day.sections.length} sections · ${fmtSec(totalSec(day.sections))}`
-                  : 'Stopwatch — open-ended, log the miles afterwards.'}
+                  : 'Stopwatch'}
               </p>
             ) : (
               preview && (
@@ -524,10 +520,7 @@ export function Today({
             <h2 className="text-3xl font-extrabold leading-none tracking-tight">
               Open training
             </h2>
-            <p className="mt-1 text-xs text-ink/55">
-              No block running — start anything, or plan a mesocycle for
-              per-session prescriptions.
-            </p>
+            <p className="mt-1 text-xs text-ink/55">No block running.</p>
             <button
               onClick={onStartWorkout}
               className={`${buttonClass} mt-3 w-full justify-between`}
@@ -564,10 +557,6 @@ export function Today({
       <section>
         <div className="mb-1.5 flex items-baseline justify-between">
           <span className="kicker-muted">This week</span>
-          <span className="text-[9px] font-semibold tracking-widest text-ink/45">
-            ▪ DONE · ▫ PLANNED ·{' '}
-            <span className="text-gold-700">▫ RECOVERY</span>
-          </span>
         </div>
         <div className="grid grid-cols-7 border border-ink/40">
           {weekDays.map((d, i) => (

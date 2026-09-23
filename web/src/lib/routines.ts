@@ -43,7 +43,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: SLEEP_ROUTINE_ID,
     name: 'Sleep',
-    blurb: 'Long, quiet holds on the floor before bed',
+    blurb: 'Quiet holds before bed',
     tags: ['sleep'],
     transitionSec: 8,
     items: [
@@ -60,7 +60,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'wake',
     name: 'Wake up',
-    blurb: 'Five minutes to get the spine and hips moving',
+    blurb: 'Spine and hips',
     tags: ['wake'],
     transitionSec: 6,
     items: [
@@ -75,7 +75,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'post-lower',
     name: 'Post-lift · lower',
-    blurb: 'Cooldown after squats, hinges and lunges',
+    blurb: 'Lower body cooldown',
     tags: ['post'],
     transitionSec: 8,
     items: [
@@ -90,7 +90,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'post-upper',
     name: 'Post-lift · upper',
-    blurb: 'Cooldown after pressing and pulling',
+    blurb: 'Upper body cooldown',
     tags: ['post'],
     transitionSec: 8,
     items: [
@@ -106,7 +106,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'post-full',
     name: 'Post-lift · full body',
-    blurb: 'Cooldown for a full-body session, hips to shoulders',
+    blurb: 'Full-body cooldown',
     tags: ['post'],
     transitionSec: 8,
     items: [
@@ -122,7 +122,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'hips',
     name: 'Hips',
-    blurb: 'Flexors, rotators and adductors',
+    blurb: 'Flexors and rotators',
     tags: ['region'],
     transitionSec: 8,
     items: [
@@ -137,7 +137,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'hamstrings',
     name: 'Hamstrings',
-    blurb: 'Posterior chain, standing then on the floor',
+    blurb: 'Posterior chain',
     tags: ['region'],
     transitionSec: 8,
     items: [
@@ -152,7 +152,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'tspine',
     name: 'Thoracic & shoulders',
-    blurb: 'Upper back rotation and overhead range',
+    blurb: 'Upper back rotation',
     tags: ['region'],
     transitionSec: 8,
     items: [
@@ -169,7 +169,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'desk',
     name: 'Desk reset',
-    blurb: 'Seated, five minutes, no floor needed',
+    blurb: 'Seated, no floor',
     tags: ['desk'],
     transitionSec: 5,
     items: [
@@ -183,7 +183,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'pre-lower',
     name: 'Warm-up · lower',
-    blurb: 'Dynamic prep before squats and hinges',
+    blurb: 'Lower body warm-up',
     tags: ['pre'],
     transitionSec: 5,
     items: [
@@ -198,7 +198,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'pre-full',
     name: 'Warm-up · full body',
-    blurb: 'Dynamic prep for a full-body session',
+    blurb: 'Full-body warm-up',
     tags: ['pre'],
     transitionSec: 5,
     items: [
@@ -214,7 +214,7 @@ export const BUILTIN_ROUTINES: Routine[] = [
   {
     id: 'pre-upper',
     name: 'Warm-up · upper',
-    blurb: 'Shoulders and upper back before pressing',
+    blurb: 'Upper body warm-up',
     tags: ['pre'],
     transitionSec: 5,
     items: [
