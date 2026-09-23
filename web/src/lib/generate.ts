@@ -47,6 +47,28 @@ function rng(seed: number): () => number {
   }
 }
 
+/**
+ * Time budget that grows with how much of the body a session trains: a
+ * two-group day gets the short version, a full-body day gets long enough
+ * to actually cover it (still short enough to be done every time).
+ */
+export function suggestedMinutes(muscles: string[], phase: 'pre' | 'post'): number {
+  const n = new Set(muscles.map((m) => m.toLowerCase())).size
+  return phase === 'pre'
+    ? Math.min(8, Math.max(5, Math.round(4 + n * 0.6)))
+    : Math.min(10, Math.max(6, Math.round(5 + n * 0.8)))
+}
+
+export function isFullBody(muscles: string[]): boolean {
+  const set = new Set(muscles.map((m) => m.toLowerCase()))
+  const lower = ['quads', 'hamstrings', 'glutes', 'posterior chain', 'calves']
+  const upper = ['chest', 'back', 'shoulders', 'biceps', 'triceps', 'rear delts', 'traps']
+  return (
+    set.has('full body') ||
+    (lower.some((m) => set.has(m)) && upper.some((m) => set.has(m)))
+  )
+}
+
 export interface GenerateOptions {
   /** Muscle groups the session trains, as resolved by the exercise lookup. */
   muscles: string[]
@@ -108,21 +130,28 @@ export function generateRoutine(opts: GenerateOptions): Routine | null {
   }
 
   // Coverage pass: the stretch that reaches the most still-uncovered
-  // targets wins; ties break on total overlap, then the daily shuffle.
+  // targets PER SECOND wins — on a full-body day that favours compound
+  // stretches (world's greatest, inchworm, deep squat) over five per-side
+  // singles that would blow the budget. Ties break on raw gain, total
+  // overlap, then the daily shuffle.
   while (remaining.length > 0 && targets.some((t) => !covered.has(t))) {
     let best = -1
-    let bestKey: [number, number, number] = [-1, -1, -1]
+    let bestKey: [number, number, number, number] = [-1, -1, -1, -1]
     remaining.forEach(({ s, score, r }, i) => {
       const gain = s.targets.filter((t) => targets.includes(t) && !covered.has(t)).length
-      const key: [number, number, number] = [gain, score, r]
-      if (
-        gain > 0 &&
-        (key[0] > bestKey[0] ||
-          (key[0] === bestKey[0] &&
-            (key[1] > bestKey[1] || (key[1] === bestKey[1] && key[2] > bestKey[2]))))
-      ) {
-        best = i
-        bestKey = key
+      if (gain === 0) return
+      const cost = itemCost(
+        { name: '', seconds: holdSeconds(s, phase), perSide: s.perSide },
+        transitionSec,
+      )
+      const key: [number, number, number, number] = [gain / cost, gain, score, r]
+      for (let k = 0; k < 4; k++) {
+        if (key[k] > bestKey[k]) {
+          best = i
+          bestKey = key
+          break
+        }
+        if (key[k] < bestKey[k]) break
       }
     })
     if (best === -1) break
@@ -152,11 +181,13 @@ export function generateRoutine(opts: GenerateOptions): Routine | null {
   }
 
   if (picked.length === 0) return null
-  const label = opts.muscles.slice(0, 3).join(', ')
+  const label = isFullBody(opts.muscles)
+    ? 'a full-body session'
+    : opts.muscles.slice(0, 3).join(', ') || 'this session'
   return {
     id: `gen-${phase}`,
     name: phase === 'pre' ? 'Warm-up' : 'Cool-down',
-    blurb: `Built for ${label || 'this session'}`,
+    blurb: `Built for ${label}`,
     tags: [phase],
     transitionSec,
     items: picked,

@@ -28,7 +28,7 @@ import {
   routineMinutes,
   routineSections,
 } from '../lib/routines'
-import { generateRoutine } from '../lib/generate'
+import { generateRoutine, suggestedMinutes } from '../lib/generate'
 import { QuickLog } from './QuickLog'
 import {
   enqueue,
@@ -596,7 +596,11 @@ function ActiveWorkout({
           <span className="text-sm font-semibold text-ink">
             Warm up first
             <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
-              5 min · dynamic, for today’s muscles
+              {suggestedMinutes(
+                [...new Set(w.exercises.map((e) => lookup(e.name)).filter(Boolean))] as string[],
+                'pre',
+              )}{' '}
+              min · dynamic, for today’s muscles
             </span>
           </span>
           <span className="text-accent-700">→</span>
@@ -1492,7 +1496,11 @@ export function Workouts({
         : []
     if (
       trained.length > 0 &&
-      generateRoutine({ muscles: trained, phase: 'post', minutes: 6 })
+      generateRoutine({
+        muscles: trained,
+        phase: 'post',
+        minutes: suggestedMinutes(trained, 'post'),
+      })
     ) {
       setMode({ m: 'cooldown', muscles: trained })
     } else {
@@ -1682,7 +1690,11 @@ export function Workouts({
   /** Dynamic warm-up for the muscles a strength session is about to train.
    * The strength draft stays in storage; the ledger returns afterwards. */
   function startWarmUp(muscles: string[]) {
-    const r = generateRoutine({ muscles, phase: 'pre', minutes: 5 })
+    const r = generateRoutine({
+      muscles,
+      phase: 'pre',
+      minutes: suggestedMinutes(muscles, 'pre'),
+    })
     if (!r) return
     startTimer(
       'recovery',
@@ -1794,7 +1806,11 @@ export function Workouts({
   }
 
   if (mode.m === 'cooldown') {
-    const r = generateRoutine({ muscles: mode.muscles, phase: 'post', minutes: 6 })
+    const r = generateRoutine({
+      muscles: mode.muscles,
+      phase: 'post',
+      minutes: suggestedMinutes(mode.muscles, 'post'),
+    })
     return (
       <div className="flex flex-col gap-4">
         <p className="kicker">Session saved</p>

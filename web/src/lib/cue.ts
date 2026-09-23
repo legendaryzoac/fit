@@ -1,3 +1,5 @@
+import { storageKey } from './storage'
+
 // One shared context, created (ideally) on a user-gesture stack: iOS starts
 // gesture-less contexts suspended, which would mute every beep fired from
 // the background lock-screen driver.
@@ -77,6 +79,45 @@ export function cue(times: number) {
     chirp(times, 880, 0.2, 0.25, 0.35)
   } catch {
     /* autoplay policy — vibration already fired */
+  }
+}
+
+// ---- spoken cues (opt-in, foreground only) ----
+// speechSynthesis is unreliable once the page is hidden and it ducks other
+// audio on iOS, so it never runs in the background; the chirps and the
+// lock-screen text carry the session there.
+
+const SPEAK_KEY = 'fit.spokenCues'
+
+export function speakSupported(): boolean {
+  return typeof window !== 'undefined' && 'speechSynthesis' in window
+}
+
+export function getSpeakPref(): boolean {
+  try {
+    return localStorage.getItem(storageKey(SPEAK_KEY)) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function setSpeakPref(on: boolean): void {
+  localStorage.setItem(storageKey(SPEAK_KEY), on ? '1' : '0')
+  if (!on && speakSupported()) window.speechSynthesis.cancel()
+}
+
+export function speak(text: string): void {
+  if (!speakSupported() || !getSpeakPref()) return
+  if (document.visibilityState !== 'visible') return
+  try {
+    const synth = window.speechSynthesis
+    synth.cancel()
+    const u = new SpeechSynthesisUtterance(text)
+    u.rate = 1
+    u.volume = 0.9
+    synth.speak(u)
+  } catch {
+    /* no voices, or blocked — chirps still fire */
   }
 }
 

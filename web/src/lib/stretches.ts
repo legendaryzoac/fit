@@ -552,3 +552,15 @@ const byName = new Map(STRETCHES.map((s) => [s.name.toLowerCase(), s]))
 export function stretchByName(name: string): Stretch | undefined {
   return byName.get(name.trim().toLowerCase())
 }
+
+/** File stem of a stretch's figure under src/poses ("World's greatest
+ * stretch" → "worlds-greatest-stretch", "90/90" → "90-90"). The loader
+ * itself lives in poseFigures.ts (Vite-only glob) so this module stays
+ * runnable outside the bundler. */
+export function poseSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}

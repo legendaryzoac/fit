@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { cue, warnCue } from '../lib/cue'
+import {
+  cue,
+  getSpeakPref,
+  setSpeakPref,
+  speak,
+  speakSupported,
+  warnCue,
+} from '../lib/cue'
 import { SPEED_DRILLS } from '../lib/exercises'
 import { registerTimerControls } from '../lib/lockScreen'
 import { recoveryExercisesFromSections } from '../lib/routines'
+import { loadPoseFigure } from '../lib/poseFigures'
 import { stretchByName } from '../lib/stretches'
 import {
   fmtSec,
@@ -197,6 +205,59 @@ const CALM = {
   transition: { pill: 'bg-ink text-paper', text: 'text-ink/60', bar: 'bg-ink' },
 } as const
 
+/** What to say when a recovery section begins. */
+function phraseFor(label: string): string {
+  if (label === SWITCH_LABEL) return 'Switch sides'
+  const base = holdBaseName(label)
+  const side = holdSide(label)
+  const sideText = side === 'L' ? ', left side' : side === 'R' ? ', right side' : ''
+  return isTransition(label) ? `Next, ${base}${sideText}` : `${base}${sideText}`
+}
+
+/** Stick-figure drawing of a stretch, lazy-loaded and inlined so it takes
+ * the text colour. Our own validated SVG, so inlining is safe. */
+function PoseFigure({ name }: { name: string }) {
+  const [svg, setSvg] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    setSvg(null)
+    void loadPoseFigure(name).then((s) => {
+      if (alive) setSvg(s)
+    })
+    return () => {
+      alive = false
+    }
+  }, [name])
+  if (!svg) return <div className="h-28 w-28" aria-hidden="true" />
+  return (
+    <div
+      className="h-28 w-28 text-ink [&>svg]:h-full [&>svg]:w-full"
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  )
+}
+
+/** Opt-in spoken pose names, foreground only. */
+function SpeakToggle() {
+  const [on, setOn] = useState(getSpeakPref)
+  if (!speakSupported()) return null
+  return (
+    <button
+      onClick={() => {
+        const next = !on
+        setSpeakPref(next)
+        setOn(next)
+        if (next) speak('Spoken cues on')
+      }}
+      className={`${iconButtonClass} px-3 text-xs`}
+      aria-pressed={on}
+    >
+      {on ? '●' : '○'} Spoken cues
+    </button>
+  )
+}
+
 const FEEL: Array<{ value: '1' | '2' | '3' | '4' | '5'; label: string }> = [
   { value: '1', label: '1' },
   { value: '2', label: '2' },
@@ -278,6 +339,9 @@ export function IntervalSession({
       lastIdxRef.current = idx
       lastWarnRef.current = -1
       cue(2)
+      if (draft.kind === 'recovery' && sections[idx]) {
+        speak(phraseFor(sections[idx].label))
+      }
     }
     if (finished) {
       doneElapsedRef.current = Math.min(elapsedMs, total * 1000)
@@ -303,6 +367,14 @@ export function IntervalSession({
       }),
     [],
   )
+
+  // The opening section is never an index CHANGE, so announce it once.
+  useEffect(() => {
+    if (draft.kind === 'recovery' && !stopwatch && sections[0]) {
+      speak(phraseFor(sections[0].label))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Keep the screen on while the countdown is on it; a minimized or
   // finished session gives the lock back.
@@ -603,7 +675,10 @@ export function IntervalSession({
         )}
       </div>
 
-      <LockScreenToggle className="flex justify-end pt-2" />
+      <div className="flex items-center justify-end gap-2 pt-2">
+        {recovery && <SpeakToggle />}
+        <LockScreenToggle />
+      </div>
 
       <div className="flex flex-1 flex-col items-center justify-center gap-5">
         {stopwatch ? (
@@ -615,6 +690,7 @@ export function IntervalSession({
           </>
         ) : (
           <>
+            {recovery && stretch && <PoseFigure name={stretch.name} />}
             <span
               className={`max-w-full truncate px-4 py-1.5 text-sm font-extrabold uppercase tracking-widest ${tone.pill}`}
             >
