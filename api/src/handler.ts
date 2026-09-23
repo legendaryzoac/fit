@@ -4,6 +4,11 @@ import type {
   LambdaFunctionURLEvent,
   LambdaFunctionURLResult,
 } from 'aws-lambda'
+import {
+  handleDeleteCheckin,
+  handleListCheckins,
+  handleSaveCheckin,
+} from './checkins'
 import { TABLE_NAME, ddb } from './db'
 import {
   handleDeleteExercise,
@@ -28,7 +33,11 @@ import {
   handleListWorkouts,
   handleSaveWorkout,
 } from './workouts'
-import { handleWhoopCallback, handleWhoopConnect } from './whoop/routes'
+import {
+  handleWhoopCallback,
+  handleWhoopConnect,
+  handleWhoopDisconnect,
+} from './whoop/routes'
 import { loadConnection } from './whoop/store'
 
 const verifier = CognitoJwtVerifier.create({
@@ -113,10 +122,14 @@ export async function handler(
   if (route === 'DELETE /api/mesos') return handleDeleteMeso(userId, event)
   if (route === 'GET /api/weights') return handleListWeights(userId)
   if (route === 'POST /api/weights') return handleSaveWeight(userId, event)
+  if (route === 'GET /api/checkins') return handleListCheckins(userId, event)
+  if (route === 'POST /api/checkins') return handleSaveCheckin(userId, event)
+  if (route === 'DELETE /api/checkins') return handleDeleteCheckin(userId, event)
   if (route === 'GET /api/exercises') return handleListExercises(userId)
   if (route === 'POST /api/exercises') return handleSaveExercise(userId, event)
   if (route === 'DELETE /api/exercises') return handleDeleteExercise(userId, event)
   if (route === 'GET /api/whoop/connect') return handleWhoopConnect(userId)
+  if (route === 'DELETE /api/whoop') return handleWhoopDisconnect(userId)
 
   return json(404, { error: 'not found' })
 }

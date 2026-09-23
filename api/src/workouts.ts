@@ -17,6 +17,8 @@ interface WorkoutSet {
   rpe?: number
   durationSec?: number
   distanceM?: number
+  /** Recovery holds: which side this set was (absent = bilateral). */
+  side?: 'L' | 'R'
 }
 
 interface WorkoutExercise {
@@ -29,8 +31,39 @@ interface IntervalSection {
   durationSec: number
 }
 
-const KINDS = ['strength', 'speed', 'cardio'] as const
+const KINDS = ['strength', 'speed', 'cardio', 'recovery'] as const
 type WorkoutKind = (typeof KINDS)[number]
+
+// Recovery sessions: guided routines (stretch/mobility/foamroll/breath) run
+// in the timer; the rest are quick logs. Stored on the same WORKOUT# row so
+// history, drafts and the offline queue need nothing new.
+const MODALITIES = [
+  'stretch',
+  'mobility',
+  'foamroll',
+  'breath',
+  'cold',
+  'sauna',
+  'contrast',
+  'walk',
+  'massage',
+  'other',
+] as const
+type Modality = (typeof MODALITIES)[number]
+
+/** Per-modality dose: temperature/rounds for heat & cold, region for rolling. */
+interface RecoveryDose {
+  tempC?: number
+  rounds?: number
+  region?: string
+}
+
+/** Pre/post stiffness or feel, 1–5. Deliberately NOT WorkoutFeedback: that
+ * shape carries RP autoregulation semantics read by the progression engine. */
+interface RecoveryRating {
+  pre?: number
+  post?: number
+}
 
 const DIFFICULTIES = ['easy', 'right', 'hard'] as const
 const VOLUMES = ['low', 'right', 'high'] as const
@@ -61,8 +94,58 @@ interface Workout {
   mesoId?: string
   /** Which microcycle day this session was (index into the meso's days). */
   mesoDayIndex?: number
+  /** Recovery kind only (accepted on any kind, ignored elsewhere). */
+  modality?: Modality
+  dose?: RecoveryDose
+  rating?: RecoveryRating
+  /** Whole-session CR-10 (0–10, half steps) — session-RPE load = rpe × min. */
+  sessionRpe?: number
   /** When an edit changed the start time: the old start whose row must go. */
   previousStart?: string
+}
+
+const int = (v: unknown, lo: number, hi: number): number | undefined =>
+  typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi
+    ? v
+    : undefined
+
+const parseSide = (v: unknown): 'L' | 'R' | undefined =>
+  v === 'L' || v === 'R' ? v : undefined
+
+/** Optional enhancement: malformed dose is dropped, not a 400. */
+function parseDose(raw: unknown): RecoveryDose | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const r = raw as Record<string, unknown>
+  const tempC =
+    typeof r.tempC === 'number' &&
+    Number.isFinite(r.tempC) &&
+    r.tempC >= -30 &&
+    r.tempC <= 120
+      ? Math.round(r.tempC * 10) / 10
+      : undefined
+  const rounds = int(r.rounds, 1, 20)
+  const region = str(r.region, 40)
+  if (tempC === undefined && rounds === undefined && region === undefined) {
+    return undefined
+  }
+  return {
+    ...(tempC !== undefined && { tempC }),
+    ...(rounds !== undefined && { rounds }),
+    ...(region !== undefined && { region }),
+  }
+}
+
+/** Optional enhancement: malformed rating is dropped, not a 400. */
+function parseRating(raw: unknown): RecoveryRating | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const r = raw as Record<string, unknown>
+  const pre = int(r.pre, 1, 5)
+  const post = int(r.post, 1, 5)
+  if (pre === undefined && post === undefined) return undefined
+  return {
+    ...(pre !== undefined && { pre }),
+    ...(post !== undefined && { post }),
+  }
 }
 
 /** Optional enhancement field: malformed feedback is dropped, not a 400. */
@@ -126,6 +209,7 @@ function parseWorkout(raw: unknown): Workout | null {
         rpe: num(s?.rpe),
         durationSec: num(s?.durationSec),
         distanceM: num(s?.distanceM),
+        side: parseSide(s?.side),
       })),
     })
   }
@@ -163,6 +247,20 @@ function parseWorkout(raw: unknown): Workout | null {
     durationMin: num(r.durationMin),
     distanceM: num(r.distanceM),
     feedback: parseFeedback(r.feedback),
+    modality: MODALITIES.includes(r.modality as Modality)
+      ? (r.modality as Modality)
+      : undefined,
+    dose: parseDose(r.dose),
+    rating: parseRating(r.rating),
+    // CR-10 in half steps; anything outside 0–10 is dropped, never a 400,
+    // so an older client's queued saves keep flushing.
+    sessionRpe:
+      typeof r.sessionRpe === 'number' &&
+      Number.isFinite(r.sessionRpe) &&
+      r.sessionRpe >= 0 &&
+      r.sessionRpe <= 10
+        ? Math.round(r.sessionRpe * 2) / 2
+        : undefined,
     mesoId: str(r.mesoId, 64),
     // 0..13 — must match the 14-session microcycle cap in mesos.ts
     mesoDayIndex:

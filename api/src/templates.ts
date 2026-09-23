@@ -11,13 +11,28 @@ interface IntervalSection {
   durationSec: number
 }
 
+/** One step of a recovery routine. Expanded client-side into timer
+ * sections (per-side → two sections with a switch cue between). Kept
+ * separate from `sections` because the interval-plan editor assumes the
+ * warm/work/rest/cool shape and would mangle a pose list on edit. */
+interface RoutineItem {
+  name: string
+  seconds: number
+  perSide?: boolean
+  cue?: string
+}
+
 interface Template {
   id: string
   name: string
-  kind: 'strength' | 'speed' | 'cardio'
+  kind: 'strength' | 'speed' | 'cardio' | 'recovery'
   /** `muscle` marks a generic slot filled at workout start. */
   exercises?: Array<{ name: string; setCount: number; muscle?: string }>
   sections?: IntervalSection[]
+  /** Recovery routines: ordered holds/drills. */
+  items?: RoutineItem[]
+  /** Recovery routines: seconds between items (next-up preview). */
+  transitionSec?: number
 }
 
 const num = (v: unknown): number | undefined =>
@@ -33,7 +48,12 @@ function parseTemplate(raw: unknown): Template | null {
   const id = str(r.id, 64)
   const name = str(r.name, 60)
   if (!id || !name) return null
-  if (r.kind !== 'strength' && r.kind !== 'speed' && r.kind !== 'cardio') {
+  if (
+    r.kind !== 'strength' &&
+    r.kind !== 'speed' &&
+    r.kind !== 'cardio' &&
+    r.kind !== 'recovery'
+  ) {
     return null
   }
 
@@ -70,7 +90,34 @@ function parseTemplate(raw: unknown): Template | null {
     }
   }
 
-  return { id, name, kind: r.kind, exercises, sections }
+  let items: Template['items']
+  if (Array.isArray(r.items)) {
+    if (r.items.length > 80) return null
+    items = []
+    for (const it of r.items) {
+      const o = it as Record<string, unknown>
+      const itemName = str(o?.name, 80)
+      const seconds = num(o?.seconds)
+      if (!itemName || seconds == null || seconds < 1 || seconds > 7200) {
+        return null
+      }
+      const cue = str(o?.cue, 200)
+      items.push({
+        name: itemName,
+        seconds: Math.round(seconds),
+        ...(o?.perSide === true && { perSide: true }),
+        ...(cue !== undefined && { cue }),
+      })
+    }
+  }
+
+  const transitionRaw = num(r.transitionSec)
+  const transitionSec =
+    transitionRaw != null && transitionRaw >= 0 && transitionRaw <= 120
+      ? Math.round(transitionRaw)
+      : undefined
+
+  return { id, name, kind: r.kind, exercises, sections, items, transitionSec }
 }
 
 export async function handleListTemplates(
