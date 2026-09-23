@@ -24,11 +24,25 @@ import {
   weeklyZones,
 } from '../lib/analytics'
 import type { Api } from '../lib/api'
+import { CHECKIN_ITEMS, type Checkin } from '../lib/checkins'
 import { makeMuscleLookup, type CustomExercise } from '../lib/exercises'
 import type { Metrics } from '../lib/metrics'
+import { localToday } from '../lib/weights'
+import {
+  consistencyPct,
+  dailySeries,
+  weeklyMinutesByModality,
+} from '../lib/wellness'
 import type { SessionRecord, Workout } from '../lib/workouts'
 import { LiveHR } from './LiveHR'
 import { Card } from './ui'
+
+const WELLNESS_COLORS: Record<string, string> = {
+  sleep: '#201e1d',
+  fatigue: '#ec3013',
+  soreness: '#d96a10',
+  stress: '#e0a112',
+}
 
 const tickStyle = {
   fill: '#7d7979',
@@ -103,13 +117,33 @@ export function Analytics({
   workouts,
   sessions,
   customs,
+  checkins,
 }: {
   api: Api
   workouts: Workout[]
   sessions: SessionRecord[]
   customs: CustomExercise[]
+  checkins: Checkin[]
 }) {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
+  const recoveryWeeks = useMemo(() => weeklyMinutesByModality(workouts), [workouts])
+  const consistency = useMemo(
+    () => consistencyPct(workouts, localToday()),
+    [workouts],
+  )
+  const wellness = useMemo(() => {
+    const today = localToday()
+    const series = CHECKIN_ITEMS.map((it) => dailySeries(checkins, it.key, 60, today))
+    return series[0].map((p, i) => ({
+      date: p.date,
+      sleep: series[0][i].value,
+      fatigue: series[1][i].value,
+      soreness: series[2][i].value,
+      stress: series[3][i].value,
+    }))
+  }, [checkins])
+  const hasWellness = wellness.some((r) => r.sleep != null)
+  const hasRecovery = recoveryWeeks.modalities.length > 0
   const [metricsError, setMetricsError] = useState(false)
   const [exercise, setExercise] = useState<string | null>(null)
   const [drill, setDrill] = useState<string | null>(null)
@@ -217,6 +251,75 @@ export function Analytics({
           </p>
         )}
       </Card>
+
+      {hasWellness && (
+        <Card
+          title="Readiness"
+          subtitle="daily check-in, 1–5, higher is better · gaps are unlogged days"
+        >
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart
+              data={wellness}
+              margin={{ top: 4, right: 4, bottom: 0, left: -24 }}
+            >
+              <CartesianGrid stroke={GRID_STROKE} vertical={false} />
+              <XAxis
+                dataKey="date"
+                {...axisProps()}
+                tickFormatter={dateTick}
+                minTickGap={32}
+              />
+              <YAxis domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} width={40} {...axisProps()} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
+              {CHECKIN_ITEMS.map((it) => (
+                <Line
+                  key={it.key}
+                  type="monotone"
+                  dataKey={it.key}
+                  stroke={WELLNESS_COLORS[it.key]}
+                  strokeWidth={it.key === 'sleep' ? 1.5 : 2}
+                  dot={false}
+                  connectNulls={false}
+                  name={it.label.toLowerCase()}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+          <p className="mt-1 text-xs text-ink/45">
+            Read each line against its own history, not the others; a
+            sustained dip in energy and soreness across a block is the pattern
+            that matters.
+          </p>
+        </Card>
+      )}
+
+      {hasRecovery && (
+        <Card
+          title="Recovery minutes"
+          subtitle={`per week by type · ${consistency}% of the last 28 days had a session`}
+        >
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart
+              data={recoveryWeeks.rows}
+              margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
+            >
+              <CartesianGrid stroke={GRID_STROKE} vertical={false} />
+              <XAxis dataKey="week" {...axisProps()} />
+              <YAxis width={40} {...axisProps()} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} />
+              {recoveryWeeks.modalities.map((m, i) => (
+                <Bar
+                  key={m}
+                  dataKey={m}
+                  stackId="r"
+                  fill={MUSCLE_COLORS[i % MUSCLE_COLORS.length]}
+                  name={m}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      )}
 
       <Card title="Strength" subtitle="estimated 1RM (Epley) per training day">
         {exercises.length === 0 ? (

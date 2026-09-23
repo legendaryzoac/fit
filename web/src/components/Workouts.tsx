@@ -74,7 +74,14 @@ import {
   recommendations,
   type Recommendation,
 } from '../lib/progression'
-import { onResume, setInSession, setOverlay } from '../lib/sessionBus'
+import {
+  onPick,
+  onResume,
+  setInSession,
+  setOverlay,
+  takePendingPick,
+} from '../lib/sessionBus'
+import { todayCheckin, type Checkin } from '../lib/checkins'
 import { currentBodyWeight, loadWeightCache, saveWeightCache, type WeightEntry } from '../lib/weights'
 import { FeedbackModal } from './Feedback'
 import { IntervalSession } from './IntervalTimer'
@@ -216,6 +223,8 @@ function ActiveWorkout({
   onMinimize,
   onDelete,
   onWarmUp,
+  prsToday,
+  onPrs,
 }: {
   initial: Workout
   isNew: boolean
@@ -226,6 +235,10 @@ function ActiveWorkout({
   /** Offered before the first set: a dynamic warm-up keyed to the
    * session's muscle groups, after which the ledger comes back. */
   onWarmUp?: (muscles: string[]) => void
+  /** Perceived Recovery Status already logged today, if any. */
+  prsToday?: number
+  /** One tap before the first set: 0 = very poorly … 10 = fully recovered. */
+  onPrs?: (n: number) => void
   /** Meso targets for a set of exercises — ghosts and check-offs adopt
    * these. A function, not a snapshot: the list changes mid-session. */
   prescribe?: (
@@ -588,6 +601,33 @@ function ActiveWorkout({
           </span>
           <span className="text-accent-700">→</span>
         </button>
+      )}
+
+      {isNew && onPrs && doneCount === 0 && (
+        <div>
+          <div className="mb-1 flex items-baseline justify-between text-[10px] font-semibold uppercase tracking-wider">
+            <span className="text-ink">How recovered do you feel?</span>
+            <span className="text-ink/45">0 not at all → 10 fully</span>
+          </div>
+          <div className="grid grid-cols-11 border border-ink/40">
+            {Array.from({ length: 11 }, (_, n) => (
+              <button
+                key={n}
+                onClick={() => onPrs(n)}
+                aria-label={`recovery ${n} of 10`}
+                className={`py-1.5 text-[11px] font-semibold tabular-nums ${
+                  n > 0 ? 'border-l border-ink/40 ' : ''
+                }${
+                  prsToday === n
+                    ? 'bg-accent font-extrabold text-paper'
+                    : 'text-ink/60 hover:bg-ink/5'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       {coach.length > 0 && !coachHidden && (
@@ -967,6 +1007,7 @@ const KIND_BLURB: Record<WorkoutKind, string> = {
 
 function StartPicker({
   templates,
+  initialKind = null,
   onStrength,
   onTimer,
   onQuickLog,
@@ -974,13 +1015,14 @@ function StartPicker({
   onCancel,
 }: {
   templates: Template[]
+  initialKind?: WorkoutKind | null
   onStrength: (template?: Template) => void
   onTimer: (kind: WorkoutKind, sections: IntervalSection[], title?: string) => void
   onQuickLog: () => void
   onDeleteTemplate: (t: Template) => void
   onCancel: () => void
 }) {
-  const [kind, setKind] = useState<WorkoutKind | null>(null)
+  const [kind, setKind] = useState<WorkoutKind | null>(initialKind)
   const [plan, setPlan] = useState<QuickIntervalPlan>(DEFAULT_PLAN)
   const [showCustom, setShowCustom] = useState(false)
 
@@ -1223,7 +1265,7 @@ function WorkoutCard({
 
 type Mode =
   | { m: 'list' }
-  | { m: 'pick' }
+  | { m: 'pick'; kind?: WorkoutKind }
   | { m: 'build'; initial?: Template }
   | { m: 'strength'; workout: Workout; isNew: boolean }
   | { m: 'timer'; draft: TimerDraft }
@@ -1240,7 +1282,17 @@ type Mode =
  * sessions, drafts, and caches survive tab hops. */
 export type WorkoutsTab = 'today' | 'history' | 'plan' | 'progress'
 
-export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
+export function Workouts({
+  api,
+  tab,
+  checkins,
+  onSaveCheckin,
+}: {
+  api: Api
+  tab: WorkoutsTab
+  checkins: Checkin[]
+  onSaveCheckin: (patch: Partial<Checkin>) => void
+}) {
   const [segment, setSegment] = useState<'log' | 'captured'>('log')
   const [workouts, setWorkouts] = useState<Workout[]>(loadWorkoutCache)
   const [sessions, setSessions] = useState<SessionRecord[]>([])
@@ -1261,8 +1313,16 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     if (timer) return { m: 'timer', draft: timer }
     const draft = loadDraft()
     if (draft) return { m: 'strength', workout: draft, isNew: true }
+    // The Recovery tab may have asked for the picker before we mounted
+    const pick = takePendingPick()
+    if (pick) return { m: 'pick', kind: pick as WorkoutKind }
     return { m: 'list' }
   })
+
+  useEffect(
+    () => onPick((k) => setMode({ m: 'pick', kind: k as WorkoutKind })),
+    [],
+  )
 
   async function refresh() {
     try {
@@ -1714,6 +1774,8 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
         onMinimize={() => setMode({ m: 'list' })}
         onDelete={mode.isNew ? undefined : remove}
         onWarmUp={mode.isNew ? startWarmUp : undefined}
+        prsToday={todayCheckin(checkins)?.prs}
+        onPrs={mode.isNew ? (n) => onSaveCheckin({ prs: n }) : undefined}
       />
     )
   }
@@ -1856,6 +1918,7 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     return (
       <StartPicker
         templates={templates}
+        initialKind={mode.kind ?? null}
         onStrength={startStrength}
         onTimer={startTimer}
         onQuickLog={() => setMode({ m: 'quicklog' })}
@@ -1895,6 +1958,8 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
         meso={activeMeso(mesos)}
         lookup={muscleLookup}
         bodyWeightLb={bodyWeightLb}
+        checkins={checkins}
+        onSaveCheckin={onSaveCheckin}
         onStartMesoDay={(i) => {
           const m = activeMeso(mesos)
           if (m) startMesoDay(m, i)
@@ -1926,6 +1991,7 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
             workouts={workouts}
             sessions={sessions}
             customs={customs}
+            checkins={checkins}
           />
         </div>
       </Suspense>

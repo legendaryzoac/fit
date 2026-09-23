@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Api } from '../lib/api'
+import type { Checkin } from '../lib/checkins'
+import { CheckinCard } from './Checkin'
 import {
   dayKind,
   doneDayIndexes,
@@ -117,6 +119,8 @@ export function Today({
   meso,
   lookup,
   bodyWeightLb,
+  checkins,
+  onSaveCheckin,
   onStartMesoDay,
   onStartWorkout,
   onStartRoutine,
@@ -128,6 +132,8 @@ export function Today({
   meso?: Mesocycle
   lookup: (name: string) => string | undefined
   bodyWeightLb?: number
+  checkins: Checkin[]
+  onSaveCheckin: (patch: Partial<Checkin>) => void
   onStartMesoDay: (dayIndex: number) => void
   onStartWorkout: () => void
   onStartRoutine: (routine: Routine) => void
@@ -175,8 +181,12 @@ export function Today({
           (Date.now() - new Date(latest.date).getTime()) / 86_400_000,
         )
       : null
-  const stale = latestAgeDays != null && latestAgeDays > 2
-  const score = stale ? null : (latest?.recoveryScore ?? null)
+  // A score older than two days is not "today" — the check-in above
+  // carries readiness once the strap goes quiet.
+  const score =
+    latestAgeDays != null && latestAgeDays > 2
+      ? null
+      : (latest?.recoveryScore ?? null)
   const hrv = latest?.hrvMs ?? null
   const rhr = latest?.rhr ?? null
   const hrv30 = mean(
@@ -336,18 +346,12 @@ export function Today({
 
   return (
     <div className="flex flex-col gap-4">
-      {stale && (
-        <section className="border-t-2 border-ink/40 pt-2.5">
-          <p className="kicker-muted mb-1">Readiness</p>
-          <p className="text-sm text-ink/70">
-            No recovery data for {latestAgeDays} days — showing training
-            only. Everything below still works without a strap.
-          </p>
-        </section>
-      )}
+      {/* The wearable-free readiness signal: four items against personal
+          baselines. A fresh strap score, when one exists, shows below it. */}
+      <CheckinCard checkins={checkins} onSave={onSaveCheckin} />
       {score != null && (
         <section>
-          <p className="kicker mb-1.5">Readiness</p>
+          <p className="kicker mb-1.5">Strap readiness</p>
           <div className="flex items-end justify-between">
             <div className="text-6xl font-extrabold leading-[.9] tracking-tight">
               {score}

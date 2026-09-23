@@ -12,12 +12,16 @@ import {
 } from 'recharts'
 import { bedtimeSeries, recoveryByWeekday } from '../lib/analytics'
 import type { Api } from '../lib/api'
+import type { Checkin } from '../lib/checkins'
 import {
   localDate,
   mean,
   withRollingMean,
   type Metrics,
 } from '../lib/metrics'
+import { localToday } from '../lib/weights'
+import { consistencyPct, localDay, recoveryDays } from '../lib/wellness'
+import { loadWorkoutCache, type Workout } from '../lib/workouts'
 import {
   SleepStagesChart,
   squareDot,
@@ -27,6 +31,7 @@ import {
   type TrendPoint,
 } from './Charts'
 import { BodyWeight } from './BodyWeight'
+import { CheckinCard } from './Checkin'
 import { buttonClass, Card } from './ui'
 
 const tickStyle = {
@@ -44,6 +49,8 @@ const tooltipStyle = {
 }
 const gridStroke = 'rgba(32,30,29,.18)'
 const dateTick = (d: string) => d.slice(5)
+const secondaryButton =
+  'border border-ink/40 px-4 py-2 text-sm font-semibold text-ink hover:bg-ink/5'
 
 function axisProps() {
   return { tick: tickStyle, tickLine: false, axisLine: false } as const
@@ -81,19 +88,29 @@ function recoveryTone(score: number): 'good' | 'warn' | 'bad' {
   return 'bad'
 }
 
-function WhoopConnect({
+function fmtDay(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+/** Connect / status / disconnect for the strap — the optional part. */
+function Wearable({
   me,
   onError,
+  onChanged,
   api,
 }: {
   me: Me
   onError: (message: string) => void
+  onChanged: () => void
   api: Api
 }) {
-  const [connecting, setConnecting] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   async function connect() {
-    setConnecting(true)
+    setBusy(true)
     try {
       const res = await api.get('/api/whoop/connect')
       const body = await res.json()
@@ -101,43 +118,94 @@ function WhoopConnect({
       window.location.assign(body.url)
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Could not start connect')
-      setConnecting(false)
+      setBusy(false)
     }
   }
 
-  if (me.whoop.connected) return null
-  return (
-    <Card
-      title={me.whoop.status === 'error' ? 'WHOOP needs attention' : 'Connect WHOOP'}
-      subtitle="Optional — workout tracking works without a strap."
-    >
-      <button
-        onClick={connect}
-        disabled={connecting}
-        className={`${buttonClass} w-full max-w-xs`}
+  async function disconnect() {
+    if (
+      !window.confirm(
+        'Disconnect WHOOP? Synced history stays; nothing new will arrive.',
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await api.send('DELETE', '/api/whoop')
+      if (!res.ok) throw new Error(`API responded ${res.status}`)
+      onChanged()
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not disconnect')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!me.whoop.connected) {
+    return (
+      <Card
+        title={me.whoop.status === 'error' ? 'WHOOP needs attention' : 'Wearable'}
+        subtitle="Optional — everything above works without a strap."
       >
-        {connecting
-          ? 'Redirecting…'
-          : me.whoop.status === 'error'
-            ? 'Reconnect WHOOP'
-            : 'Connect WHOOP'}
+        <button
+          onClick={connect}
+          disabled={busy}
+          className={`${secondaryButton} w-full max-w-xs`}
+        >
+          {busy
+            ? 'Redirecting…'
+            : me.whoop.status === 'error'
+              ? 'Reconnect WHOOP'
+              : 'Connect WHOOP'}
+        </button>
+      </Card>
+    )
+  }
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="text-xs text-ink/55">
+        WHOOP connected
+        {me.whoop.lastSyncAt
+          ? ` · last synced ${fmtDay(me.whoop.lastSyncAt)}`
+          : ' · nothing synced yet'}
+      </p>
+      <button
+        onClick={disconnect}
+        disabled={busy}
+        className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-accent-700"
+      >
+        Disconnect
       </button>
-    </Card>
+    </div>
   )
 }
 
-export function Recovery({ api }: { api: Api }) {
+export function Recovery({
+  api,
+  checkins,
+  onSaveCheckin,
+  onStartRecovery,
+}: {
+  api: Api
+  checkins: Checkin[]
+  onSaveCheckin: (patch: Partial<Checkin>) => void
+  onStartRecovery: () => void
+}) {
   const [me, setMe] = useState<Me | null>(null)
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [days, setDays] = useState<(typeof RANGES)[number]>(90)
   const [apiError, setApiError] = useState<string | null>(null)
   const [banner] = useState<string | null>(initialBanner)
+  // Sessions come from the logger's cache: Workouts is unmounted while this
+  // tab is up, and the cache is rewritten on every save, so it is current.
+  const [workouts] = useState<Workout[]>(loadWorkoutCache)
 
   useEffect(() => {
     if (banner) window.history.replaceState(null, '', '/')
   }, [banner])
 
-  useEffect(() => {
+  const loadMe = () =>
     api
       .get('/api/me')
       .then(async (res) => {
@@ -145,6 +213,10 @@ export function Recovery({ api }: { api: Api }) {
         setMe(await res.json())
       })
       .catch((err: Error) => setApiError(err.message))
+
+  useEffect(() => {
+    void loadMe()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api])
 
   useEffect(() => {
@@ -158,6 +230,42 @@ export function Recovery({ api }: { api: Api }) {
       .catch((err: Error) => setApiError(err.message))
   }, [api, days])
 
+  // ---- recovery work: this week and the last four ----
+  const today = localToday()
+  const week = useMemo(() => {
+    const monday = new Date()
+    monday.setHours(0, 0, 0, 0)
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
+    const done = recoveryDays(workouts, 60, today)
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday)
+      d.setDate(monday.getDate() + i)
+      const key = localDay(d.toISOString())
+      return {
+        label: d.toLocaleDateString(undefined, { weekday: 'narrow' }),
+        done: done.has(key),
+        isToday: key === today,
+        future: key > today,
+      }
+    })
+  }, [workouts, today])
+  const consistency = consistencyPct(workouts, today)
+  const recent = useMemo(
+    () => workouts.filter((w) => w.kind === 'recovery').slice(0, 4),
+    [workouts],
+  )
+  const weekMinutes = useMemo(() => {
+    const monday = new Date()
+    monday.setHours(0, 0, 0, 0)
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
+    return workouts
+      .filter(
+        (w) => w.kind === 'recovery' && new Date(w.start).getTime() >= monday.getTime(),
+      )
+      .reduce((s, w) => s + (w.durationMin ?? 0), 0)
+  }, [workouts])
+
+  // ---- strap series (only when there is anything to show) ----
   const recoverySeries = useMemo(() => {
     if (!metrics) return []
     const byDate = new Map<
@@ -258,11 +366,6 @@ export function Recovery({ api }: { api: Api }) {
   }
 
   const latest = recoverySeries.at(-1)
-  /** Days since the newest recovery record — drives the stale banner. */
-  const staleDays =
-    latest?.date != null
-      ? Math.floor((Date.now() - new Date(latest.date).getTime()) / 86_400_000)
-      : null
   const hrv30 = mean(
     recoverySeries.slice(-30).flatMap((p) => (p.hrv == null ? [] : [p.hrv])),
   )
@@ -276,6 +379,8 @@ export function Recovery({ api }: { api: Api }) {
       ? undefined
       : `${value - base >= 0 ? '+' : ''}${Math.round((value - base) * 10) / 10} vs 30d`
 
+  const hasStrapData = recoverySeries.length > 0
+
   return (
     <>
       {banner && (
@@ -285,68 +390,115 @@ export function Recovery({ api }: { api: Api }) {
         <p className="text-sm font-semibold text-accent-700">{apiError}</p>
       )}
 
-      {me && <WhoopConnect me={me} onError={setApiError} api={api} />}
+      <h1 className="text-2xl font-extrabold tracking-tight text-ink">
+        Recovery
+      </h1>
+
+      <CheckinCard checkins={checkins} onSave={onSaveCheckin} />
+
+      <section className="border-t-2 border-ink/40 pt-2.5">
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <p className="kicker">Recovery work</p>
+          <span className="text-[9px] font-semibold tracking-widest text-ink/45">
+            {consistency}% OF THE LAST 28 DAYS
+          </span>
+        </div>
+        <div className="grid grid-cols-7 border border-ink/40">
+          {week.map((d, i) => (
+            <div
+              key={i}
+              className={`py-2 text-center ${i < 6 ? 'border-r border-ink/25' : ''} ${
+                d.isToday ? 'shadow-[inset_0_0_0_2px_#e0a112]' : ''
+              }`}
+            >
+              <div className="text-[9px] font-semibold text-ink/50">
+                {d.label.toUpperCase()}
+              </div>
+              <div
+                className={`mx-auto mt-1 h-2 w-2 ${
+                  d.done
+                    ? 'bg-gold-500'
+                    : d.future
+                      ? ''
+                      : 'border border-ink/25'
+                }`}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <span className="text-xs text-ink/55">
+            {weekMinutes > 0 ? `${weekMinutes} min this week` : 'Nothing yet this week'}
+          </span>
+          <button
+            onClick={onStartRecovery}
+            className={`${buttonClass} shrink-0`}
+          >
+            Start recovery<span>→</span>
+          </button>
+        </div>
+        {recent.length > 0 && (
+          <div className="mt-3 flex flex-col">
+            {recent.map((w) => (
+              <div
+                key={w.id}
+                className="grid grid-cols-[1fr_auto] border-b border-ink/20 py-1.5 text-sm"
+              >
+                <span className="min-w-0 truncate font-semibold text-ink">
+                  {w.title ?? w.modality ?? 'Recovery'}
+                  {w.rating?.post != null && (
+                    <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
+                      feel {w.rating.post}/5
+                    </span>
+                  )}
+                </span>
+                <span className="text-xs text-ink/55">
+                  {fmtDay(w.start)}
+                  {w.durationMin != null ? ` · ${w.durationMin} min` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <BodyWeight api={api} whoopLb={me?.whoop.bodyWeightLb} />
 
-      {/* Connected but silent — a lapsed subscription or a shelved strap
-          stops producing records without ever failing a token refresh. */}
-      {me?.whoop.connected && staleDays != null && staleDays > 3 && (
-        <p className="bg-accent-200 px-2 py-1 text-xs font-semibold text-accent-800">
-          No new WHOOP data in {staleDays} days — the charts below end at
-          your last synced day. Training and analytics are unaffected.
-        </p>
-      )}
-
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
-          Recovery
-        </h1>
-        <div className="flex divide-x divide-ink/40 border border-ink/40">
-          {RANGES.map((r) => (
-            <button
-              key={r}
-              onClick={() => setDays(r)}
-              className={`px-3 py-1.5 text-[10px] uppercase tracking-wider ${
-                days === r
-                  ? 'bg-accent font-extrabold text-paper'
-                  : 'font-semibold text-ink/60 hover:bg-ink/5'
-              }`}
-            >
-              {r}d
-            </button>
-          ))}
+      {/* ---- the strap, demoted: present when connected, honest when quiet ---- */}
+      <section className="border-t-2 border-ink/40 pt-2.5">
+        <div className="flex items-center justify-between">
+          <p className="kicker-muted">Wearable</p>
+          {hasStrapData && (
+            <div className="flex divide-x divide-ink/40 border border-ink/40">
+              {RANGES.map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setDays(r)}
+                  className={`px-3 py-1.5 text-[10px] uppercase tracking-wider ${
+                    days === r
+                      ? 'bg-accent font-extrabold text-paper'
+                      : 'font-semibold text-ink/60 hover:bg-ink/5'
+                  }`}
+                >
+                  {r}d
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
-
-      {!metrics && !apiError && (
-        <p className="py-8 text-center text-sm text-ink/45">
-          Loading metrics…
-        </p>
-      )}
-
-      {metrics && recoverySeries.length === 0 && (
-        me?.whoop.connected ? (
-          <p className="py-8 text-center text-sm text-ink/45">
-            No recovery data yet — the backfill may still be running.
-          </p>
-        ) : (
-          <div className="py-6 text-center">
-            <p className="mx-auto max-w-sm text-sm text-ink/55">
-              This tab comes alive when a wearable is connected: daily
-              recovery scores, HRV and resting-heart-rate trends against your
-              own baselines, and sleep-stage breakdowns.
+        <div className="mt-2">
+          {me && (
+            <Wearable me={me} onError={setApiError} onChanged={loadMe} api={api} />
+          )}
+          {me?.whoop.connected && metrics && !hasStrapData && (
+            <p className="mt-1 text-xs text-ink/45">
+              No strap data in the last {days} days.
             </p>
-            <p className="mx-auto mt-3 max-w-sm text-sm text-ink/45">
-              No strap? No problem — the rest of the app is the full
-              product: start sessions from Today, build templates and
-              mesocycles in Plan, and watch your strength grow in Progress.
-            </p>
-          </div>
-        )
-      )}
+          )}
+        </div>
+      </section>
 
-      {metrics && recoverySeries.length > 0 && (
+      {hasStrapData && (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard

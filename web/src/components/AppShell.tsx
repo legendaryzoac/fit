@@ -1,9 +1,11 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import type { Api } from '../lib/api'
+import { useCheckins } from '../lib/checkins'
 import { maybeResumeLockScreen } from '../lib/lockScreen'
 import {
   isInSession,
   isOverlay,
+  requestPick,
   requestResume,
   subscribeInSession,
   subscribeOverlay,
@@ -50,6 +52,9 @@ export function AppShell({
   const [inSession, setInSession] = useState(false)
   const [overlay, setOverlay] = useState(false)
   const [liveKind, setLiveKind] = useState<'strength' | 'timer' | null>(null)
+  // Check-ins live here because Today (under Workouts) and the Recovery
+  // tab both read and write them, and only one of those is mounted.
+  const { checkins, save: saveCheckin } = useCheckins(api)
 
   // The resume bar shows whenever a draft is parked but no session is on
   // screen. Bus subscriptions flip the moment a flow opens/closes; the
@@ -127,9 +132,23 @@ export function AppShell({
           }
         >
           {tab === 'recovery' ? (
-            <Recovery api={api} />
+            <Recovery
+              api={api}
+              checkins={checkins}
+              onSaveCheckin={saveCheckin}
+              onStartRecovery={() => {
+                // Workouts mounts on the tab switch and takes the parked pick
+                requestPick('recovery')
+                setTab('today')
+              }}
+            />
           ) : (
-            <Workouts api={api} tab={tab as WorkoutsTab} />
+            <Workouts
+              api={api}
+              tab={tab as WorkoutsTab}
+              checkins={checkins}
+              onSaveCheckin={saveCheckin}
+            />
           )}
         </Suspense>
         <p className="pt-4 text-center text-[10px] font-semibold uppercase tracking-widest text-ink/35">

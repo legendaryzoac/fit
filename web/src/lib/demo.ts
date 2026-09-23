@@ -3,6 +3,7 @@
  * seam the real backend serves. No network, no accounts, nothing to abuse.
  */
 import type { Api } from './api'
+import type { Checkin } from './checkins'
 import type { Mesocycle } from './mesocycle'
 import type { WeightEntry } from './weights'
 import type { Template } from './templates'
@@ -41,6 +42,7 @@ interface DemoStore {
   exercises: Array<{ name: string; muscle: string }>
   mesos: Mesocycle[]
   weights: WeightEntry[]
+  checkins: Checkin[]
 }
 
 function generate(): DemoStore {
@@ -58,6 +60,7 @@ function generate(): DemoStore {
     exercises: [{ name: 'Sled drag', muscle: 'full body' }],
     mesos: [],
     weights: [],
+    checkins: [],
   }
 
   const DAYS = 200
@@ -340,6 +343,38 @@ function generate(): DemoStore {
     }
   }
 
+  // Daily check-ins (own seed stream). Higher is better on every item;
+  // sleep dips after the weekend's late nights, energy and soreness dip
+  // the morning after a lower-body day, and about one day in seven goes
+  // unlogged so the gaps render honestly.
+  const crand = rng(20260925)
+  const cnoise = (scale: number) => (crand() - 0.5) * 2 * scale
+  const clamp5 = (v: number) => Math.min(5, Math.max(1, Math.round(v)))
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+  for (let i = 75; i >= 0; i--) {
+    const d = new Date(now - i * DAY)
+    const dow = d.getDay()
+    if (crand() < 0.14 && i !== 0) continue
+    const afterLegs = dow === 4 // Wednesday is the lower day
+    const afterLateNight = dow === 0 || dow === 6
+    const sleep = clamp5(4.1 + cnoise(0.9) - (afterLateNight ? 1 : 0))
+    const fatigue = clamp5(3.9 + cnoise(0.8) - (afterLegs ? 1 : 0) + (sleep - 4) * 0.4)
+    const soreness = clamp5(4.2 + cnoise(0.7) - (afterLegs ? 1.4 : dow === 2 || dow === 6 ? 0.6 : 0))
+    const stress = clamp5(3.8 + cnoise(1.0))
+    store.checkins.push({
+      date: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+      sleep,
+      fatigue,
+      soreness,
+      stress,
+      ...(soreness <= 2 && { soreRegions: afterLegs ? ['quads', 'glutes'] : ['back'] }),
+      ...((dow === 1 || dow === 3 || dow === 5) && {
+        prs: Math.min(10, Math.max(0, Math.round(5 + (fatigue - 3) * 1.2 + (soreness - 3) * 0.8 + cnoise(0.8)))),
+      }),
+    })
+  }
+  store.checkins.sort((a, b) => b.date.localeCompare(a.date))
+
   store.workouts.sort((a, b) => b.start.localeCompare(a.start))
   store.templates = [
     {
@@ -444,6 +479,13 @@ export function makeDemoApi(): Api {
     if (pathname === '/api/exercises') return respond({ exercises: store.exercises })
     if (pathname === '/api/mesos') return respond({ mesos: store.mesos })
     if (pathname === '/api/weights') return respond({ weights: store.weights })
+    if (pathname === '/api/checkins') {
+      const from = since(daysParam(path, 90)).slice(0, 10)
+      return respond({
+        days: daysParam(path, 90),
+        checkins: store.checkins.filter((c) => c.date >= from),
+      })
+    }
     return respond({ error: 'not found in demo' })
   }
 
@@ -492,6 +534,19 @@ export function makeDemoApi(): Api {
       const e = body as WeightEntry
       store.weights = [...store.weights.filter((x) => x.date !== e.date), e]
       return respond({ saved: e.date })
+    }
+    if (path.startsWith('/api/checkins')) {
+      if (method === 'POST') {
+        const c = body as Checkin
+        store.checkins = [
+          c,
+          ...store.checkins.filter((x) => x.date !== c.date),
+        ].sort((a, b) => b.date.localeCompare(a.date))
+        return respond({ saved: c.date })
+      }
+      const date = new URL(path, 'http://demo').searchParams.get('date')
+      store.checkins = store.checkins.filter((c) => c.date !== date)
+      return respond({ deleted: date })
     }
     if (path.startsWith('/api/exercises')) {
       if (method === 'POST') {
