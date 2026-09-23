@@ -7,13 +7,18 @@ import {
   makeMuscleLookup,
   type CustomExercise,
 } from '../lib/exercises'
+import { BUILTIN_ROUTINES, STRETCH_NAMES } from '../lib/routines'
+import { stretchByName } from '../lib/stretches'
 import {
   buildIntervals,
   DEFAULT_PLAN,
+  DEFAULT_TRANSITION_SEC,
   fmtSec,
   planFromSections,
+  routineToSections,
   totalSec,
   type QuickIntervalPlan,
+  type RoutineItem,
   type Template,
   type TemplateExercise,
 } from '../lib/templates'
@@ -100,6 +105,13 @@ export function TemplateBuilder({
   const [plan, setPlan] = useState<QuickIntervalPlan>(
     initial?.sections ? planFromSections(initial.sections) : DEFAULT_PLAN,
   )
+  // Recovery routines: an ordered list of holds/drills, edited in place
+  const [items, setItems] = useState<RoutineItem[]>(initial?.items ?? [])
+  const [transitionSec, setTransitionSec] = useState(
+    initial?.transitionSec ?? DEFAULT_TRANSITION_SEC,
+  )
+  const [stretchName, setStretchName] = useState('')
+  const [scaleMin, setScaleMin] = useState(10)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -150,15 +162,56 @@ export function TemplateBuilder({
     ])
   }
 
+  function reorder<T>(prev: T[], from: number, to: number): T[] {
+    const next = [...prev]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    return next
+  }
+
+  /** The drag handles serve whichever list the current kind edits. */
   function moveExercise(from: number, to: number) {
     if (from === to) return
-    setExercises((prev) => {
-      const next = [...prev]
-      const [moved] = next.splice(from, 1)
-      next.splice(to, 0, moved)
-      return next
-    })
+    if (kind === 'recovery') setItems((prev) => reorder(prev, from, to))
+    else setExercises((prev) => reorder(prev, from, to))
   }
+
+  function addStretch() {
+    const trimmed = stretchName.trim()
+    if (!trimmed) return
+    const s = stretchByName(trimmed)
+    setItems([
+      ...items,
+      {
+        name: s?.name ?? trimmed,
+        seconds: s?.defaultSec ?? 30,
+        ...(s?.perSide && { perSide: true }),
+      },
+    ])
+    setStretchName('')
+  }
+
+  function patchItem(i: number, patch: Partial<RoutineItem>) {
+    setItems((prev) => prev.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+  }
+
+  /** Stretch or shrink every hold so the whole routine lands on N minutes. */
+  function scaleTo(minutes: number) {
+    const current = totalSec(routineToSections(items, transitionSec))
+    if (current === 0) return
+    const overhead = current - items.reduce((s, it) => s + it.seconds * (it.perSide ? 2 : 1), 0)
+    const holdBudget = Math.max(60, minutes * 60 - overhead)
+    const holdNow = current - overhead
+    const factor = holdBudget / holdNow
+    setItems((prev) =>
+      prev.map((it) => ({
+        ...it,
+        seconds: Math.min(300, Math.max(10, Math.round((it.seconds * factor) / 5) * 5)),
+      })),
+    )
+  }
+
+  const routineTotal = totalSec(routineToSections(items, transitionSec))
 
   function onHandlePointerDown(ei: number, ev: React.PointerEvent) {
     ev.preventDefault()
@@ -226,17 +279,19 @@ export function TemplateBuilder({
       setError('Add at least one exercise.')
       return
     }
+    if (kind === 'recovery' && items.length === 0) {
+      setError('Add at least one stretch.')
+      return
+    }
     setBusy(true)
     setError(null)
+    const id = initial?.id ?? crypto.randomUUID()
     const template: Template =
       kind === 'strength'
-        ? { id: initial?.id ?? crypto.randomUUID(), name: trimmed, kind, exercises }
-        : {
-            id: initial?.id ?? crypto.randomUUID(),
-            name: trimmed,
-            kind,
-            sections: buildIntervals(plan),
-          }
+        ? { id, name: trimmed, kind, exercises }
+        : kind === 'recovery'
+          ? { id, name: trimmed, kind, items, transitionSec }
+          : { id, name: trimmed, kind, sections: buildIntervals(plan) }
     try {
       const res = await api.send('POST', '/api/templates', template)
       const body = await res.json()
@@ -265,7 +320,7 @@ export function TemplateBuilder({
       </div>
 
       <div className="flex border border-ink/40">
-        {(['strength', 'speed', 'cardio'] as const).map((k, ki) => (
+        {(['strength', 'speed', 'cardio', 'recovery'] as const).map((k, ki) => (
           <button
             key={k}
             onClick={() => setKind(k)}
@@ -284,7 +339,11 @@ export function TemplateBuilder({
 
       <input
         className={inputClass}
-        placeholder="template name (e.g. Upper A, Track Tuesday)"
+        placeholder={
+          kind === 'recovery'
+            ? 'routine name (e.g. Evening hips)'
+            : 'template name (e.g. Upper A, Track Tuesday)'
+        }
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
@@ -401,6 +460,141 @@ export function TemplateBuilder({
               Add slot
             </button>
           </label>
+        </>
+      ) : kind === 'recovery' ? (
+        <>
+          {items.length === 0 && (
+            <label className="flex items-center gap-2 text-xs text-ink/55">
+              start from a built-in routine:
+              <select
+                className={`${inputClass} w-auto py-1.5`}
+                defaultValue=""
+                onChange={(e) => {
+                  const r = BUILTIN_ROUTINES.find((x) => x.id === e.target.value)
+                  if (!r) return
+                  setItems(r.items.map((it) => ({ ...it })))
+                  setTransitionSec(r.transitionSec)
+                  if (!name) setName(`${r.name} (mine)`)
+                }}
+              >
+                <option value="">choose…</option>
+                {BUILTIN_ROUTINES.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {items.map((it, i) => (
+            <div
+              key={i}
+              ref={(el) => {
+                rowRefs.current[i] = el
+              }}
+              className={`flex items-center gap-2 border p-1 ${
+                dragIndex === i
+                  ? 'border-accent opacity-60'
+                  : 'border-transparent'
+              }`}
+            >
+              <button
+                onPointerDown={(ev) => onHandlePointerDown(i, ev)}
+                onPointerMove={onHandlePointerMove}
+                onPointerUp={onHandlePointerUp}
+                onPointerCancel={onHandlePointerUp}
+                aria-label={`reorder ${it.name}`}
+                className="touch-none cursor-grab select-none px-1 text-base leading-none text-ink/45 hover:text-ink"
+              >
+                ≡
+              </button>
+              <span className="flex-1 truncate text-sm text-ink">{it.name}</span>
+              <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/55">
+                sec
+                <NumberField
+                  className={`${inputClass} w-16 text-center`}
+                  aria-label={`seconds for ${it.name}`}
+                  min={5}
+                  max={600}
+                  value={it.seconds}
+                  onCommit={(n) => patchItem(i, { seconds: n })}
+                />
+              </label>
+              <button
+                onClick={() => patchItem(i, { perSide: !it.perSide || undefined })}
+                aria-label={`per side for ${it.name}`}
+                title="Each side separately"
+                className={`px-2 py-1 text-[10px] font-extrabold uppercase tracking-wider ${
+                  it.perSide
+                    ? 'bg-gold-500 text-ink'
+                    : 'border border-ink/40 text-ink/50 hover:bg-ink/5'
+                }`}
+              >
+                L/R
+              </button>
+              <button
+                onClick={() => setItems(items.filter((_, j) => j !== i))}
+                className="text-ink/45 hover:text-accent-700"
+                aria-label="remove stretch"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <input
+              className={inputClass}
+              list="template-stretch-names"
+              placeholder="add stretch…"
+              value={stretchName}
+              onChange={(e) => setStretchName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addStretch()}
+            />
+            <datalist id="template-stretch-names">
+              {STRETCH_NAMES.map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
+            <button onClick={addStretch} className={`${buttonClass} shrink-0`}>
+              Add
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink/55">
+            <label className="flex items-center gap-1.5">
+              lead-in
+              <NumberField
+                className={`${inputClass} w-16 text-center`}
+                aria-label="seconds between stretches"
+                min={0}
+                max={30}
+                value={transitionSec}
+                onCommit={setTransitionSec}
+              />
+              sec
+            </label>
+            <label className="flex items-center gap-1.5">
+              scale to
+              <NumberField
+                className={`${inputClass} w-16 text-center`}
+                aria-label="target minutes"
+                min={2}
+                max={60}
+                value={scaleMin}
+                onCommit={setScaleMin}
+              />
+              min
+              <button
+                onClick={() => scaleTo(scaleMin)}
+                disabled={items.length === 0}
+                className="border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5 disabled:opacity-45"
+              >
+                Apply
+              </button>
+            </label>
+            <span>
+              {items.length} stretches · {fmtSec(routineTotal)} total
+            </span>
+          </div>
         </>
       ) : (
         <PlanFields plan={plan} onChange={setPlan} />

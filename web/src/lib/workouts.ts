@@ -185,6 +185,11 @@ export interface TimerDraft {
    * workout carries these so the meso's day tracking sees it. */
   mesoId?: string
   mesoDayIndex?: number
+  /** Recovery timers: what kind of session this is (default 'stretch'). */
+  modality?: Modality
+  /** A warm-up started from inside a strength session: the strength draft
+   * stays put and the ledger comes back when this timer ends. */
+  resumeStrength?: boolean
 }
 
 /**

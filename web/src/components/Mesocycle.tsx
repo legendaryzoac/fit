@@ -92,6 +92,18 @@ export function MesoCard({
   const sessionsDone = done.size
   const totalSessions = meso.days.length
 
+  // Recovery rides beside the block, not inside it: a separate line so a
+  // stretch never masks a missed lift in the sessions count.
+  const weekStart = new Date(monday)
+  weekStart.setHours(0, 0, 0, 0)
+  const weekEndMs = weekStart.getTime() + 7 * 86_400_000
+  const recoveryWeek = workouts.filter((w) => {
+    if (w.kind !== 'recovery') return false
+    const t = new Date(w.start).getTime()
+    return t >= weekStart.getTime() && t < weekEndMs
+  })
+  const recoveryMin = recoveryWeek.reduce((s, w) => s + (w.durationMin ?? 0), 0)
+
   function chipClass(i: number, kind: 'strength' | 'cardio'): string {
     if (done.has(i)) return CHIP_DONE
     if (i === next && !overdue) return CHIP_NEXT[kind]
@@ -138,6 +150,12 @@ export function MesoCard({
           {sessionsDone}/{totalSessions} sessions this week
         </span>
       </div>
+      {recoveryWeek.length > 0 && (
+        <p className="-mt-2 mb-3 text-right text-[9px] font-semibold uppercase tracking-wider text-gold-700">
+          recovery this week: {recoveryWeek.length}{' '}
+          {recoveryWeek.length === 1 ? 'session' : 'sessions'} · {recoveryMin} min
+        </p>
+      )}
 
       {!overdue && (
         <>

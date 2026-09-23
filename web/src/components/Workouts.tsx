@@ -28,6 +28,8 @@ import {
   routineMinutes,
   routineSections,
 } from '../lib/routines'
+import { generateRoutine } from '../lib/generate'
+import { QuickLog } from './QuickLog'
 import {
   enqueue,
   finalizeWorkout,
@@ -41,6 +43,7 @@ import {
   saveTimerDraft,
   saveWorkoutCache,
   type IntervalSection,
+  type Modality,
   type SessionRecord,
   type TimerDraft,
   type Workout,
@@ -212,6 +215,7 @@ function ActiveWorkout({
   onCancel,
   onMinimize,
   onDelete,
+  onWarmUp,
 }: {
   initial: Workout
   isNew: boolean
@@ -219,6 +223,9 @@ function ActiveWorkout({
   customs: CustomExercise[]
   lookup: (name: string) => string | undefined
   bodyWeightLb?: number
+  /** Offered before the first set: a dynamic warm-up keyed to the
+   * session's muscle groups, after which the ledger comes back. */
+  onWarmUp?: (muscles: string[]) => void
   /** Meso targets for a set of exercises — ghosts and check-offs adopt
    * these. A function, not a snapshot: the list changes mid-session. */
   prescribe?: (
@@ -559,6 +566,29 @@ function ActiveWorkout({
       )}
 
       {isNew && <LockScreenToggle className="-mt-2 flex justify-end" />}
+
+      {isNew && onWarmUp && doneCount === 0 && w.exercises.length > 0 && (
+        <button
+          onClick={() =>
+            onWarmUp([
+              ...new Set(
+                w.exercises
+                  .map((e) => lookup(e.name))
+                  .filter((m): m is string => m !== undefined),
+              ),
+            ])
+          }
+          className="flex w-full items-center justify-between border border-ink/40 px-3 py-2 text-left hover:bg-ink/5"
+        >
+          <span className="text-sm font-semibold text-ink">
+            Warm up first
+            <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
+              5 min · dynamic, for today’s muscles
+            </span>
+          </span>
+          <span className="text-accent-700">→</span>
+        </button>
+      )}
 
       {coach.length > 0 && !coachHidden && (
         <div className="border-y-2 border-ink/40 py-2.5">
@@ -939,12 +969,14 @@ function StartPicker({
   templates,
   onStrength,
   onTimer,
+  onQuickLog,
   onDeleteTemplate,
   onCancel,
 }: {
   templates: Template[]
   onStrength: (template?: Template) => void
   onTimer: (kind: WorkoutKind, sections: IntervalSection[], title?: string) => void
+  onQuickLog: () => void
   onDeleteTemplate: (t: Template) => void
   onCancel: () => void
 }) {
@@ -1063,12 +1095,20 @@ function StartPicker({
               Start timer<span>→</span>
             </button>
           ) : kind === 'recovery' ? (
-            <button
-              onClick={() => onTimer('recovery', [], 'Free stretch')}
-              className={`${secondaryButton} w-full`}
-            >
-              Free stretch (stopwatch)
-            </button>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => onTimer('recovery', [], 'Free stretch')}
+                className={`${secondaryButton} w-full`}
+              >
+                Free stretch (stopwatch)
+              </button>
+              <button
+                onClick={onQuickLog}
+                className={`${secondaryButton} w-full`}
+              >
+                Log sauna, cold, a walk…
+              </button>
+            </div>
           ) : showCustom ? (
             <div className="flex flex-col gap-3 border border-ink/40 p-3">
               <PlanFields plan={plan} onChange={setPlan} />
@@ -1189,6 +1229,10 @@ type Mode =
   | { m: 'timer'; draft: TimerDraft }
   | { m: 'slots'; template: Template }
   | { m: 'feedback'; workout: Workout }
+  /** After a strength save: offer a cooldown for the muscles just trained. */
+  | { m: 'cooldown'; muscles: string[] }
+  /** Untimed recovery log, or editing any recovery session. */
+  | { m: 'quicklog'; workout?: Workout }
   | { m: 'meso-setup' }
 
 /** Which bottom-nav tab this instance is rendering (Recovery lives in its
@@ -1331,7 +1375,14 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
    * Strength sessions detour through the how-did-it-feel modal before the
    * save lands; timer saves and edits go straight through.
    */
-  function finish(raw: Workout, opts?: { isNew?: boolean }) {
+  interface FinishOptions {
+    isNew?: boolean
+    /** A warm-up timer saving from inside a strength session: leave the
+     * strength draft alone and return to the ledger. */
+    keepStrengthDraft?: boolean
+  }
+
+  function finish(raw: Workout, opts?: FinishOptions) {
     if (
       raw.kind === 'strength' &&
       opts?.isNew &&
@@ -1344,10 +1395,16 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
       setMode({ m: 'feedback', workout: raw })
       return
     }
-    commitFinish(raw)
+    commitFinish(raw, opts)
   }
 
-  function commitFinish(raw: Workout) {
+  /** Back into the live strength draft, or the list if it's gone. */
+  function reenterStrength() {
+    const d = loadDraft()
+    setMode(d ? { m: 'strength', workout: d, isNew: true } : { m: 'list' })
+  }
+
+  function commitFinish(raw: Workout, opts?: FinishOptions) {
     const w = finalizeWorkout(raw)
     enqueue(w)
     setPendingCount(loadPending().length)
@@ -1358,10 +1415,29 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
       saveWorkoutCache(merged)
       return merged
     })
-    saveDraft(null)
     saveTimerDraft(null)
+    if (opts?.keepStrengthDraft) {
+      // The warm-up is logged; the lift it was for is still live.
+      reenterStrength()
+      void sync()
+      return
+    }
+    saveDraft(null)
     setLockScreenSuppressed(false) // drafts are gone; nothing to resurrect
-    setMode({ m: 'list' })
+    // Habit stacking: the cue for a cooldown is "workout finished", and
+    // this is the one screen that knows which muscles it was for.
+    const trained =
+      raw.kind === 'strength' && opts?.isNew
+        ? feedbackMuscles(raw, muscleLookup)
+        : []
+    if (
+      trained.length > 0 &&
+      generateRoutine({ muscles: trained, phase: 'post', minutes: 6 })
+    ) {
+      setMode({ m: 'cooldown', muscles: trained })
+    } else {
+      setMode({ m: 'list' })
+    }
     void sync()
   }
 
@@ -1526,6 +1602,7 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     kind: WorkoutKind,
     sections: IntervalSection[],
     title?: string,
+    extra?: Pick<TimerDraft, 'modality' | 'resumeStrength'>,
   ) {
     const draft: TimerDraft = {
       kind,
@@ -1535,10 +1612,29 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
       skipOffsetMs: 0,
       paused: false,
       pausedElapsedMs: 0,
+      ...extra,
     }
     saveTimerDraft(draft)
     autoStartLockScreen()
     setMode({ m: 'timer', draft })
+  }
+
+  /** Dynamic warm-up for the muscles a strength session is about to train.
+   * The strength draft stays in storage; the ledger returns afterwards. */
+  function startWarmUp(muscles: string[]) {
+    const r = generateRoutine({ muscles, phase: 'pre', minutes: 5 })
+    if (!r) return
+    startTimer(
+      'recovery',
+      routineSections(r),
+      `Warm-up · ${muscles.slice(0, 3).join(', ')}`,
+      { modality: 'mobility', resumeStrength: true },
+    )
+  }
+
+  /** Most recent recovery session of a modality — QuickLog pre-fills from it. */
+  function lastRecoveryOf(m: Modality): Workout | undefined {
+    return workouts.find((w) => w.kind === 'recovery' && w.modality === m)
   }
 
   function cancelStrength(w: Workout, isNew: boolean) {
@@ -1617,18 +1713,76 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
         onCancel={() => cancelStrength(mode.workout, mode.isNew)}
         onMinimize={() => setMode({ m: 'list' })}
         onDelete={mode.isNew ? undefined : remove}
+        onWarmUp={mode.isNew ? startWarmUp : undefined}
       />
     )
   }
 
   if (mode.m === 'timer') {
+    const resume = mode.draft.resumeStrength === true
     return (
       <IntervalSession
         initial={mode.draft}
         sessions={sessions}
-        onSave={finish}
-        onCancel={() => setMode({ m: 'list' })}
+        onSave={(w) => finish(w, { keepStrengthDraft: resume })}
+        onCancel={() => (resume ? reenterStrength() : setMode({ m: 'list' }))}
         onMinimize={() => setMode({ m: 'list' })}
+      />
+    )
+  }
+
+  if (mode.m === 'cooldown') {
+    const r = generateRoutine({ muscles: mode.muscles, phase: 'post', minutes: 6 })
+    return (
+      <div className="flex flex-col gap-4">
+        <p className="kicker">Session saved</p>
+        <h2 className="text-3xl font-extrabold leading-none tracking-tight">
+          Cool down?
+        </h2>
+        {r && (
+          <p className="text-sm text-ink/70">
+            {r.items.length} stretches for {mode.muscles.join(', ')} ·{' '}
+            {routineMinutes(r)} min. Static holds, 30–60 s each.
+          </p>
+        )}
+        <button
+          onClick={() => {
+            if (!r) return
+            startTimer(
+              'recovery',
+              routineSections(r),
+              `Cool-down · ${mode.muscles.slice(0, 3).join(', ')}`,
+            )
+          }}
+          className={`${buttonClass} w-full justify-between`}
+        >
+          Start cool-down<span>→</span>
+        </button>
+        <button
+          onClick={() => setMode({ m: 'list' })}
+          className={`${secondaryButton} w-full`}
+        >
+          Not now
+        </button>
+      </div>
+    )
+  }
+
+  if (mode.m === 'quicklog') {
+    const editing = mode.workout
+    return (
+      <QuickLog
+        initial={editing}
+        lastOf={lastRecoveryOf}
+        onSave={(w) =>
+          finish(
+            editing && w.start !== editing.start
+              ? { ...w, previousStart: editing.start }
+              : w,
+          )
+        }
+        onCancel={() => setMode({ m: 'list' })}
+        onDelete={editing ? remove : undefined}
       />
     )
   }
@@ -1664,8 +1818,10 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     return (
       <FeedbackModal
         muscles={feedbackMuscles(mode.workout, muscleLookup)}
-        onSubmit={(fb) => commitFinish({ ...mode.workout, feedback: fb })}
-        onSkip={() => commitFinish(mode.workout)}
+        onSubmit={(fb) =>
+          commitFinish({ ...mode.workout, feedback: fb }, { isNew: true })
+        }
+        onSkip={() => commitFinish(mode.workout, { isNew: true })}
       />
     )
   }
@@ -1702,6 +1858,7 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
         templates={templates}
         onStrength={startStrength}
         onTimer={startTimer}
+        onQuickLog={() => setMode({ m: 'quicklog' })}
         onDeleteTemplate={removeTemplate}
         onCancel={() => setMode({ m: 'list' })}
       />
@@ -1883,7 +2040,13 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
             <WorkoutCard
               key={w.id}
               workout={w}
-              onEdit={() => setMode({ m: 'strength', workout: w, isNew: false })}
+              onEdit={() =>
+                setMode(
+                  w.kind === 'recovery'
+                    ? { m: 'quicklog', workout: w }
+                    : { m: 'strength', workout: w, isNew: false },
+                )
+              }
               onRepeat={() =>
                 w.kind === 'recovery'
                   ? // A recovery repeat re-runs the same routine in the timer

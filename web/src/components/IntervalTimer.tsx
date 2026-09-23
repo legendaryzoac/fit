@@ -404,7 +404,7 @@ export function IntervalSession({
       // Recovery: per-stretch holds recovered from the executed sections so
       // history has structure; speed keeps its hand-logged drills.
       exercises: recovery ? recoveryExercisesFromSections(reached) : drills,
-      ...(recovery && { modality: 'stretch' as const }),
+      ...(recovery && { modality: draft.modality ?? ('stretch' as const) }),
       ...(recovery &&
         postFeel !== undefined && { rating: { post: postFeel } }),
       ...(sections.length > 0 && { intervals: sections }),
@@ -521,7 +521,14 @@ export function IntervalSession({
       ? CALM.transition
       : CALM.hold
     : TONE[sectionTone(current.label)]
-  const pillText = recovery && !transition ? holdBaseName(current.label) : current.label
+  // The side line below carries "(L)/(R)", so the pill never repeats it.
+  const pillText = !recovery
+    ? current.label
+    : current.label === SWITCH_LABEL
+      ? current.label
+      : transition
+        ? `Next: ${holdBaseName(current.label)}`
+        : holdBaseName(current.label)
   // Which stretch to explain: the hold itself, the one a lead-in
   // announces, or (on a side swap) the one coming next.
   const explainLabel =
