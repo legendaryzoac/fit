@@ -124,7 +124,15 @@ export function CheckinCard({
       CHECKIN_ITEMS.map((it) => {
         const s = dailySeries(checkins, it.key, 28, today)
         const b = baselineAt(s, s.length - 1)
-        return { ...it, points: s.map((p) => p.value), baseline: b?.mean ?? null }
+        const logged = s.filter((p) => p.value != null).length
+        return {
+          ...it,
+          points: s.map((p) => p.value),
+          // A line needs a few days to be a line; a baseline needs a week
+          // to be a baseline. Until then, just the number.
+          spark: logged >= 3,
+          baseline: b && b.n >= 7 ? b.mean : null,
+        }
       }),
     [checkins, today],
   )
@@ -282,14 +290,16 @@ export function CheckinCard({
                 <span className="text-[10px] font-semibold text-ink/45">/5</span>
               </span>
             </div>
-            <MiniSpark points={s.points} baseline={s.baseline} />
+            {s.spark && <MiniSpark points={s.points} baseline={s.baseline} />}
           </div>
         ))}
       </div>
-      <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 text-[9px] font-semibold tracking-widest text-ink/45">
-        <span>28D</span>
-        {current?.prs != null && <span>PRS {current.prs}</span>}
-      </div>
+      {(series.some((s) => s.spark) || current?.prs != null) && (
+        <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 text-[9px] font-semibold tracking-widest text-ink/45">
+          <span>{series.some((s) => s.spark) ? '28D' : ''}</span>
+          {current?.prs != null && <span>PRS {current.prs}</span>}
+        </div>
+      )}
       {flags.length > 0 && (
         <div className="mt-2 flex flex-col gap-0.5">
           {flags.map((f) => {
