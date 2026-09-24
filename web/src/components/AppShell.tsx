@@ -16,6 +16,7 @@ import {
   skipSection,
   timerSnapshot,
 } from '../lib/workouts'
+import { Banner } from './cadence/Banner'
 import { Chips } from './shell/Chips'
 import {
   Dock,
@@ -98,9 +99,7 @@ export function AppShell({
 
       <main className="mx-auto flex max-w-column flex-col gap-4 px-gutter pt-3 pb-[calc(88px+env(safe-area-inset-bottom))]">
         {demo && (
-          <p className="block rounded-md bg-surface-2 px-4 py-3 text-caption text-ink-2">
-            Demo. Changes stay in this browser.
-          </p>
+          <Banner tone="info">Demo. Changes stay in this browser.</Banner>
         )}
 
         <div ref={contentRef} className="flex flex-col gap-4">

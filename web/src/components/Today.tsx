@@ -16,7 +16,13 @@ import {
 } from '../lib/mesocycle'
 import { fmtSec, totalSec } from '../lib/templates'
 import type { Workout } from '../lib/workouts'
-import { buttonClass } from './ui'
+import { Banner } from './cadence/Banner'
+import { Button } from './cadence/Button'
+import { Card, CardHead } from './cadence/Card'
+import { MetricTile } from './cadence/MetricTile'
+import { RecoveryRing } from './cadence/RecoveryRing'
+import { StatusPill } from './cadence/StatusPill'
+import { WeekStrip } from './cadence/WeekStrip'
 
 interface RecoveryPoint {
   date: string
@@ -34,52 +40,29 @@ interface SleepPoint {
 const mean = (xs: number[]) =>
   xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
 
-/** Hand-rolled 30-day spark — recharts stays off the Today critical path. */
-function Spark({ points, baseline }: { points: number[]; baseline: number | null }) {
-  if (points.length < 2) return null
-  const W = 358
-  const H = 56
-  const min = Math.min(...points)
-  const max = Math.max(...points)
-  const span = Math.max(1, max - min)
-  const x = (i: number) => (i / (points.length - 1)) * (W - 8) + 4
-  const y = (v: number) => H - 6 - ((v - min) / span) * (H - 12)
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="mt-2.5 w-full"
-      preserveAspectRatio="none"
-      aria-hidden="true"
-    >
-      {baseline != null && baseline >= min && baseline <= max && (
-        <line
-          x1="0"
-          x2={W}
-          y1={y(baseline)}
-          y2={y(baseline)}
-          stroke="#201e1d"
-          strokeWidth="1"
-          strokeDasharray="2 3"
-          opacity=".5"
-        />
-      )}
-      <polyline
-        points={points.map((v, i) => `${x(i)},${y(v)}`).join(' ')}
-        fill="none"
-        stroke="#ec3013"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-      <rect
-        x={x(points.length - 1) - 3}
-        y={y(points.at(-1)!) - 3}
-        width="6"
-        height="6"
-        fill="#ec3013"
-      />
-    </svg>
-  )
+const signed = (n: number) => `${n >= 0 ? '+' : '-'}${Math.abs(n)}`
+
+/** "7 h 42" from minutes in bed; whole minutes first so 479.6 is 8 h 00. */
+function fmtSleepWords(min: number): string {
+  const m = Math.round(min)
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`
 }
+
+/** "7:42" from minutes in bed. */
+function fmtSleepClock(min: number): string {
+  const m = Math.round(min)
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`
+}
+
+function greeting(hour: number): string {
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
+
+/** 'FRI' becomes 'Fri' for the eyebrow. */
+const weekdayLabel = (i: number) =>
+  WEEKDAY_SHORT[i][0] + WEEKDAY_SHORT[i].slice(1).toLowerCase()
 
 /** Epley e1RM over every strength set — the "last PR" footer line. */
 function lastPr(
@@ -146,13 +129,6 @@ export function Today({
     }
   }, [api])
 
-  const scores = useMemo(
-    () =>
-      (recoveries ?? [])
-        .filter((r) => r.recoveryScore != null)
-        .map((r) => r.recoveryScore as number),
-    [recoveries],
-  )
   // An unscored most-recent day (strap synced but not yet scored) must
   // not blank the section — fall back to the last SCORED entry.
   const latest = [...(recoveries ?? [])]
@@ -168,6 +144,10 @@ export function Today({
         )
       : null
   const stale = latestAgeDays != null && latestAgeDays > 2
+  // Fresh: a scored recovery at most two days old. A 3-to-7-day gap gets
+  // a banner; anything older (or no data at all) is training alone.
+  const fresh = latest != null && !stale
+  const staleBanner = stale && latestAgeDays != null && latestAgeDays <= 7
   const score = stale ? null : (latest?.recoveryScore ?? null)
   const hrv = latest?.hrvMs ?? null
   const rhr = latest?.rhr ?? null
@@ -177,17 +157,26 @@ export function Today({
   const rhr30 = mean(
     (recoveries ?? []).flatMap((r) => (r.rhr == null ? [] : [r.rhr])),
   )
-  const baseline = mean(scores)
-  const sleep = [...sleeps].filter((s) => !s.nap).at(-1)
+  const nights = sleeps.filter((s) => !s.nap)
+  const sleep = nights.at(-1)
+  const hrvSeries = (recoveries ?? [])
+    .flatMap((r) => (r.hrvMs == null ? [] : [r.hrvMs]))
+    .slice(-30)
+  const rhrSeries = (recoveries ?? [])
+    .flatMap((r) => (r.rhr == null ? [] : [r.rhr]))
+    .slice(-30)
+  const sleepSeries = nights
+    .flatMap((s) => (s.inBedMin == null ? [] : [s.inBedMin]))
+    .slice(-30)
 
   const verdict =
     score == null
       ? null
       : score >= 67
-        ? ['RECOVERED', 'TRAIN AS PLANNED']
+        ? 'Recovered. Train as planned.'
         : score >= 34
-          ? ['MODERATE', 'TRAIN, WATCH THE LOAD']
-          : ['RUN DOWN', 'GO EASY TODAY']
+          ? 'Moderate. Watch the load.'
+          : 'Run down. Go easy.'
 
   // ---- today's session(s), meso-aware; doubles are a feature ----
   const now = Date.now()
@@ -221,7 +210,7 @@ export function Today({
     const lines = planned.map((e) => {
       const p = rx[e.name]
       return p?.weight != null
-        ? `${e.name} ${p.sets}×${p.targetReps ?? p.repLow} @ ${p.weight}`
+        ? `${e.name} ${p.weight} × ${p.targetReps ?? p.repLow}`
         : `${e.name} ${e.setCount} sets`
     })
     return { planned, totalSets, lines }
@@ -297,273 +286,254 @@ export function Today({
         label: d.toLocaleDateString(undefined, { weekday: 'narrow' }),
         num: d.getDate(),
         done,
-        plan,
-        isToday,
+        planned: plan,
+        today: isToday,
       }
     })
   }, [workouts, meso])
 
   const pr = useMemo(() => lastPr(workouts), [workouts])
 
-  return (
-    <div className="flex flex-col gap-4">
-      {stale && (
-        <section className="border-t-2 border-ink/40 pt-2.5">
-          <p className="kicker-muted mb-1">Readiness</p>
-          <p className="text-sm text-ink/70">
-            No recovery data for {latestAgeDays} days — showing training
-            only. Everything below still works without a strap.
+  const sessionsDone = meso ? workoutsInWeek(meso, workouts, week).length : 0
+  const sessionsPlanned = meso ? meso.days.length : 0
+  const finished = meso != null && mesoOverdue(meso, now)
+
+  const vitals = fresh
+    ? [
+        hrv != null ? `HRV ${Math.round(hrv)} ms` : null,
+        rhr != null ? `Resting ${Math.round(rhr)} bpm` : null,
+        sleep?.inBedMin != null
+          ? `Slept ${fmtSleepWords(sleep.inBedMin)}`
+          : null,
+      ].filter((x): x is string => x != null)
+    : []
+
+  const sessionBlock =
+    finished && meso ? (
+      <>
+        <p className="text-eyebrow text-ink-2">Block finished</p>
+        <h2 className="mt-0.5 text-title text-ink">{meso.name}</h2>
+        <Button variant="primary" block className="mt-3.5" onClick={onEndMeso}>
+          Mark completed
+        </Button>
+        <Button
+          variant="tonal"
+          block
+          className="mt-2"
+          onClick={onStartWorkout}
+        >
+          Start an open workout
+        </Button>
+      </>
+    ) : meso && day ? (
+      <>
+        <p className="text-eyebrow text-ink-2">
+          {dayIsToday
+            ? 'Today'
+            : `Next${day.weekday != null ? ` · ${weekdayLabel(day.weekday)}` : ''}`}
+          {` · Week ${week + 1} of ${meso.weeks}`}
+          {isDeloadWeek(meso, week) ? ' · deload' : ''}
+        </p>
+        <h2 className="mt-0.5 text-title text-ink">{day.label}</h2>
+        {dayKind(day) === 'cardio' ? (
+          <p className="mt-1 text-caption text-ink-2">
+            {day.sections && day.sections.length > 0
+              ? `Intervals · ${day.sections.length} sections · ${fmtSec(totalSec(day.sections))}`
+              : 'Stopwatch'}
           </p>
-        </section>
-      )}
-      {score != null && (
-        <section>
-          <p className="kicker mb-1.5">Readiness</p>
-          <div className="flex items-end justify-between">
-            <div className="text-6xl font-extrabold leading-[.9] tracking-tight">
-              {score}
-              <span className="text-3xl">%</span>
-            </div>
-            {verdict && (
-              <div className="pb-1 text-right text-[11px] font-semibold tracking-wider text-ink/55">
-                {verdict[0]}
-                <br />
-                <span className="text-accent-700">{verdict[1]}</span>
-              </div>
-            )}
-          </div>
-          <Spark points={scores} baseline={baseline} />
-          <div className="mt-0.5 flex justify-between text-[9px] font-semibold tracking-widest text-ink/45">
-            <span>30 DAYS</span>
-            {baseline != null && <span>DOTTED = BASELINE {Math.round(baseline)}</span>}
-          </div>
-          <div className="mt-3 grid grid-cols-3 border-b-2 border-t border-ink/40">
-            <div className="py-2.5">
-              <div className="text-[9px] font-semibold tracking-widest text-ink/50">
-                HRV
-              </div>
-              <div className="text-lg font-extrabold">
-                {hrv != null ? Math.round(hrv) : '—'}{' '}
-                <span className="text-[11px] font-semibold">MS</span>
-              </div>
-              {hrv != null && hrv30 != null && (
-                <div
-                  className={`text-[10px] ${hrv - hrv30 >= 0 ? 'text-accent-700' : 'text-ink/55'}`}
-                >
-                  {hrv - hrv30 >= 0 ? '+' : ''}
-                  {Math.round(hrv - hrv30)} VS 30D
-                </div>
-              )}
-            </div>
-            <div className="border-l border-ink/25 py-2.5 pl-3">
-              <div className="text-[9px] font-semibold tracking-widest text-ink/50">
-                REST HR
-              </div>
-              <div className="text-lg font-extrabold">
-                {rhr != null ? Math.round(rhr) : '—'}{' '}
-                <span className="text-[11px] font-semibold">BPM</span>
-              </div>
-              {rhr != null && rhr30 != null && (
-                <div className="text-[10px] text-ink/55">
-                  {rhr - rhr30 >= 0 ? '+' : ''}
-                  {Math.round(rhr - rhr30)} VS 30D
-                </div>
-              )}
-            </div>
-            <div className="border-l border-ink/25 py-2.5 pl-3">
-              <div className="text-[9px] font-semibold tracking-widest text-ink/50">
-                SLEEP
-              </div>
-              <div className="text-lg font-extrabold">
-                {sleep?.performancePct != null
-                  ? `${Math.round(sleep.performancePct)}`
-                  : '—'}
-                <span className="text-[11px] font-semibold">%</span>
-              </div>
-              {sleep?.inBedMin != null &&
-                (() => {
-                  const m = Math.round(sleep.inBedMin) // whole minutes first — 479.6 must be 8:00, not 7:60
-                  return (
-                    <div className="text-[10px] text-ink/55">
-                      {Math.floor(m / 60)}:{String(m % 60).padStart(2, '0')} IN
-                      BED
-                    </div>
-                  )
-                })()}
-            </div>
-          </div>
-        </section>
-      )}
-
-      <section>
-        {meso && mesoOverdue(meso, now) ? (
-          <>
-            <p className="kicker mb-1">Block finished</p>
-            <h2 className="text-3xl font-extrabold leading-none tracking-tight">
-              {meso.name}
-            </h2>
-            <p className="mt-1 text-xs text-ink/55">
-              All {meso.weeks} weeks are behind you — wrap it up and train
-              free, or plan the next block.
-            </p>
-            <button
-              onClick={onEndMeso}
-              className={`${buttonClass} mt-3 w-full justify-between`}
-            >
-              Mark completed<span>→</span>
-            </button>
-            <button
-              onClick={onStartWorkout}
-              className="mt-2 w-full border border-ink/40 px-4 py-2 text-sm font-semibold text-ink hover:bg-ink/5"
-            >
-              Start an open workout
-            </button>
-          </>
-        ) : meso && day ? (
-          <>
-            <p className="kicker mb-1">
-              {dayIsToday
-                ? `Today — wk ${week + 1} of ${meso.weeks}`
-                : `Next${day.weekday != null ? ` — ${WEEKDAY_SHORT[day.weekday]}` : ''} · wk ${week + 1} of ${meso.weeks}`}
-              {isDeloadWeek(meso, week) ? ' · deload' : ''}
-              {meso.focus.length > 0 ? ` · ${meso.focus.join(' + ')}` : ''}
-            </p>
-            <h2 className="text-3xl font-extrabold leading-none tracking-tight">
-              {day.label}
-            </h2>
-            {dayKind(day) === 'cardio' ? (
-              <p className="mt-1 text-xs text-ink/55">
-                {day.sections && day.sections.length > 0
-                  ? `Intervals · ${day.sections.length} sections · ${fmtSec(totalSec(day.sections))}`
-                  : 'Stopwatch — open-ended, log the miles afterwards.'}
-              </p>
-            ) : (
-              preview && (
-                <>
-                  <p className="mt-1 text-xs text-ink/55">
-                    {preview.planned.length} exercises · {preview.totalSets}{' '}
-                    sets
-                  </p>
-                  <p className="mt-1.5 text-xs leading-relaxed text-ink/80">
-                    {preview.lines.slice(0, 4).join(' · ')}
-                    {preview.lines.length > 4 &&
-                      ` · +${preview.lines.length - 4} more`}
-                  </p>
-                </>
-              )
-            )}
-            <button
-              onClick={() => onStartMesoDay(next)}
-              className={`${buttonClass} mt-3 w-full justify-between`}
-            >
-              Start session<span>→</span>
-            </button>
-            {alsoToday.map((i) => {
-              const d2 = meso.days[i]
-              return (
-                <div
-                  key={i}
-                  className="mt-2 flex items-center justify-between border border-ink/40 p-2.5"
-                >
-                  <span className="min-w-0 truncate text-sm font-semibold text-ink">
-                    Also today · {d2.label}
-                    <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
-                      {dayKind(d2) === 'cardio'
-                        ? d2.sections && d2.sections.length > 0
-                          ? fmtSec(totalSec(d2.sections))
-                          : 'stopwatch'
-                        : `${d2.exercises.length} exercises`}
-                    </span>
-                  </span>
-                  <button
-                    onClick={() => onStartMesoDay(i)}
-                    className="shrink-0 bg-accent px-3 py-1.5 text-xs font-extrabold text-paper hover:bg-accent-600"
-                  >
-                    Start
-                  </button>
-                </div>
-              )
-            })}
-          </>
         ) : (
-          <>
-            <p className="kicker mb-1">Today</p>
-            <h2 className="text-3xl font-extrabold leading-none tracking-tight">
-              Open training
-            </h2>
-            <p className="mt-1 text-xs text-ink/55">
-              No block running — start anything, or plan a mesocycle for
-              per-session prescriptions.
+          preview && (
+            <p className="mt-1 text-caption text-ink-2">
+              {preview.planned.length} exercises · {preview.totalSets} sets
+              {preview.lines.length > 0 &&
+                ` · ${preview.lines.slice(0, 2).join(', ')}`}
             </p>
-            <button
-              onClick={onStartWorkout}
-              className={`${buttonClass} mt-3 w-full justify-between`}
-            >
-              Start workout<span>→</span>
-            </button>
-            <button
-              onClick={onPlan}
-              className="mt-2 w-full border border-ink/40 px-4 py-2 text-sm font-semibold text-ink hover:bg-ink/5"
-            >
-              Plan a mesocycle
-            </button>
-          </>
+          )
         )}
-      </section>
-
-      <section>
-        <div className="mb-1.5 flex items-baseline justify-between">
-          <span className="kicker-muted">This week</span>
-          <span className="text-[9px] font-semibold tracking-widest text-ink/45">
-            ▪ DONE · ▫ PLANNED
-          </span>
-        </div>
-        <div className="grid grid-cols-7 border border-ink/40">
-          {weekDays.map((d, i) => (
+        <Button
+          variant="primary"
+          block
+          className="mt-3.5"
+          onClick={() => onStartMesoDay(next)}
+        >
+          Start session
+        </Button>
+        {alsoToday.map((i) => {
+          const d2 = meso.days[i]
+          const kind =
+            dayKind(d2) === 'cardio'
+              ? d2.sections && d2.sections.length > 0
+                ? `Intervals · ${fmtSec(totalSec(d2.sections))}`
+                : 'Stopwatch'
+              : `${d2.exercises.length} exercises`
+          return (
             <div
               key={i}
-              className={`py-2 text-center ${i < 6 ? 'border-r border-ink/25' : ''} ${
-                d.isToday ? 'shadow-[inset_0_0_0_2px_#ec3013]' : ''
-              }`}
+              className="mt-2 flex items-center justify-between gap-3"
             >
-              <div
-                className={`text-[9px] font-semibold ${d.isToday ? 'text-accent-700' : 'text-ink/50'}`}
-              >
-                {d.label.toUpperCase()}
+              <div className="min-w-0">
+                <div className="truncate text-body font-medium text-ink">
+                  {d2.label}
+                </div>
+                <div className="text-caption text-ink-2">{kind}</div>
               </div>
-              <div
-                className={`text-sm font-extrabold ${d.isToday ? 'text-accent-700' : ''}`}
+              <Button
+                variant="tonal"
+                size="sm"
+                onClick={() => onStartMesoDay(i)}
               >
-                {d.num}
-              </div>
-              <div
-                className={`mx-auto mt-1 h-2 w-2 ${
-                  d.done
-                    ? 'bg-accent'
-                    : d.plan
-                      ? 'border-[1.5px] border-accent'
-                      : ''
-                }`}
-              />
+                Start
+              </Button>
             </div>
-          ))}
+          )
+        })}
+      </>
+    ) : (
+      <>
+        <p className="text-eyebrow text-ink-2">Today</p>
+        <h2 className="mt-0.5 text-title text-ink">Open training</h2>
+        <Button
+          variant="primary"
+          block
+          className="mt-3.5"
+          onClick={onStartWorkout}
+        >
+          Start workout
+        </Button>
+        <Button variant="tonal" block className="mt-2" onClick={onPlan}>
+          Plan a mesocycle
+        </Button>
+      </>
+    )
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <h1 className="text-title-lg text-ink">
+          {greeting(new Date().getHours())}
+        </h1>
+        {meso && (
+          <p className="text-caption text-ink-2">
+            Week {week + 1} of {meso.weeks} · {sessionsDone} of{' '}
+            {sessionsPlanned} sessions done
+          </p>
+        )}
+      </div>
+
+      {staleBanner && (
+        <Banner tone="caution">No strap data for {latestAgeDays} days.</Banner>
+      )}
+
+      <Card hero>
+        {fresh && score != null && (
+          <>
+            <div className="flex items-center gap-5">
+              <RecoveryRing score={score} size="lg" />
+              <div className="min-w-0">
+                <p className="text-eyebrow text-ink-2">Readiness</p>
+                {verdict && (
+                  <p className="mt-0.5 text-body-lg text-ink">{verdict}</p>
+                )}
+                {vitals.length > 0 && (
+                  <p className="mt-1 text-caption text-ink-3">
+                    {vitals.join(' · ')}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="my-4 h-px bg-hairline" />
+          </>
+        )}
+        {sessionBlock}
+      </Card>
+
+      {fresh && (
+        <div className="grid grid-cols-3 gap-3">
+          {hrv != null && (
+            <MetricTile
+              label="HRV"
+              value={Math.round(hrv)}
+              unit="ms"
+              delta={
+                hrv30 != null
+                  ? `${signed(Math.round(hrv - hrv30))} vs 30 d`
+                  : undefined
+              }
+              deltaTone={
+                hrv30 == null || Math.round(hrv - hrv30) === 0
+                  ? 'neutral'
+                  : hrv > hrv30
+                    ? 'up'
+                    : 'down'
+              }
+              values={hrvSeries}
+              tone="brand"
+            />
+          )}
+          {rhr != null && (
+            <MetricTile
+              label="Resting HR"
+              value={Math.round(rhr)}
+              unit="bpm"
+              delta={
+                rhr30 != null
+                  ? `${signed(Math.round(rhr - rhr30))} vs 30 d`
+                  : undefined
+              }
+              deltaTone={
+                rhr30 == null || Math.round(rhr - rhr30) === 0
+                  ? 'neutral'
+                  : rhr < rhr30
+                    ? 'up'
+                    : 'down'
+              }
+              values={rhrSeries}
+              tone="effort"
+            />
+          )}
+          {sleep?.inBedMin != null && (
+            <MetricTile
+              label="Sleep"
+              value={fmtSleepClock(sleep.inBedMin)}
+              unit="h"
+              delta={
+                sleep.performancePct != null
+                  ? `${Math.round(sleep.performancePct)}% of need`
+                  : undefined
+              }
+              deltaTone="neutral"
+              values={sleepSeries}
+              tone="rest"
+            />
+          )}
+        </div>
+      )}
+
+      <Card>
+        <CardHead
+          title="This week"
+          action={
+            meso && !finished ? (
+              <StatusPill tone="good" dot={false}>
+                {sessionsDone} of {sessionsPlanned}
+              </StatusPill>
+            ) : undefined
+          }
+        />
+        <div className="mt-4">
+          <WeekStrip days={weekDays} />
         </div>
         {pr && (
-          <div className="mt-3 flex justify-between border-t border-ink/25 pt-2 text-[10px] font-semibold tracking-wider text-ink/55">
-            <span>
-              LAST PR — {pr.name.toUpperCase()} {Math.round(pr.e1rm)} LB E1RM
-            </span>
-            <span>
-              {new Date(pr.date)
-                .toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                })
-                .toUpperCase()}
-            </span>
-          </div>
+          <p className="mt-3 text-caption text-ink-3">
+            Last PR{' '}
+            {new Date(pr.date).toLocaleDateString(undefined, {
+              month: 'short',
+              day: 'numeric',
+            })}{' '}
+            · {pr.name} {Math.round(pr.e1rm)} lb e1RM
+          </p>
         )}
-      </section>
+      </Card>
     </div>
   )
 }
