@@ -1,11 +1,14 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import type {
   DifficultyRating,
   MuscleFeedback,
   VolumeRating,
   WorkoutFeedback,
 } from '../lib/workouts'
+import { Button } from './cadence/Button'
+import { Segment } from './shell/Segment'
 import { Sheet } from './shell/Sheet'
+import { useSheetDismiss } from './shell/useSheetDismiss'
 
 const DIFFICULTY: Array<{ value: DifficultyRating; label: string }> = [
   { value: 'easy', label: 'Too easy' },
@@ -19,35 +22,7 @@ const VOLUME: Array<{ value: VolumeRating; label: string }> = [
   { value: 'high', label: 'Too much' },
 ]
 
-function Segmented<T extends string>({
-  options,
-  value,
-  onChange,
-}: {
-  options: Array<{ value: T; label: string }>
-  value: T | undefined
-  onChange: (v: T) => void
-}) {
-  return (
-    <div className="flex w-full border border-ink/40">
-      {options.map((o, i) => (
-        <button
-          key={o.value}
-          onClick={() => onChange(o.value)}
-          className={`flex-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider ${
-            i > 0 ? 'border-l border-ink/40 ' : ''
-          }${
-            value === o.value
-              ? 'bg-accent font-extrabold text-paper'
-              : 'text-ink/60 hover:bg-ink/5'
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 /**
  * End-of-session autoregulation check-in, RP style: for every muscle group
@@ -80,51 +55,56 @@ export function FeedbackModal({
 
   // Save and Skip both unmount this screen in the parent, so the sheet
   // is dropped first and the real callback waits for the exit to finish.
-  const [open, setOpen] = useState(true)
-  const pending = useRef<(() => void) | null>(null)
-  const dismiss = (then: () => void) => {
-    if (pending.current) return
-    pending.current = then
-    setOpen(false)
-  }
+  const { open, dismiss, onExited } = useSheetDismiss()
 
   return (
     <Sheet
       open={open}
       onClose={() => dismiss(onSkip)}
-      onExited={() => pending.current?.()}
+      onExited={onExited}
       title="How did it go?"
     >
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         {muscles.map((muscle) => (
           <section key={muscle} className="flex flex-col gap-2">
-            <h3 className="kicker">{muscle}</h3>
-            <Segmented
+            <h3 className="text-caption font-semibold text-ink-2">
+              {capitalise(muscle)}
+            </h3>
+            <Segment
+              block
               options={DIFFICULTY}
               value={ratings[muscle]?.difficulty}
               onChange={(v) => patch(muscle, { difficulty: v })}
+              ariaLabel={`${capitalise(muscle)} difficulty`}
             />
-            <Segmented
+            <Segment
+              block
               options={VOLUME}
               value={ratings[muscle]?.volume}
               onChange={(v) => patch(muscle, { volume: v })}
+              ariaLabel={`${capitalise(muscle)} volume`}
             />
           </section>
         ))}
 
-        <section className="flex flex-col gap-2 border-t-2 border-ink/40 pt-2.5">
-          <h3 className="kicker-muted">whole workout</h3>
-          <Segmented
+        <section className="flex flex-col gap-2">
+          <h3 className="text-caption font-semibold text-ink-2">
+            Whole workout
+          </h3>
+          <Segment
+            block
             options={DIFFICULTY}
             value={overall}
             onChange={setOverall}
+            ariaLabel="Whole workout"
           />
         </section>
       </div>
 
       <div className="mt-6 flex items-center gap-3">
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          className="flex-1"
           disabled={!complete}
           onClick={() =>
             dismiss(() =>
@@ -136,17 +116,12 @@ export function FeedbackModal({
               }),
             )
           }
-          className="pressable flex h-touch flex-1 items-center justify-center rounded-pill bg-brand px-5 text-body font-semibold text-on-brand disabled:opacity-45"
         >
           Save
-        </button>
-        <button
-          type="button"
-          onClick={() => dismiss(onSkip)}
-          className="pressable flex h-touch items-center justify-center rounded-pill px-4 text-body font-semibold text-ink-2 hover:bg-surface-2"
-        >
+        </Button>
+        <Button variant="ghost" onClick={() => dismiss(onSkip)}>
           Skip
-        </button>
+        </Button>
       </div>
     </Sheet>
   )

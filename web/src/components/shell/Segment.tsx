@@ -33,8 +33,8 @@ export function Segment<T extends string>({
             aria-checked={selected}
             tabIndex={rovingTabIndex(options, value, i)}
             onClick={() => onChange(o.value)}
-            className={`motion-base h-8 rounded-pill px-3.5 text-[14px] transition-[background-color,color,box-shadow] ${
-              block ? 'flex-1' : ''
+            className={`motion-base h-8 rounded-pill text-[14px] whitespace-nowrap transition-[background-color,color,box-shadow] ${
+              block ? 'flex-1 px-2' : 'px-3.5'
             } ${
               selected
                 ? 'bg-surface font-semibold text-ink shadow-lift'

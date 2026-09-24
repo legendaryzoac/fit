@@ -1,18 +1,28 @@
 import type { ReactNode } from 'react'
 
-/** A surface card; hero lifts it with a larger radius and a shadow. */
+export type CardTone = 'surface' | 'brand'
+
+const TONE: Record<CardTone, string> = {
+  surface: 'bg-surface',
+  brand: 'bg-brand-soft text-brand-strong',
+}
+
+/** A surface card; hero lifts it with a larger radius and a shadow.
+ * Brand tints it for a coach note or a highlight. */
 export function Card({
   hero = false,
+  tone = 'surface',
   className = '',
   children,
 }: {
   hero?: boolean
+  tone?: CardTone
   className?: string
   children: ReactNode
 }) {
   return (
     <section
-      className={`bg-surface p-5 ${hero ? 'rounded-xl shadow-lift' : 'rounded-lg'} ${className}`}
+      className={`p-5 ${TONE[tone]} ${hero ? 'rounded-xl shadow-lift' : 'rounded-lg'} ${className}`}
     >
       {children}
     </section>

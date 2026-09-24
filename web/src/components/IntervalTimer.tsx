@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { cue } from '../lib/cue'
 import { SPEED_DRILLS } from '../lib/exercises'
-import { registerTimerControls } from '../lib/lockScreen'
+import { lockScreenSupported, registerTimerControls } from '../lib/lockScreen'
 import {
   fmtSec,
   sectionTone,
@@ -18,22 +18,22 @@ import {
   type Workout,
   type WorkoutExercise,
 } from '../lib/workouts'
-import { LockScreenToggle } from './LockScreenToggle'
-import {
-  buttonClass,
-  ChevronDownIcon,
-  iconButtonClass,
-  inputClass,
-  XIcon,
-} from './ui'
+import { Button } from './cadence/Button'
+import { Card } from './cadence/Card'
+import { Countdown, type CountdownTone } from './cadence/Countdown'
+import { Field, TextArea, TextInput } from './cadence/Field'
+import { IconButton } from './cadence/IconButton'
+import { List, ListItem } from './cadence/ListItem'
+import { Progress, SessionBar } from './cadence/SessionBar'
+import { AddSetButton, SetHeader, SetRow } from './cadence/SetRow'
+import { StatusPill } from './cadence/StatusPill'
+import { LockScreenSwitch } from './LockScreenSwitch'
+import { IconChevronDown, IconRun, IconX } from './shell/icons'
+import { Sheet } from './shell/Sheet'
+import { useSheetDismiss } from './shell/useSheetDismiss'
 
 const MILE = 1609.34
 const YD = 0.9144
-
-const repInput =
-  'w-full border border-ink/40 bg-surface px-1 py-2 text-center text-base ' +
-  'font-semibold text-ink placeholder:font-normal placeholder:text-ink/35 ' +
-  'outline-none focus:border-accent'
 
 /** Post-timer rep logging for speed sessions — feeds the sprint analytics. */
 function DrillSetsEditor({
@@ -44,6 +44,7 @@ function DrillSetsEditor({
   onChange: (drills: WorkoutExercise[]) => void
 }) {
   const [name, setName] = useState('')
+  const nameId = useId()
 
   function addDrill() {
     const trimmed = name.trim()
@@ -56,14 +57,14 @@ function DrillSetsEditor({
     di: number,
     si: number,
     field: 'distanceM' | 'durationSec',
-    raw: string,
+    raw: number | undefined,
   ) => {
     const value =
-      raw === ''
+      raw === undefined
         ? undefined
         : field === 'distanceM'
-          ? Math.round(Number(raw) * YD * 100) / 100
-          : Number(raw)
+          ? Math.round(raw * YD * 100) / 100
+          : raw
     onChange(
       drills.map((d, i) =>
         i !== di
@@ -79,49 +80,50 @@ function DrillSetsEditor({
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <p className="text-xs text-ink/55">
-        Log your rep times (optional — powers the speed trend chart):
-      </p>
+    <div className="flex flex-col gap-3">
+      <p className="text-caption font-semibold text-ink-2">Reps</p>
       {drills.map((d, di) => (
-        <div key={di} className="border-t-2 border-ink/40 pt-2">
-          <div className="mb-1.5 flex items-baseline justify-between">
-            <p className="text-base font-extrabold text-ink">{d.name}</p>
-            <button
+        <Card key={di}>
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-title-sm text-ink">
+              {d.name}
+            </p>
+            <IconButton
+              size="sm"
+              label="Remove drill"
               onClick={() => onChange(drills.filter((_, i) => i !== di))}
-              className="text-[10px] font-semibold uppercase tracking-widest text-ink/40 hover:text-accent-700"
             >
-              remove
-            </button>
+              <IconX />
+            </IconButton>
           </div>
-          <div className="mb-1 grid grid-cols-[1.5rem_1fr_1fr_2rem] gap-1.5 border-b-2 border-ink/40 pb-1 text-[9px] font-semibold uppercase tracking-widest text-ink/50">
-            <span>rep</span>
-            <span className="text-center">yd</span>
-            <span className="text-center">sec</span>
-            <span />
-          </div>
-          {d.sets.map((s, si) => (
-            <div
-              key={si}
-              className="mb-1 grid grid-cols-[1.5rem_1fr_1fr_2rem] items-center gap-1.5"
-            >
-              <span className="text-sm font-extrabold text-ink">{si + 1}</span>
-              <input
-                className={repInput}
-                type="number"
-                inputMode="numeric"
-                value={s.distanceM != null ? Math.round(s.distanceM / YD) : ''}
-                onChange={(e) => patch(di, si, 'distanceM', e.target.value)}
-              />
-              <input
-                className={repInput}
-                type="number"
-                inputMode="decimal"
-                value={s.durationSec ?? ''}
-                onChange={(e) => patch(di, si, 'durationSec', e.target.value)}
-              />
-              <button
-                onClick={() =>
+          <div className="mt-2 flex flex-col">
+            <SetHeader labels={['yd', 's']} check={false} />
+            {d.sets.map((s, si) => (
+              <SetRow
+                key={si}
+                index={si + 1}
+                fields={[
+                  {
+                    key: 'yd',
+                    value:
+                      s.distanceM != null
+                        ? Math.round(s.distanceM / YD)
+                        : undefined,
+                    placeholder: '',
+                    ariaLabel: `Rep ${si + 1} yards`,
+                    inputMode: 'numeric',
+                    onChange: (v) => patch(di, si, 'distanceM', v),
+                  },
+                  {
+                    key: 's',
+                    value: s.durationSec,
+                    placeholder: '',
+                    ariaLabel: `Rep ${si + 1} seconds`,
+                    inputMode: 'decimal',
+                    onChange: (v) => patch(di, si, 'durationSec', v),
+                  },
+                ]}
+                onRemove={() =>
                   onChange(
                     drills.map((x, i) =>
                       i !== di
@@ -130,56 +132,53 @@ function DrillSetsEditor({
                     ),
                   )
                 }
-                className="text-ink/35 hover:text-accent-700"
-                aria-label="remove rep"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-          <button
-            onClick={() =>
-              onChange(
-                drills.map((x, i) =>
-                  i !== di ? x : { ...x, sets: [...x.sets, { ...x.sets.at(-1) }] },
-                ),
-              )
-            }
-            className="py-1 text-[10px] font-extrabold uppercase tracking-widest text-accent-700 hover:text-accent-600"
-          >
-            + add rep
-          </button>
-        </div>
+              />
+            ))}
+            <AddSetButton
+              label="Add rep"
+              onClick={() =>
+                onChange(
+                  drills.map((x, i) =>
+                    i !== di
+                      ? x
+                      : { ...x, sets: [...x.sets, { ...x.sets.at(-1) }] },
+                  ),
+                )
+              }
+            />
+          </div>
+        </Card>
       ))}
-      <div className="flex gap-2">
-        <input
-          className={inputClass}
-          list="drill-names"
-          placeholder="add drill…"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && addDrill()}
-        />
-        <datalist id="drill-names">
-          {SPEED_DRILLS.map((d) => (
-            <option key={d.name} value={d.name} />
-          ))}
-        </datalist>
-        <button onClick={addDrill} className={`${buttonClass} shrink-0`}>
-          Add
-        </button>
-      </div>
+      <Card>
+        <Field label="Drill" htmlFor={nameId}>
+          <TextInput
+            id={nameId}
+            list="drill-names"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addDrill()}
+          />
+          <datalist id="drill-names">
+            {SPEED_DRILLS.map((d) => (
+              <option key={d.name} value={d.name} />
+            ))}
+          </datalist>
+        </Field>
+        <Button variant="quiet" block className="mt-3" onClick={addDrill}>
+          Add drill
+        </Button>
+      </Card>
     </div>
   )
 }
 
-// Monochrome+red: work shouts in red, rest is ink, warm/cool are tints.
-const TONE: Record<SectionTone, { pill: string; text: string; bar: string }> = {
-  warm: { pill: 'bg-accent-200 text-accent-800', text: 'text-accent-600', bar: 'bg-accent-400' },
-  work: { pill: 'bg-accent text-paper', text: 'text-accent', bar: 'bg-accent' },
-  rest: { pill: 'bg-ink text-paper', text: 'text-ink', bar: 'bg-ink' },
-  cool: { pill: 'bg-neutral-300 text-neutral-800', text: 'text-neutral-600', bar: 'bg-neutral-500' },
-  other: { pill: 'bg-surface text-neutral-800', text: 'text-ink', bar: 'bg-neutral-400' },
+// Work shouts in ember, rest cools to sky, warm-up is a caution amber.
+const TONE: Record<SectionTone, CountdownTone> = {
+  warm: 'caution',
+  work: 'effort',
+  rest: 'rest',
+  cool: 'neutral',
+  other: 'neutral',
 }
 
 export function IntervalSession({
@@ -214,6 +213,13 @@ export function IntervalSession({
   const finishedAtMount = useRef(
     initial.sections.length > 0 && timerSnapshot(initial, Date.now()).finished,
   )
+  const titleId = useId()
+  const milesId = useId()
+  const notesId = useId()
+
+  // Every way out unmounts this screen in the parent, so the sheet drops
+  // first and the real callback waits for the exit to finish.
+  const { open, dismiss, onExited } = useSheetDismiss()
 
   const sections = draft.sections
   const stopwatch = sections.length === 0
@@ -310,8 +316,16 @@ export function IntervalSession({
     setDraft((d) => skipSection(d, Date.now()))
   }
 
+  // Off the on-screen controls; the lock-screen previous-track key uses it.
   function back() {
     setDraft((d) => backSection(d, Date.now()))
+  }
+
+  // The one-tap way out of a running timer that keeps nothing: no summary,
+  // no confirmation, the draft goes with it.
+  function discard() {
+    saveTimerDraft(null)
+    dismiss(onCancel)
   }
 
   function endEarly() {
@@ -344,201 +358,193 @@ export function IntervalSession({
     })
   }
 
+  // Scrim, Escape or a drag parks a running timer; once it has ended the
+  // summary holds unsaved details, so the same gesture asks first.
+  function close() {
+    if (phase === 'run') {
+      dismiss(onMinimize)
+    } else if (window.confirm('Discard this session?')) {
+      dismiss(onCancel)
+    }
+  }
+
+  const heading = draft.title || (stopwatch ? 'Run' : 'Intervals')
+
+  let body
   if (phase === 'done') {
     const linkCandidates = sessions.filter(
       (s) =>
         Math.abs(new Date(s.start).getTime() - Date.now()) < 6 * 3_600_000,
     )
-    return (
-      <div className="flex flex-col gap-4">
-        <p className="kicker">Session complete</p>
-        <p className="text-5xl font-extrabold tracking-tight tabular-nums text-ink">
+    body = (
+      <>
+        <h2 className="text-title text-ink">Session complete</h2>
+        <p className="text-display text-ink tabular-nums">
           {fmtSec(doneElapsedRef.current / 1000)}
         </p>
-        <input
-          className={inputClass}
-          placeholder="title (optional)"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
+        <Field label="Title" htmlFor={titleId}>
+          <TextInput
+            id={titleId}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </Field>
         {draft.kind === 'speed' && (
           <DrillSetsEditor drills={drills} onChange={setDrills} />
         )}
         {draft.kind === 'cardio' && (
           <>
-            <input
-              className={inputClass}
-              type="number"
-              inputMode="decimal"
-              placeholder="distance (miles)"
-              value={miles}
-              onChange={(e) => setMiles(e.target.value)}
-            />
+            <Field label="Distance (mi)" htmlFor={milesId}>
+              <TextInput
+                id={milesId}
+                type="number"
+                inputMode="decimal"
+                value={miles}
+                onChange={(e) => setMiles(e.target.value)}
+              />
+            </Field>
             {linkCandidates.length > 0 && (
               <div className="flex flex-col gap-1.5">
-                <p className="text-xs text-ink/55">
-                  Attach WHOOP heart-rate data:
+                <p className="text-caption font-semibold text-ink-2">
+                  WHOOP session
                 </p>
-                {linkCandidates.map((s) => (
-                  <button
-                    key={s.sk}
-                    onClick={() =>
-                      setLinkedSk(linkedSk === s.sk ? undefined : s.sk)
-                    }
-                    className={`border px-3 py-2.5 text-left text-xs font-semibold ${
-                      linkedSk === s.sk
-                        ? 'border-accent bg-accent-100 text-accent-800'
-                        : 'border-ink/40 text-ink/70 hover:bg-ink/5'
-                    }`}
-                  >
-                    {s.sport ?? 'activity'} ·{' '}
-                    {new Date(s.start).toLocaleTimeString(undefined, {
-                      timeStyle: 'short',
-                    })}
-                    {s.avgHr != null && ` · ${Math.round(s.avgHr)} bpm avg`}
-                  </button>
-                ))}
+                <List>
+                  {linkCandidates.map((s) => {
+                    const linked = linkedSk === s.sk
+                    return (
+                      <ListItem
+                        key={s.sk}
+                        lead={<IconRun />}
+                        leadTone={linked ? 'brand' : 'neutral'}
+                        title={`${s.sport ?? 'Activity'} · ${new Date(
+                          s.start,
+                        ).toLocaleTimeString(undefined, { timeStyle: 'short' })}`}
+                        sub={
+                          s.avgHr != null
+                            ? `${Math.round(s.avgHr)} bpm avg`
+                            : undefined
+                        }
+                        trail={
+                          linked ? (
+                            <StatusPill tone="good">Linked</StatusPill>
+                          ) : undefined
+                        }
+                        onClick={() => setLinkedSk(linked ? undefined : s.sk)}
+                      />
+                    )
+                  })}
+                </List>
               </div>
             )}
           </>
         )}
-        <textarea
-          className={`${inputClass} min-h-16`}
-          placeholder="notes (optional)"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+        <Field label="Notes" htmlFor={notesId}>
+          <TextArea
+            id={notesId}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </Field>
+        <Button variant="primary" block onClick={() => dismiss(save)}>
+          Save
+        </Button>
+        <Button variant="ghost" block onClick={() => dismiss(onCancel)}>
+          Discard
+        </Button>
+      </>
+    )
+  } else {
+    body = (
+      <>
+        <Countdown
+          label={current.label}
+          tone={TONE[sectionTone(current.label)]}
+          time={
+            stopwatch ? fmtSec(elapsedSec) : fmtSec(Math.ceil(remaining))
+          }
+          next={
+            next
+              ? `Next · ${next.label} ${fmtSec(next.durationSec)} · ${idx + 1} of ${sections.length}`
+              : undefined
+          }
+          remaining={remaining / current.durationSec}
+          paused={draft.paused}
+          onPause={pause}
+          onResume={resume}
+          onSkip={stopwatch ? undefined : skip}
+          stopwatch={stopwatch}
         />
-        <div className="flex items-center gap-3">
-          <button onClick={save} className={`${buttonClass} flex-1`}>
-            Save workout
-          </button>
-          <button
-            onClick={onCancel}
-            className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-accent-700"
-          >
-            Discard
-          </button>
-        </div>
-      </div>
+        {lockScreenSupported() && (
+          <Card>
+            <LockScreenSwitch />
+          </Card>
+        )}
+        {!stopwatch && (
+          <List>
+            {sections.map((s, i) => (
+              <ListItem
+                key={i}
+                title={s.label}
+                sub={fmtSec(s.durationSec)}
+                muted={i < idx}
+                trail={
+                  i === idx ? <StatusPill tone="effort">Now</StatusPill> : undefined
+                }
+              />
+            ))}
+          </List>
+        )}
+      </>
     )
   }
 
-  const tone = TONE[sectionTone(current.label)]
   return (
-    <div className="-mt-4 flex min-h-[78dvh] flex-col">
-      {/* top-[58px] (header 56px + 2px rule) tucks under the sticky app header; 1fr_auto_1fr keeps the
-          clock dead-centre no matter how wide the flanking cells are */}
-      <div className="sticky top-[58px] z-20 -mx-4 grid grid-cols-[1fr_auto_1fr] items-center border-b-2 border-ink/40 bg-paper px-4 py-2.5">
-        {/* icon-only: two labeled buttons + the clock don't fit at 375px.
-            gap-3 + 40px squares keep the unconfirmed Cancel mis-tap-safe. */}
-        <div className="flex items-center gap-3 justify-self-start">
-          <button
-            onClick={() => {
-              saveTimerDraft(null)
-              onCancel()
-            }}
-            aria-label="cancel session"
-            title="Cancel session"
-            className={`${iconButtonClass} min-h-10 min-w-10 justify-center`}
-          >
-            <XIcon />
-          </button>
-          <button
-            onClick={onMinimize}
-            aria-label="minimize session"
-            title="Minimize"
-            className={`${iconButtonClass} min-h-10 min-w-10 justify-center`}
-          >
-            <ChevronDownIcon />
-          </button>
-        </div>
-        {stopwatch ? (
-          <span className="justify-self-center text-xl font-extrabold leading-none tabular-nums">
-            {fmtSec(elapsedSec)}
-          </span>
-        ) : (
-          <span className="justify-self-center text-xl font-extrabold leading-none tabular-nums">
-            {fmtSec(Math.min(elapsedSec, total))}{' '}
-            <span className="text-sm font-semibold text-ink/50">
-              / {fmtSec(total)}
+    <Sheet open={open} onClose={close} onExited={onExited} ariaLabel="Timer">
+      <SessionBar
+        left={
+          phase === 'run' && (
+            <IconButton label="Minimise" onClick={() => dismiss(onMinimize)}>
+              <IconChevronDown />
+            </IconButton>
+          )
+        }
+        center={
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate text-body font-medium text-ink">
+              {heading}
             </span>
-          </span>
-        )}
-        {!stopwatch ? (
-          <span className="justify-self-end text-[10px] font-semibold tracking-widest text-ink/55">
-            {idx + 1}/{sections.length}
-          </span>
-        ) : (
-          <span />
-        )}
-      </div>
-
-      <LockScreenToggle className="flex justify-end pt-2" />
-
-      <div className="flex flex-1 flex-col items-center justify-center gap-5">
-        {stopwatch ? (
-          <>
-            <p className="text-[5.5rem] font-extrabold leading-none tracking-tight tabular-nums text-ink sm:text-[7rem]">
-              {fmtSec(elapsedSec)}
-            </p>
-            <p className="kicker-muted">elapsed</p>
-          </>
-        ) : (
-          <>
-            <span
-              className={`px-4 py-1.5 text-sm font-extrabold uppercase tracking-widest ${tone.pill}`}
-            >
-              {current.label}
-            </span>
-            <p
-              className={`text-[5.5rem] font-extrabold leading-none tracking-tight tabular-nums sm:text-[7rem] ${tone.text}`}
-            >
-              {fmtSec(Math.ceil(remaining))}
-            </p>
-            <div className="h-1.5 w-full max-w-sm overflow-hidden bg-ink/15">
-              <div
-                className={`h-full transition-[width] duration-200 ${tone.bar}`}
-                style={{
-                  width: `${Math.min(100, (1 - remaining / current.durationSec) * 100)}%`,
-                }}
-              />
+            {phase === 'run' && (
+              <span className="shrink-0 text-caption text-ink-2 tabular-nums">
+                {stopwatch
+                  ? fmtSec(elapsedSec)
+                  : `${fmtSec(Math.min(elapsedSec, total))} of ${fmtSec(total)}`}
+              </span>
+            )}
+          </div>
+        }
+        right={
+          phase === 'run' && (
+            <div className="flex items-center gap-2">
+              <IconButton label="Discard" onClick={discard}>
+                <IconX />
+              </IconButton>
+              <Button variant="ghost" size="sm" onClick={endEarly}>
+                End
+              </Button>
             </div>
-            <p className="text-sm font-semibold text-ink/55">
-              {next
-                ? `Next · ${next.label} ${fmtSec(next.durationSec)}`
-                : 'Final section'}
-            </p>
-          </>
-        )}
-        {draft.paused && (
-          <p className="text-xs font-extrabold uppercase tracking-widest text-accent-700">
-            paused
-          </p>
-        )}
-      </div>
-
-      <div className="flex items-center gap-3 pb-4">
-        <button
-          onClick={draft.paused ? resume : pause}
-          className={`${buttonClass} flex-1`}
-        >
-          {draft.paused ? 'Resume' : 'Pause'}
-        </button>
-        {!stopwatch && (
-          <button
-            onClick={skip}
-            className="border border-ink/40 px-4 py-2 text-sm font-semibold text-ink hover:bg-ink/5"
-          >
-            Skip
-          </button>
-        )}
-        <button
-          onClick={endEarly}
-          className="px-2 text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-accent-700"
-        >
-          End
-        </button>
-      </div>
-    </div>
+          )
+        }
+        progress={
+          phase === 'run' && !stopwatch ? (
+            <Progress
+              value={total > 0 ? Math.min(elapsedSec, total) / total : 0}
+              tone="effort"
+              label="Session"
+            />
+          ) : undefined
+        }
+      />
+      <div className="mt-3 flex flex-col gap-3">{body}</div>
+    </Sheet>
   )
 }

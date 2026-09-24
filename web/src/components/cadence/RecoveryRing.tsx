@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react'
 
 export type RingSize = 'lg' | 'sm' | 'xl'
 
-const GEOMETRY: Record<RingSize, { px: number; stroke: number; r: number }> =
-  {
-    sm: { px: 44, stroke: 5, r: 19.5 },
-    lg: { px: 120, stroke: 10, r: 55 },
-    xl: { px: 160, stroke: 8, r: 76 },
-  }
+/** Ring sizes, shared with any other ring that should match this one. */
+export const RING_GEOMETRY: Record<
+  RingSize,
+  { px: number; stroke: number; r: number }
+> = {
+  sm: { px: 44, stroke: 5, r: 19.5 },
+  lg: { px: 120, stroke: 10, r: 55 },
+  xl: { px: 160, stroke: 8, r: 76 },
+}
 
 function toneVar(score: number): string {
   if (score >= 67) return 'var(--brand)'
@@ -27,7 +30,7 @@ export function RecoveryRing({
   score: number
   size?: RingSize
 }) {
-  const { px, stroke, r } = GEOMETRY[size]
+  const { px, stroke, r } = RING_GEOMETRY[size]
   const c = 2 * Math.PI * r
   const clamped = Math.max(0, Math.min(100, score))
   const [drawn, setDrawn] = useState(false)

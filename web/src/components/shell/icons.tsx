@@ -158,3 +158,39 @@ export function IconTrends(p: IconProps) {
     </Icon>
   )
 }
+
+/** A barbell: the strength kind. */
+export function IconStrength(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M6 8v8M18 8v8M3 10v4M21 10v4M6 12h12" />
+    </Icon>
+  )
+}
+
+/** A bolt: the speed kind. */
+export function IconSpeed(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M13 3 4 14h7l-1 7 9-11h-7z" />
+    </Icon>
+  )
+}
+
+/** A wave: the cardio kind. */
+export function IconRun(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 16c3-6 5-6 8 0s5 6 8 0" />
+    </Icon>
+  )
+}
+
+/** Six dots: a drag handle. */
+export function IconGrip(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" />
+    </Icon>
+  )
+}
