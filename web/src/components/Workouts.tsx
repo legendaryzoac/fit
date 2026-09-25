@@ -10,6 +10,7 @@ import {
 } from 'react'
 import type { ComponentProps } from 'react'
 import type { Api } from '../lib/api'
+import { todayCheckin, type Checkin } from '../lib/checkins'
 import {
   EXERCISES,
   MUSCLE_GROUPS,
@@ -88,6 +89,7 @@ import { Card } from './cadence/Card'
 import { Field, SELECT_WELL, TextArea, TextInput } from './cadence/Field'
 import { IconButton } from './cadence/IconButton'
 import { List, ListItem } from './cadence/ListItem'
+import { ScaleRow } from './cadence/ScaleRow'
 import { Progress, SessionBar } from './cadence/SessionBar'
 import { AddSetButton, SetHeader, SetRow, type SetField } from './cadence/SetRow'
 import { StatusPill } from './cadence/StatusPill'
@@ -260,6 +262,8 @@ function SessionEditor({
   onDiscard,
   onDelete,
   onWarmUp,
+  prsToday,
+  onPrs,
 }: {
   initial: Workout
   isNew: boolean
@@ -287,6 +291,11 @@ function SessionEditor({
   /** Offered before the first set: a dynamic warm-up keyed to the
    * session's muscle groups. Runs once the sheet has dropped. */
   onWarmUp?: (muscles: string[]) => void
+  /** Today's perceived-recovery check-in value, 0–10, if logged already. */
+  prsToday?: number
+  /** Offered before the first set: how recovered the lifter feels right
+   * now, folded straight into today's check-in. */
+  onPrs?: (n: number) => void
 }) {
   const [w, setW] = useState<Workout>(initial)
   const [exerciseName, setExerciseName] = useState('')
@@ -725,6 +734,18 @@ function SessionEditor({
                 </p>
               ))}
             </div>
+          </Card>
+        )}
+
+        {isNew && onPrs && doneCount === 0 && (
+          <Card>
+            <ScaleRow
+              label="Recovered"
+              low="Not at all"
+              high="Fully"
+              value={prsToday}
+              onChange={onPrs}
+            />
           </Card>
         )}
 
@@ -1345,7 +1366,17 @@ type Mode =
  * sessions, drafts, and caches survive tab hops. */
 export type WorkoutsTab = 'today' | 'history' | 'plan' | 'progress'
 
-export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
+export function Workouts({
+  api,
+  tab,
+  checkins,
+  onSaveCheckin,
+}: {
+  api: Api
+  tab: WorkoutsTab
+  checkins: Checkin[]
+  onSaveCheckin: (patch: Partial<Checkin>) => void
+}) {
   const [logFilter, setLogFilter] = useState<LogFilter>('all')
   /** The workout open in the Log's detail sheet. */
   const [detail, setDetail] = useState<Workout | null>(null)
@@ -1819,6 +1850,8 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
         onDiscard={toList}
         onDelete={m.isNew ? undefined : remove}
         onWarmUp={m.isNew ? startWarmUp : undefined}
+        prsToday={todayCheckin(checkins)?.prs}
+        onPrs={m.isNew ? (n) => onSaveCheckin({ prs: n }) : undefined}
       />
     )
   }
@@ -1834,6 +1867,8 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
         meso={activeMeso(mesos)}
         lookup={muscleLookup}
         bodyWeightLb={bodyWeightLb}
+        checkins={checkins}
+        onSaveCheckin={onSaveCheckin}
         onStartMesoDay={(i) => {
           const m = activeMeso(mesos)
           if (m) startMesoDay(m, i)
@@ -1844,6 +1879,11 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
           const m = activeMeso(mesos)
           if (m) upsertMeso({ ...m, status: 'completed' })
         }}
+        onRecover={() => setMode({ m: 'pick', kind: 'recovery' })}
+        onQuickLog={() => setMode({ m: 'quicklog' })}
+        onStartRoutine={(r) =>
+          setMode(startTimer('recovery', routineSections(r), r.name))
+        }
       />
     )
   } else if (tab === 'progress') {

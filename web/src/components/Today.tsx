@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { Api } from '../lib/api'
+import type { Checkin } from '../lib/checkins'
 import {
   dayKind,
   doneDayIndexes,
@@ -14,15 +15,26 @@ import {
   workoutsInWeek,
   type Mesocycle,
 } from '../lib/mesocycle'
+import {
+  routineById,
+  routineMinutes,
+  SLEEP_ROUTINE_ID,
+  type Routine,
+} from '../lib/routines'
 import { fmtSec, totalSec } from '../lib/templates'
+import { localToday } from '../lib/weights'
+import { consistencyPct, durationMinutes, localDay } from '../lib/wellness'
 import type { Workout } from '../lib/workouts'
 import { Banner } from './cadence/Banner'
 import { Button } from './cadence/Button'
 import { Card, CardHead } from './cadence/Card'
+import { ListItem } from './cadence/ListItem'
 import { MetricTile } from './cadence/MetricTile'
 import { RecoveryRing } from './cadence/RecoveryRing'
 import { StatusPill } from './cadence/StatusPill'
 import { WeekStrip } from './cadence/WeekStrip'
+import { CheckinCard } from './Checkin'
+import { IconRecover } from './shell/icons'
 
 interface RecoveryPoint {
   date: string
@@ -94,20 +106,31 @@ export function Today({
   meso,
   lookup,
   bodyWeightLb,
+  checkins,
+  onSaveCheckin,
   onStartMesoDay,
   onStartWorkout,
   onPlan,
   onEndMeso,
+  onRecover,
+  onQuickLog,
+  onStartRoutine,
 }: {
   api: Api
   workouts: Workout[]
   meso?: Mesocycle
   lookup: (name: string) => string | undefined
   bodyWeightLb?: number
+  checkins: Checkin[]
+  onSaveCheckin: (patch: Partial<Checkin>) => void
   onStartMesoDay: (dayIndex: number) => void
   onStartWorkout: () => void
   onPlan: () => void
   onEndMeso: () => void
+  /** Opens the start picker on the Recover pane. */
+  onRecover: () => void
+  onQuickLog: () => void
+  onStartRoutine: (r: Routine) => void
 }) {
   const [recoveries, setRecoveries] = useState<RecoveryPoint[] | null>(null)
   const [sleeps, setSleeps] = useState<SleepPoint[]>([])
@@ -222,8 +245,17 @@ export function Today({
     const today = new Date()
     const monday = new Date(today)
     monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+    // Recovery sessions get their own quiet mark: a stretch is never a
+    // training day, and a missed lift must not hide behind one.
     const trained = new Set(
-      workouts.map((w) => new Date(w.start).toDateString()),
+      workouts
+        .filter((w) => w.kind !== 'recovery')
+        .map((w) => new Date(w.start).toDateString()),
+    )
+    const recovered = new Set(
+      workouts
+        .filter((w) => w.kind === 'recovery')
+        .map((w) => new Date(w.start).toDateString()),
     )
     // Planned squares budget per MESO week — the calendar row can straddle
     // a meso-week boundary, so each grid day draws from its own week's
@@ -288,11 +320,44 @@ export function Today({
         done,
         planned: plan,
         today: isToday,
+        recovered: recovered.has(d.toDateString()),
       }
     })
   }, [workouts, meso])
 
   const pr = useMemo(() => lastPr(workouts), [workouts])
+
+  // Evening nudge for the bedtime routine, gone once it's been done today.
+  const sleepRoutine = routineById(SLEEP_ROUTINE_ID)
+  const sleepDoneToday =
+    sleepRoutine != null &&
+    workouts.some(
+      (w) =>
+        w.kind === 'recovery' &&
+        w.title === sleepRoutine.name &&
+        localDay(w.start) === localToday(),
+    )
+  const showTonight =
+    new Date().getHours() >= 20 && sleepRoutine != null && !sleepDoneToday
+
+  // ---- recovery this calendar week (Mon-first) ----
+  const recoverWeek = useMemo(() => {
+    const now2 = new Date()
+    const monday = new Date(now2)
+    monday.setDate(now2.getDate() - ((now2.getDay() + 6) % 7))
+    monday.setHours(0, 0, 0, 0)
+    const days = new Set<string>()
+    let minutes = 0
+    for (const w of workouts) {
+      if (w.kind !== 'recovery') continue
+      const start = new Date(w.start)
+      if (start < monday) continue
+      days.add(start.toDateString())
+      minutes += durationMinutes(w) ?? 0
+    }
+    const recent = workouts.filter((w) => w.kind === 'recovery').slice(0, 3)
+    return { days: days.size, minutes, recent }
+  }, [workouts])
 
   const sessionsDone = meso ? workoutsInWeek(meso, workouts, week).length : 0
   const sessionsPlanned = meso ? meso.days.length : 0
@@ -455,6 +520,26 @@ export function Today({
         {sessionBlock}
       </Card>
 
+      {showTonight && sleepRoutine && (
+        <ListItem
+          lead={<IconRecover />}
+          leadTone="calm"
+          title="Tonight · Sleep"
+          sub={`${routineMinutes(sleepRoutine)} min`}
+          action={
+            <Button
+              variant="tonal"
+              size="sm"
+              onClick={() => onStartRoutine(sleepRoutine)}
+            >
+              Start
+            </Button>
+          }
+        />
+      )}
+
+      <CheckinCard checkins={checkins} onSave={onSaveCheckin} />
+
       {fresh && (
         <div className="grid grid-cols-3 gap-3">
           {hrv != null && (
@@ -516,6 +601,51 @@ export function Today({
           )}
         </div>
       )}
+
+      <Card>
+        <CardHead
+          title="Recover"
+          action={
+            <StatusPill tone="mid" dot={false}>
+              {consistencyPct(workouts, localToday())}% of 28 d
+            </StatusPill>
+          }
+        />
+        <p className="mt-1 text-caption text-ink-2">
+          {recoverWeek.days} days this week · {recoverWeek.minutes} min
+        </p>
+        <div className="mt-3.5 flex gap-2">
+          <Button variant="tonal" className="flex-1" onClick={onRecover}>
+            Routine
+          </Button>
+          <Button variant="quiet" className="flex-1" onClick={onQuickLog}>
+            Quick log
+          </Button>
+        </div>
+        {recoverWeek.recent.length === 0 ? (
+          <p className="mt-3 text-caption text-ink-3">None yet</p>
+        ) : (
+          <div className="mt-3 flex flex-col">
+            {recoverWeek.recent.map((w, i) => (
+              <Fragment key={w.id}>
+                {i > 0 && <div aria-hidden="true" className="h-px bg-hairline" />}
+                <div className="flex items-center justify-between gap-3 py-2">
+                  <span className="min-w-0 truncate text-body font-medium text-ink">
+                    {w.title || 'Recovery'}
+                  </span>
+                  <span className="shrink-0 text-caption text-ink-3">
+                    {new Date(w.start).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                    })}{' '}
+                    · {durationMinutes(w) ?? 0} min
+                  </span>
+                </div>
+              </Fragment>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <Card>
         <CardHead

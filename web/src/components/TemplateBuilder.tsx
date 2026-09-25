@@ -7,14 +7,18 @@ import {
   makeMuscleLookup,
   type CustomExercise,
 } from '../lib/exercises'
+import { BUILTIN_ROUTINES, STRETCH_NAMES } from '../lib/routines'
+import { stretchByName } from '../lib/stretches'
 import {
   buildIntervals,
   DEFAULT_PLAN,
+  DEFAULT_TRANSITION_SEC,
   fmtSec,
   planFromSections,
   routineToSections,
   totalSec,
   type QuickIntervalPlan,
+  type RoutineItem,
   type Template,
   type TemplateExercise,
 } from '../lib/templates'
@@ -25,6 +29,7 @@ import { Field, SELECT_WELL, TextInput } from './cadence/Field'
 import { IconButton } from './cadence/IconButton'
 import type { LeadTone } from './cadence/ListItem'
 import { Stepper } from './cadence/Stepper'
+import { Switch } from './cadence/Switch'
 import {
   IconGrip,
   IconRecover,
@@ -50,6 +55,7 @@ const KIND_OPTIONS: Array<{ value: WorkoutKind; label: string }> = [
   { value: 'strength', label: 'Strength' },
   { value: 'speed', label: 'Speed' },
   { value: 'cardio', label: 'Cardio' },
+  { value: 'recovery', label: 'Recovery' },
 ]
 
 /** The sub line of a template row: what it holds. */
@@ -158,12 +164,23 @@ export function TemplateBuilder({
   const [plan, setPlan] = useState<QuickIntervalPlan>(
     initial?.sections ? planFromSections(initial.sections) : DEFAULT_PLAN,
   )
+  // Recovery routines: an ordered list of holds/drills, edited in place
+  const [items, setItems] = useState<RoutineItem[]>(initial?.items ?? [])
+  const [transitionSec, setTransitionSec] = useState(
+    initial?.transitionSec ?? DEFAULT_TRANSITION_SEC,
+  )
+  const [stretchName, setStretchName] = useState('')
+  const [scaleMin, setScaleMin] = useState(10)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const nameId = useId()
   const exId = useId()
   const muscleId = useId()
   const slotId = useId()
+  const startFromId = useId()
+  const stretchId = useId()
+  const leadInId = useId()
+  const scaleId = useId()
 
   // Every way out unmounts this screen in the parent, so the sheet drops
   // first and the real callback waits for the exit to finish.
@@ -216,15 +233,75 @@ export function TemplateBuilder({
     ])
   }
 
+  function reorder<T>(prev: T[], from: number, to: number): T[] {
+    const next = [...prev]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    return next
+  }
+
+  /** The drag handles serve whichever list the current kind edits. */
   function moveExercise(from: number, to: number) {
     if (from === to) return
-    setExercises((prev) => {
-      const next = [...prev]
-      const [moved] = next.splice(from, 1)
-      next.splice(to, 0, moved)
-      return next
-    })
+    if (kind === 'recovery') setItems((prev) => reorder(prev, from, to))
+    else setExercises((prev) => reorder(prev, from, to))
   }
+
+  function addStretch() {
+    const trimmed = stretchName.trim()
+    if (!trimmed) return
+    const s = stretchByName(trimmed)
+    setItems([
+      ...items,
+      {
+        name: s?.name ?? trimmed,
+        seconds: s?.defaultSec ?? 30,
+        ...(s?.perSide && { perSide: true }),
+      },
+    ])
+    setStretchName('')
+  }
+
+  function patchItem(i: number, patch: Partial<RoutineItem>) {
+    setItems((prev) => prev.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+  }
+
+  /** perSide is only ever `true` or absent — never a stored `false`. */
+  function setPerSide(i: number, on: boolean) {
+    setItems((prev) =>
+      prev.map((x, j) => {
+        if (j !== i) return x
+        const next = { ...x }
+        if (on) next.perSide = true
+        else delete next.perSide
+        return next
+      }),
+    )
+  }
+
+  /** Stretch or shrink every hold so the whole routine lands on N minutes. */
+  function scaleTo(minutes: number) {
+    const current = totalSec(routineToSections(items, transitionSec))
+    if (current === 0) return
+    const holdNow = items.reduce(
+      (s, it) => s + it.seconds * (it.perSide ? 2 : 1),
+      0,
+    )
+    const overhead = current - holdNow
+    const holdBudget = Math.max(60, minutes * 60 - overhead)
+    const factor = holdBudget / holdNow
+    setItems((prev) =>
+      prev.map((it) => ({
+        ...it,
+        seconds: Math.min(
+          300,
+          Math.max(10, Math.round((it.seconds * factor) / 5) * 5),
+        ),
+      })),
+    )
+  }
+
+  const routineTotal = totalSec(routineToSections(items, transitionSec))
 
   function onHandlePointerDown(ei: number, ev: React.PointerEvent) {
     ev.preventDefault()
@@ -292,17 +369,29 @@ export function TemplateBuilder({
       setError('Add at least one exercise.')
       return
     }
+    if (kind === 'recovery' && items.length === 0) {
+      setError('Add at least one stretch.')
+      return
+    }
     setBusy(true)
     setError(null)
     const template: Template =
       kind === 'strength'
         ? { id: initial?.id ?? crypto.randomUUID(), name: trimmed, kind, exercises }
-        : {
-            id: initial?.id ?? crypto.randomUUID(),
-            name: trimmed,
-            kind,
-            sections: buildIntervals(plan),
-          }
+        : kind === 'recovery'
+          ? {
+              id: initial?.id ?? crypto.randomUUID(),
+              name: trimmed,
+              kind,
+              items,
+              transitionSec,
+            }
+          : {
+              id: initial?.id ?? crypto.randomUUID(),
+              name: trimmed,
+              kind,
+              sections: buildIntervals(plan),
+            }
     try {
       const res = await api.send('POST', '/api/templates', template)
       const body = await res.json()
@@ -333,7 +422,15 @@ export function TemplateBuilder({
       open={open}
       onClose={() => dismiss(onCancel)}
       onExited={onExited}
-      title={initial ? 'Edit template' : 'New template'}
+      title={
+        kind === 'recovery'
+          ? initial
+            ? 'Edit routine'
+            : 'New routine'
+          : initial
+            ? 'Edit template'
+            : 'New template'
+      }
     >
       <div className="flex flex-col gap-3">
         <Field label="Name" htmlFor={nameId}>
@@ -479,6 +576,170 @@ export function TemplateBuilder({
                 </Button>
               </div>
             </Field>
+          </>
+        ) : kind === 'recovery' ? (
+          <>
+            {items.length === 0 && (
+              <Field label="Start from" htmlFor={startFromId}>
+                <select
+                  id={startFromId}
+                  className={SELECT_WELL}
+                  defaultValue=""
+                  onChange={(e) => {
+                    const r = BUILTIN_ROUTINES.find(
+                      (x) => x.id === e.target.value,
+                    )
+                    if (!r) return
+                    setItems(r.items.map((it) => ({ ...it })))
+                    setTransitionSec(r.transitionSec)
+                    if (!name.trim()) setName(r.name)
+                  }}
+                >
+                  <option value="">Blank</option>
+                  {BUILTIN_ROUTINES.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
+            {items.length > 0 && (
+              <div className="flex flex-col">
+                {items.map((it, i) => {
+                  const region = stretchByName(it.name)?.region
+                  return (
+                    <div
+                      key={i}
+                      ref={(el) => {
+                        rowRefs.current[i] = el
+                      }}
+                      className={`flex flex-col gap-2 py-2 ${
+                        dragIndex === i ? 'rounded-md bg-surface shadow-float' : ''
+                      }`}
+                    >
+                      {i > 0 && dragIndex !== i && (
+                        <div aria-hidden="true" className="h-px bg-hairline" />
+                      )}
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-body font-medium text-ink">
+                            {it.name}
+                          </p>
+                          {region && (
+                            <p className="text-caption text-ink-2">{region}</p>
+                          )}
+                        </div>
+                        <IconButton
+                          size="sm"
+                          label="Reorder"
+                          onPointerDown={(ev) => onHandlePointerDown(i, ev)}
+                          onPointerMove={onHandlePointerMove}
+                          onPointerUp={onHandlePointerUp}
+                          onPointerCancel={onHandlePointerUp}
+                          className="touch-none cursor-grab select-none"
+                        >
+                          <IconGrip />
+                        </IconButton>
+                        <IconButton
+                          size="sm"
+                          label="Remove"
+                          onClick={() =>
+                            setItems(items.filter((_, j) => j !== i))
+                          }
+                        >
+                          <IconX className="h-4 w-4" />
+                        </IconButton>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-caption font-semibold text-ink-2">
+                          Seconds
+                        </span>
+                        <Stepper
+                          ariaLabel={`Seconds for ${it.name}`}
+                          min={5}
+                          max={600}
+                          step={5}
+                          value={it.seconds}
+                          onChange={(n) => patchItem(i, { seconds: n })}
+                        />
+                      </div>
+                      <Switch
+                        checked={it.perSide === true}
+                        onChange={(on) => setPerSide(i, on)}
+                        label="Per side"
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <Field label="Stretch" htmlFor={stretchId}>
+              <TextInput
+                id={stretchId}
+                list="template-stretch-names"
+                value={stretchName}
+                onChange={(e) => setStretchName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addStretch()}
+              />
+              <datalist id="template-stretch-names">
+                {STRETCH_NAMES.map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
+            </Field>
+            <Button variant="quiet" block onClick={addStretch}>
+              Add stretch
+            </Button>
+
+            <div className="flex min-h-11 items-center justify-between gap-3">
+              <label
+                htmlFor={leadInId}
+                className="text-caption font-semibold text-ink-2"
+              >
+                Lead-in (s)
+              </label>
+              <Stepper
+                id={leadInId}
+                ariaLabel="Lead-in (s)"
+                min={0}
+                max={30}
+                value={transitionSec}
+                onChange={setTransitionSec}
+              />
+            </div>
+            <div className="flex min-h-11 items-center justify-between gap-3">
+              <label
+                htmlFor={scaleId}
+                className="text-caption font-semibold text-ink-2"
+              >
+                Scale to (min)
+              </label>
+              <div className="flex items-center gap-2">
+                <Stepper
+                  id={scaleId}
+                  ariaLabel="Scale to (min)"
+                  min={2}
+                  max={60}
+                  value={scaleMin}
+                  onChange={setScaleMin}
+                />
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  disabled={items.length === 0}
+                  onClick={() => scaleTo(scaleMin)}
+                >
+                  Apply
+                </Button>
+              </div>
+            </div>
+
+            <p className="text-caption text-ink-3">
+              {items.length} stretches · {fmtSec(routineTotal)}
+            </p>
           </>
         ) : (
           <PlanFields plan={plan} onChange={setPlan} />

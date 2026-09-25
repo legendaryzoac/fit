@@ -6,6 +6,9 @@ export interface WeekDay {
   done: boolean
   planned: boolean
   today: boolean
+  /** A recovery session was logged this day — a quiet amber dot, never
+   * a face change (a stretch is not a training day). */
+  recovered?: boolean
 }
 
 /** Seven day circles: rest, planned or done, with a ring on today. */
@@ -38,6 +41,11 @@ export function WeekStrip({ days }: { days: WeekDay[] }) {
                 d.num
               )}
             </span>
+            {/* Slot always reserved so the row never jumps on a recovered day */}
+            <span
+              aria-hidden="true"
+              className={`h-1 w-1 rounded-pill ${d.recovered ? 'bg-amber' : 'bg-transparent'}`}
+            />
           </div>
         )
       })}

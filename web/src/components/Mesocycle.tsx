@@ -21,6 +21,7 @@ import {
   type MesoTemplate,
 } from '../lib/mesocycle'
 import { fmtSec, totalSec, type Template } from '../lib/templates'
+import { durationMinutes } from '../lib/wellness'
 import type { Workout } from '../lib/workouts'
 import { Banner } from './cadence/Banner'
 import { Button } from './cadence/Button'
@@ -207,8 +208,12 @@ export function MesoCard({
 
   // The strip: trained days are done, scheduled sessions still to come are
   // planned; a legacy weekday-less block spreads its remaining sessions
-  // over the days left in the week.
-  const trained = new Set(workouts.map((w) => new Date(w.start).toDateString()))
+  // over the days left in the week. A stretch is never a training day.
+  const trained = new Set(
+    workouts
+      .filter((w) => w.kind !== 'recovery')
+      .map((w) => new Date(w.start).toDateString()),
+  )
   let remaining =
     scheduled.length === 0
       ? Math.max(0, totalSessions - workoutsInWeek(meso, workouts, week).length)
@@ -237,6 +242,22 @@ export function MesoCard({
       today: isToday,
     }
   })
+
+  // Recovery sessions this calendar week — shown as a quiet caption under
+  // the strip, never mixed into the training done/planned faces.
+  const weekStart = new Date(monday)
+  weekStart.setHours(0, 0, 0, 0)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekStart.getDate() + 7)
+  const recoveryThisWeek = workouts.filter((w) => {
+    if (w.kind !== 'recovery') return false
+    const t = new Date(w.start)
+    return t >= weekStart && t < weekEnd
+  })
+  const recoveryMinutes = recoveryThisWeek.reduce(
+    (n, w) => n + (durationMinutes(w) ?? 0),
+    0,
+  )
 
   async function endBlock() {
     if (await confirm({ title: 'End this block?', action: 'End block' })) {
@@ -332,6 +353,13 @@ export function MesoCard({
           <div className="mt-4">
             <WeekStrip days={weekDays} />
           </div>
+          {recoveryThisWeek.length > 0 && (
+            <p className="mt-2 text-caption font-semibold text-amber-strong">
+              Recovery · {recoveryThisWeek.length}{' '}
+              {recoveryThisWeek.length === 1 ? 'session' : 'sessions'} ·{' '}
+              {recoveryMinutes} min
+            </p>
+          )}
           {scheduled.length > 0 && (
             <div className="mt-4 flex flex-col">
               {scheduled.map(({ d, i }, k) => (

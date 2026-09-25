@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Api } from '../lib/api'
+import { useCheckins } from '../lib/checkins'
 import { maybeResumeLockScreen } from '../lib/lockScreen'
 import {
   isInSession,
@@ -56,6 +57,9 @@ export function AppShell({
     new URLSearchParams(window.location.search).has('whoop') ? 'trends' : 'today',
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Owned by the shell so Today, the ledger and (eventually) the Recovery
+  // tab all see the same check-ins.
+  const { checkins, save: saveCheckin } = useCheckins(api)
 
   // Tab switches crossfade the content in; reduced motion skips it.
   const contentRef = useRef<HTMLDivElement>(null)
@@ -86,7 +90,12 @@ export function AppShell({
         <div ref={contentRef} className="flex flex-col gap-4">
           {/* One Workouts instance stays mounted across all four tabs so
               drafts and caches survive tab hops. */}
-          <Workouts api={api} tab={WORKOUTS_TAB[tab]} />
+          <Workouts
+            api={api}
+            tab={WORKOUTS_TAB[tab]}
+            checkins={checkins}
+            onSaveCheckin={saveCheckin}
+          />
         </div>
       </main>
 
