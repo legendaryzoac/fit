@@ -387,6 +387,14 @@ export function Today({
             </div>
           )
         })}
+        <Button
+          variant="ghost"
+          block
+          className="mt-1"
+          onClick={onStartWorkout}
+        >
+          Other workout
+        </Button>
       </>
     ) : (
       <>

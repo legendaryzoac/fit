@@ -25,6 +25,7 @@ import {
   type DockTimer,
   type TimerTone,
 } from './shell/Dock'
+import { ConfirmDialog } from './shell/ConfirmDialog'
 import { SettingsSheet } from './shell/SettingsSheet'
 import { TopBar } from './shell/TopBar'
 import { Workouts, type WorkoutsTab } from './Workouts'
@@ -105,6 +106,7 @@ export function AppShell({
         email={email}
         onSignOut={onSignOut}
       />
+      <ConfirmDialog />
     </div>
   )
 }

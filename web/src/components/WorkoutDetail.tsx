@@ -13,6 +13,7 @@ import {
 import { Button } from './cadence/Button'
 import { List, ListItem } from './cadence/ListItem'
 import { StatusPill, type StatusTone } from './cadence/StatusPill'
+import { confirm } from '../lib/confirm'
 import { Sheet } from './shell/Sheet'
 import { useSheetDismiss } from './shell/useSheetDismiss'
 
@@ -162,8 +163,10 @@ export function WorkoutDetail({
     })
   }
 
-  function remove() {
-    if (!window.confirm('Delete this workout?')) return
+  async function remove() {
+    if (!(await confirm({ title: 'Delete this workout?', action: 'Delete' }))) {
+      return
+    }
     void onDelete(w).then((ok) => {
       if (ok) dismiss(onClose)
     })

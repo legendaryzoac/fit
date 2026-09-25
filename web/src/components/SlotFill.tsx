@@ -33,7 +33,7 @@ export function SlotFill({
    * declined and the sheet stays up. */
   onStart: (
     exercises: Array<{ name: string; setCount: number }>,
-  ) => (() => void) | null
+  ) => Promise<(() => void) | null>
   /** Runs once the sheet has dropped. */
   onCancel: () => void
 }) {
@@ -79,8 +79,8 @@ export function SlotFill({
 
   const allFilled = picks.every((p) => p.trim().length > 0)
 
-  function start() {
-    const then = onStart(
+  async function start() {
+    const then = await onStart(
       entries.map((entry, i) => ({
         name: entry.muscle === undefined ? entry.name : picks[i].trim(),
         setCount: entry.setCount,

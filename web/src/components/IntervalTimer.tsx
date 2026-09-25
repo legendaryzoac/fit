@@ -29,6 +29,7 @@ import { AddSetButton, SetHeader, SetRow } from './cadence/SetRow'
 import { StatusPill } from './cadence/StatusPill'
 import { LockScreenSwitch } from './LockScreenSwitch'
 import { IconChevronDown, IconRun, IconX } from './shell/icons'
+import { confirm } from '../lib/confirm'
 import { Sheet } from './shell/Sheet'
 import { useSheetDismiss } from './shell/useSheetDismiss'
 
@@ -360,10 +361,12 @@ export function IntervalSession({
 
   // Scrim, Escape or a drag parks a running timer; once it has ended the
   // summary holds unsaved details, so the same gesture asks first.
-  function close() {
+  async function close() {
     if (phase === 'run') {
       dismiss(onMinimize)
-    } else if (window.confirm('Discard this session?')) {
+    } else if (
+      await confirm({ title: 'Discard this session?', action: 'Discard' })
+    ) {
       dismiss(onCancel)
     }
   }
@@ -499,51 +502,58 @@ export function IntervalSession({
   }
 
   return (
-    <Sheet open={open} onClose={close} onExited={onExited} ariaLabel="Timer">
-      <SessionBar
-        left={
-          phase === 'run' && (
-            <IconButton label="Minimise" onClick={() => dismiss(onMinimize)}>
-              <IconChevronDown />
-            </IconButton>
-          )
-        }
-        center={
-          <div className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate text-body font-medium text-ink">
-              {heading}
-            </span>
-            {phase === 'run' && (
-              <span className="shrink-0 text-caption text-ink-2 tabular-nums">
-                {stopwatch
-                  ? fmtSec(elapsedSec)
-                  : `${fmtSec(Math.min(elapsedSec, total))} of ${fmtSec(total)}`}
-              </span>
-            )}
-          </div>
-        }
-        right={
-          phase === 'run' && (
-            <div className="flex items-center gap-2">
-              <IconButton label="Discard" onClick={discard}>
-                <IconX />
+    <Sheet
+      open={open}
+      onClose={close}
+      onExited={onExited}
+      ariaLabel="Timer"
+      header={
+        <SessionBar
+          left={
+            phase === 'run' && (
+              <IconButton label="Minimise" onClick={() => dismiss(onMinimize)}>
+                <IconChevronDown />
               </IconButton>
-              <Button variant="ghost" size="sm" onClick={endEarly}>
-                End
-              </Button>
+            )
+          }
+          center={
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="truncate text-body font-medium text-ink">
+                {heading}
+              </span>
+              {phase === 'run' && (
+                <span className="shrink-0 text-caption text-ink-2 tabular-nums">
+                  {stopwatch
+                    ? fmtSec(elapsedSec)
+                    : `${fmtSec(Math.min(elapsedSec, total))} of ${fmtSec(total)}`}
+                </span>
+              )}
             </div>
-          )
-        }
-        progress={
-          phase === 'run' && !stopwatch ? (
-            <Progress
-              value={total > 0 ? Math.min(elapsedSec, total) / total : 0}
-              tone="effort"
-              label="Session"
-            />
-          ) : undefined
-        }
-      />
+          }
+          right={
+            phase === 'run' && (
+              <div className="flex items-center gap-2">
+                <IconButton label="Discard" onClick={discard}>
+                  <IconX />
+                </IconButton>
+                <Button variant="ghost" size="sm" onClick={endEarly}>
+                  End
+                </Button>
+              </div>
+            )
+          }
+          progress={
+            phase === 'run' && !stopwatch ? (
+              <Progress
+                value={total > 0 ? Math.min(elapsedSec, total) / total : 0}
+                tone="effort"
+                label="Session"
+              />
+            ) : undefined
+          }
+        />
+      }
+    >
       <div className="mt-3 flex flex-col gap-3">{body}</div>
     </Sheet>
   )

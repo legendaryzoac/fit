@@ -38,9 +38,10 @@ export function Progress({
 }
 
 /**
- * The bar that sticks to the top of a session sheet: a 44px control on
- * the left, the clock or title in the middle, an action on the right.
- * `progress` rides underneath, full-bleed, and sticks with it.
+ * The bar at the top of a session sheet, passed as the Sheet's `header`
+ * so it stays put while the body scrolls: a 44px control on the left,
+ * the clock or title in the middle, an action on the right. `progress`
+ * rides underneath, full-bleed.
  */
 export function SessionBar({
   left,
@@ -54,7 +55,7 @@ export function SessionBar({
   progress?: ReactNode
 }) {
   return (
-    <div className="backdrop-bar sticky top-0 z-10 -mx-6">
+    <div className="-mx-6">
       <div className="grid grid-cols-[44px_1fr_auto] items-center gap-3 px-4 py-2">
         <div className="flex h-11 w-11 items-center justify-center">{left}</div>
         <div className="min-w-0">{center}</div>

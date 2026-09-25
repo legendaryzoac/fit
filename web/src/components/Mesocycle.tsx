@@ -34,6 +34,7 @@ import { Stepper } from './cadence/Stepper'
 import { WeekStrip, type WeekDay } from './cadence/WeekStrip'
 import { IconCheck, IconX } from './shell/icons'
 import { Segment } from './shell/Segment'
+import { confirm } from '../lib/confirm'
 import { Sheet } from './shell/Sheet'
 import { useSheetDismiss } from './shell/useSheetDismiss'
 
@@ -237,8 +238,8 @@ export function MesoCard({
     }
   })
 
-  function endBlock() {
-    if (window.confirm('End this mesocycle?')) {
+  async function endBlock() {
+    if (await confirm({ title: 'End this block?', action: 'End block' })) {
       onEnd(wrapUp ? 'completed' : 'abandoned')
     }
   }
@@ -469,17 +470,24 @@ export function MesoSetup({
     setStep(s)
   }
 
-  function cancel() {
-    if (!dirty || window.confirm('Discard this mesocycle plan?')) {
+  async function cancel() {
+    if (
+      !dirty ||
+      (await confirm({ title: 'Discard this plan?', action: 'Discard' }))
+    ) {
       dismiss(onCancel)
     }
   }
 
-  function loadPreset(t: MesoTemplate) {
+  async function loadPreset(t: MesoTemplate) {
     if (
       dirty &&
       presetId !== t.id &&
-      !window.confirm('Replace the current plan with this template?')
+      !(await confirm({
+        title: 'Replace the plan?',
+        body: `${t.name} takes its place.`,
+        action: 'Replace',
+      }))
     ) {
       return
     }
@@ -491,8 +499,11 @@ export function MesoSetup({
     setError(null)
   }
 
-  function startFromScratch() {
-    if (dirty && !window.confirm('Clear the current plan and start over?')) {
+  async function startFromScratch() {
+    if (
+      dirty &&
+      !(await confirm({ title: 'Clear the plan?', action: 'Clear' }))
+    ) {
       return
     }
     setPresetId(null)

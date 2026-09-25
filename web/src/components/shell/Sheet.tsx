@@ -33,6 +33,7 @@ export function Sheet({
   onClose,
   onExited,
   title,
+  header,
   ariaLabel,
   children,
 }: {
@@ -41,6 +42,8 @@ export function Sheet({
   /** Fires once the exit transition has finished and the sheet unmounts. */
   onExited?: () => void
   title?: string
+  /** Stays put under the handle while the body scrolls, e.g. a SessionBar. */
+  header?: ReactNode
   /** Used when there is no title to label the dialog. */
   ariaLabel?: string
   children: ReactNode
@@ -169,27 +172,34 @@ export function Sheet({
         aria-label={title ? undefined : ariaLabel}
         tabIndex={-1}
         onKeyDown={onPanelKeyDown}
-        className={`fixed inset-x-0 bottom-0 mx-auto w-full max-w-column overflow-y-auto rounded-t-xl bg-surface px-6 pt-2 pb-[calc(24px+env(safe-area-inset-bottom))] shadow-float max-h-[92dvh] transition-transform ${
+        className={`fixed inset-x-0 bottom-0 mx-auto flex max-h-[92dvh] w-full max-w-column flex-col rounded-t-xl bg-surface shadow-float transition-transform ${
           shown && open
             ? 'translate-y-0 duration-[400ms] ease-out'
             : 'translate-y-full duration-[240ms] ease-in'
         }`}
       >
-        <div
-          onPointerDown={onHandleDown}
-          onPointerMove={onHandleMove}
-          onPointerUp={onHandleEnd}
-          onPointerCancel={onHandleEnd}
-          className="mx-auto mb-4 flex h-6 w-16 touch-none items-center justify-center"
-        >
-          <div className="h-1 w-9 rounded-xs bg-surface-3" />
+        {/* Handle, title and header stay put; only the body scrolls, so
+            nothing can ride up past the bar. */}
+        <div className="shrink-0 px-6 pt-2">
+          <div
+            onPointerDown={onHandleDown}
+            onPointerMove={onHandleMove}
+            onPointerUp={onHandleEnd}
+            onPointerCancel={onHandleEnd}
+            className="mx-auto mb-3 flex h-6 w-16 touch-none items-center justify-center"
+          >
+            <div className="h-1 w-9 rounded-xs bg-surface-3" />
+          </div>
+          {title && (
+            <h2 id={titleId} className="mb-3 text-title text-ink">
+              {title}
+            </h2>
+          )}
+          {header}
         </div>
-        {title && (
-          <h2 id={titleId} className="mb-4 text-title text-ink">
-            {title}
-          </h2>
-        )}
-        {children}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-[calc(24px+env(safe-area-inset-bottom))]">
+          {children}
+        </div>
       </div>
     </div>,
     document.body,

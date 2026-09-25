@@ -26,6 +26,7 @@ import type { LeadTone } from './cadence/ListItem'
 import { Stepper } from './cadence/Stepper'
 import { IconGrip, IconRun, IconSpeed, IconStrength, IconX } from './shell/icons'
 import { Segment } from './shell/Segment'
+import { confirm } from '../lib/confirm'
 import { Sheet } from './shell/Sheet'
 import { useSheetDismiss } from './shell/useSheetDismiss'
 
@@ -303,9 +304,11 @@ export function TemplateBuilder({
     }
   }
 
-  function remove() {
+  async function remove() {
     if (!initial || !onDelete) return
-    if (!window.confirm('Delete this template?')) return
+    if (!(await confirm({ title: 'Delete this template?', action: 'Delete' }))) {
+      return
+    }
     setBusy(true)
     void onDelete(initial).then((ok) => {
       if (ok) dismiss(onCancel)

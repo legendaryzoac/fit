@@ -88,10 +88,12 @@ export function Dock({
             {/* One indicator, a column wide, slides by whole columns */}
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute left-0 top-1.5 flex w-1/4 justify-center transition-transform duration-[320ms] ease-out"
+              className="pointer-events-none absolute inset-y-0 left-0 flex w-1/4 flex-col items-center justify-center gap-0.5 transition-transform duration-[320ms] ease-out"
               style={{ transform: `translateX(${activeIndex * 100}%)` }}
             >
               <div className="h-7 w-14 rounded-pill bg-brand-soft" />
+              {/* Same stack as a tab, so the pill lands on the icon row */}
+              <span className="invisible text-micro font-semibold">Today</span>
             </div>
             {TABS.map((t) => {
               const active = t.value === tab

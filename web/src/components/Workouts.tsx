@@ -102,6 +102,7 @@ import {
   IconStrength,
   IconX,
 } from './shell/icons'
+import { confirm } from '../lib/confirm'
 import { Sheet } from './shell/Sheet'
 import { useSheetDismiss } from './shell/useSheetDismiss'
 import { SlotFill } from './SlotFill'
@@ -569,8 +570,11 @@ function SessionEditor({
     dismiss(() => onFinish(done))
   }
 
-  function discard() {
-    if (w.exercises.length > 0 && !window.confirm('Discard this workout?')) {
+  async function discard() {
+    if (
+      w.exercises.length > 0 &&
+      !(await confirm({ title: 'Discard this workout?', action: 'Discard' }))
+    ) {
       return
     }
     saveDraft(null)
@@ -594,49 +598,50 @@ function SessionEditor({
       onClose={() => dismiss(onClose)}
       onExited={onExited}
       ariaLabel={isNew ? 'Live session' : 'Edit workout'}
+      header={
+        <SessionBar
+          left={
+            <IconButton
+              label={isNew ? 'Minimise' : 'Back'}
+              onClick={() => dismiss(onClose)}
+            >
+              {isNew ? <IconChevronDown /> : <IconChevronLeft />}
+            </IconButton>
+          }
+          center={
+            <div className="flex min-w-0 items-baseline gap-2">
+              {isNew ? (
+                <span className="text-numeric-lg text-ink">
+                  {fmtElapsed(now - new Date(w.start).getTime())}
+                </span>
+              ) : (
+                <span className="truncate text-body font-medium text-ink">
+                  {fmtDate(w.start)}
+                </span>
+              )}
+              {totalCount > 0 && (
+                <span className="shrink-0 text-caption text-ink-2">
+                  {doneCount} of {totalCount} sets
+                </span>
+              )}
+            </div>
+          }
+          right={
+            <Button variant="tonal" size="sm" onClick={finish}>
+              {isNew ? 'Finish' : 'Save'}
+            </Button>
+          }
+          progress={
+            isNew ? (
+              <Progress
+                value={totalCount > 0 ? doneCount / totalCount : 0}
+                label="Sets done"
+              />
+            ) : undefined
+          }
+        />
+      }
     >
-      <SessionBar
-        left={
-          <IconButton
-            label={isNew ? 'Minimise' : 'Back'}
-            onClick={() => dismiss(onClose)}
-          >
-            {isNew ? <IconChevronDown /> : <IconChevronLeft />}
-          </IconButton>
-        }
-        center={
-          <div className="flex min-w-0 items-baseline gap-2">
-            {isNew ? (
-              <span className="text-numeric-lg text-ink">
-                {fmtElapsed(now - new Date(w.start).getTime())}
-              </span>
-            ) : (
-              <span className="truncate text-body font-medium text-ink">
-                {fmtDate(w.start)}
-              </span>
-            )}
-            {totalCount > 0 && (
-              <span className="shrink-0 text-caption text-ink-2">
-                {doneCount} of {totalCount} sets
-              </span>
-            )}
-          </div>
-        }
-        right={
-          <Button variant="tonal" size="sm" onClick={finish}>
-            {isNew ? 'Finish' : 'Save'}
-          </Button>
-        }
-        progress={
-          isNew ? (
-            <Progress
-              value={totalCount > 0 ? doneCount / totalCount : 0}
-              label="Sets done"
-            />
-          ) : undefined
-        }
-      />
-
       <div className="mt-3 flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="min-w-0 truncate text-title text-ink">{heading}</h2>
@@ -982,7 +987,7 @@ function StartPicker({
   onStrength: (template?: Template) => Mode
   onTimer: (kind: WorkoutKind, sections: IntervalSection[], title?: string) => Mode
   /** False when a live draft exists and the lifter keeps it. */
-  confirmStart: () => boolean
+  confirmStart: () => Promise<boolean>
   onEnter: (m: Mode) => void
   onDeleteTemplate: (t: Template) => void
   onCancel: () => void
@@ -993,8 +998,8 @@ function StartPicker({
 
   const planSections = useMemo(() => buildIntervals(plan), [plan])
 
-  function start(next: () => Mode, guard = true) {
-    if (guard && !confirmStart()) return
+  async function start(next: () => Mode, guard = true) {
+    if (guard && !(await confirmStart())) return
     const m = next()
     dismiss(() => onEnter(m))
   }
@@ -1365,18 +1370,16 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
   }
 
   /** A minimised live session's draft must not be silently clobbered. */
-  function confirmReplaceLive(): boolean {
-    return (
-      !(loadDraft() || loadTimerDraft()) ||
-      window.confirm('A session is already live — discard it and start this one?')
-    )
+  async function confirmReplaceLive(): Promise<boolean> {
+    if (!(loadDraft() || loadTimerDraft())) return true
+    return confirm({ title: 'Discard the live session?', action: 'Discard' })
   }
 
   /** Start the given microcycle day with this week's prescriptions. */
-  function startMesoDay(meso: Mesocycle, dayIndex: number) {
+  async function startMesoDay(meso: Mesocycle, dayIndex: number) {
     const day = meso.days[dayIndex]
     if (!day) return
-    if (!confirmReplaceLive()) return
+    if (!(await confirmReplaceLive())) return
     const now = Date.now()
     // Overdue mesos clamp to the deload week's (gentle) prescriptions
     const week = Math.min(mesoWeek(meso, now), meso.weeks - 1)
@@ -1658,7 +1661,15 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
 
     content = (
       <div className="flex flex-col gap-3">
-        <h1 className="text-title-lg text-ink">Log</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-title-lg text-ink">Log</h1>
+          <IconButton
+            label="New workout"
+            onClick={() => setMode({ m: 'pick' })}
+          >
+            <IconPlus />
+          </IconButton>
+        </div>
         <Chips
           options={LOG_CHIPS}
           value={logFilter}
@@ -1810,11 +1821,11 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
             setDetail(null)
             setMode({ m: 'strength', workout: detail, isNew: false })
           }}
-          onRepeat={() => {
+          onRepeat={async () => {
             setDetail(null)
             // Through beginStrength: guards a live draft like every
             // other session start.
-            if (!confirmReplaceLive()) return
+            if (!(await confirmReplaceLive())) return
             setMode(
               beginStrength({
                 ...detail,
@@ -1878,8 +1889,8 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
           customs={customs}
           lookup={muscleLookup}
           history={workouts}
-          onStart={(entries) => {
-            if (!confirmReplaceLive()) return null
+          onStart={async (entries) => {
+            if (!(await confirmReplaceLive())) return null
             // A free-typed pick inherits its slot's muscle group, otherwise
             // feedback and progression would never see the exercise.
             const slotEntries = mode.template.exercises ?? []
