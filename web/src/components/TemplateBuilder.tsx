@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Api } from '../lib/api'
 import {
   EXERCISES,
@@ -18,12 +18,40 @@ import {
   type TemplateExercise,
 } from '../lib/templates'
 import type { WorkoutKind } from '../lib/workouts'
-import { buttonClass, inputClass, NumberField } from './ui'
+import { Banner } from './cadence/Banner'
+import { Button } from './cadence/Button'
+import { Field, SELECT_WELL, TextInput } from './cadence/Field'
+import { IconButton } from './cadence/IconButton'
+import type { LeadTone } from './cadence/ListItem'
+import { Stepper } from './cadence/Stepper'
+import { IconGrip, IconRun, IconSpeed, IconStrength, IconX } from './shell/icons'
+import { Segment } from './shell/Segment'
+import { Sheet } from './shell/Sheet'
+import { useSheetDismiss } from './shell/useSheetDismiss'
 
-export const KIND_STYLE: Record<WorkoutKind, string> = {
-  strength: 'bg-accent-100 text-accent-800',
-  speed: 'bg-ink text-paper',
-  cardio: 'bg-accent2-100 text-accent2-800',
+/** The lead circle per kind: barbell, bolt, wave. */
+export const KIND_LEAD: Record<WorkoutKind, { icon: ReactNode; tone: LeadTone }> = {
+  strength: { icon: <IconStrength />, tone: 'brand' },
+  speed: { icon: <IconSpeed />, tone: 'effort' },
+  cardio: { icon: <IconRun />, tone: 'rest' },
+}
+
+const KIND_OPTIONS: Array<{ value: WorkoutKind; label: string }> = [
+  { value: 'strength', label: 'Strength' },
+  { value: 'speed', label: 'Speed' },
+  { value: 'cardio', label: 'Cardio' },
+]
+
+/** The sub line of a template row: what it holds. */
+export function templateMeta(t: Template): string {
+  if (t.kind === 'strength' && t.exercises) {
+    const sets = t.exercises.reduce((n, e) => n + e.setCount, 0)
+    return `${t.exercises.length} exercises · ${sets} sets`
+  }
+  if (t.sections) {
+    return `${t.sections.length} sections · ${fmtSec(totalSec(t.sections))}`
+  }
+  return ''
 }
 
 const PLAN_FIELDS: Array<{
@@ -31,44 +59,57 @@ const PLAN_FIELDS: Array<{
   label: string
   min: number
   max: number
+  step: number
 }> = [
-  { key: 'warmupSec', label: 'Warm up (sec)', min: 0, max: 7200 },
-  { key: 'workSec', label: 'Work (sec)', min: 1, max: 7200 },
-  { key: 'restSec', label: 'Rest (sec)', min: 0, max: 7200 },
-  { key: 'sets', label: 'Sets', min: 1, max: 99 },
-  { key: 'cooldownSec', label: 'Cool down (sec)', min: 0, max: 7200 },
+  { key: 'warmupSec', label: 'Warm up (s)', min: 0, max: 7200, step: 30 },
+  { key: 'workSec', label: 'Work (s)', min: 1, max: 7200, step: 5 },
+  { key: 'restSec', label: 'Rest (s)', min: 0, max: 7200, step: 5 },
+  { key: 'sets', label: 'Rounds', min: 1, max: 99, step: 1 },
+  { key: 'cooldownSec', label: 'Cool down (s)', min: 0, max: 7200, step: 30 },
 ]
 
+/** The quick interval plan as labelled Steppers; summary adds the
+ * sections-and-total line under them. */
 export function PlanFields({
   plan,
   onChange,
+  summary = true,
 }: {
   plan: QuickIntervalPlan
   onChange: (plan: QuickIntervalPlan) => void
+  summary?: boolean
 }) {
+  const id = useId()
   const sections = useMemo(() => buildIntervals(plan), [plan])
   return (
-    <div className="flex flex-col gap-2">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {PLAN_FIELDS.map(({ key, label, min, max }) => (
-          <label key={key} className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-ink/55">
-              {label}
-            </span>
-            <NumberField
-              aria-label={label}
-              min={min}
-              max={max}
-              value={plan[key]}
-              onCommit={(n) => onChange({ ...plan, [key]: n })}
-            />
+    <div className="flex flex-col gap-3">
+      {PLAN_FIELDS.map(({ key, label, min, max, step }) => (
+        <div
+          key={key}
+          className="flex min-h-11 items-center justify-between gap-3"
+        >
+          <label
+            htmlFor={`${id}-${key}`}
+            className="text-caption font-semibold text-ink-2"
+          >
+            {label}
           </label>
-        ))}
-      </div>
-      <p className="text-xs text-ink/55">
-        {sections.length} sections · {fmtSec(totalSec(sections))} total ·{' '}
-        {sections.map((s) => s.label[0]).join('·')}
-      </p>
+          <Stepper
+            id={`${id}-${key}`}
+            ariaLabel={label}
+            min={min}
+            max={max}
+            step={step}
+            value={plan[key]}
+            onChange={(n) => onChange({ ...plan, [key]: n })}
+          />
+        </div>
+      ))}
+      {summary && (
+        <p className="text-caption text-ink-3">
+          {sections.length} sections · {fmtSec(totalSec(sections))}
+        </p>
+      )}
     </div>
   )
 }
@@ -79,13 +120,18 @@ export function TemplateBuilder({
   initial,
   onSaveCustom,
   onSaved,
+  onDelete,
   onCancel,
 }: {
   api: Api
   customs: CustomExercise[]
   initial?: Template
   onSaveCustom: (name: string, muscle: string) => void
+  /** Runs once the sheet has dropped. */
   onSaved: (t: Template) => void
+  /** Resolves true once the template is gone; the sheet then drops. */
+  onDelete?: (t: Template) => Promise<boolean>
+  /** Runs once the sheet has dropped. */
   onCancel: () => void
 }) {
   const [kind, setKind] = useState<WorkoutKind>(initial?.kind ?? 'strength')
@@ -101,6 +147,14 @@ export function TemplateBuilder({
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const nameId = useId()
+  const exId = useId()
+  const muscleId = useId()
+  const slotId = useId()
+
+  // Every way out unmounts this screen in the parent, so the sheet drops
+  // first and the real callback waits for the exit to finish.
+  const { open, dismiss, onExited } = useSheetDismiss()
 
   // Drag-to-reorder: exercise rows move as the handle crosses a neighbour's
   // midpoint. Refs to the row elements let us read live positions on the fly.
@@ -162,7 +216,7 @@ export function TemplateBuilder({
   function onHandlePointerDown(ei: number, ev: React.PointerEvent) {
     ev.preventDefault()
     // preventDefault also suppresses the focus change a press would cause,
-    // so end any in-progress field edit explicitly — a NumberField draft is
+    // so end any in-progress field edit explicitly — a Stepper draft is
     // keyed to a list POSITION and must not attach to whichever row lands
     // there after the reorder.
     if (document.activeElement instanceof HTMLElement) {
@@ -240,7 +294,7 @@ export function TemplateBuilder({
       const res = await api.send('POST', '/api/templates', template)
       const body = await res.json()
       if (!res.ok) throw new Error(body.error ?? `API responded ${res.status}`)
-      onSaved(template)
+      dismiss(() => onSaved(template))
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Could not save the template',
@@ -249,172 +303,186 @@ export function TemplateBuilder({
     }
   }
 
+  function remove() {
+    if (!initial || !onDelete) return
+    if (!window.confirm('Delete this template?')) return
+    setBusy(true)
+    void onDelete(initial).then((ok) => {
+      if (ok) dismiss(onCancel)
+      else setBusy(false)
+    })
+  }
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
-          {initial ? 'Edit template' : 'New template'}
-        </h1>
-        <button
-          onClick={onCancel}
-          className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
-        >
-          Cancel
-        </button>
-      </div>
+    <Sheet
+      open={open}
+      onClose={() => dismiss(onCancel)}
+      onExited={onExited}
+      title={initial ? 'Edit template' : 'New template'}
+    >
+      <div className="flex flex-col gap-3">
+        <Field label="Name" htmlFor={nameId}>
+          <TextInput
+            id={nameId}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
 
-      <div className="flex border border-ink/40">
-        {(['strength', 'speed', 'cardio'] as const).map((k, ki) => (
-          <button
-            key={k}
-            onClick={() => setKind(k)}
-            className={`flex-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider ${
-              ki > 0 ? 'border-l border-ink/40 ' : ''
-            }${
-              kind === k
-                ? `font-extrabold ${KIND_STYLE[k]}`
-                : 'text-ink/60 hover:bg-ink/5'
-            }`}
-          >
-            {k}
-          </button>
-        ))}
-      </div>
+        <Segment
+          block
+          options={KIND_OPTIONS}
+          value={kind}
+          onChange={setKind}
+          ariaLabel="Kind"
+        />
 
-      <input
-        className={inputClass}
-        placeholder="template name (e.g. Upper A, Track Tuesday)"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
+        {kind === 'strength' ? (
+          <>
+            {exercises.length > 0 && (
+              <div className="flex flex-col">
+                {exercises.map((e, i) => {
+                  const muscle =
+                    e.muscle !== undefined ? `${e.muscle} · slot` : lookup(e.name)
+                  return (
+                    <div
+                      key={i}
+                      ref={(el) => {
+                        rowRefs.current[i] = el
+                      }}
+                      className={`flex flex-col gap-2 py-2 ${
+                        dragIndex === i ? 'rounded-md bg-surface shadow-float' : ''
+                      }`}
+                    >
+                      {i > 0 && dragIndex !== i && (
+                        <div aria-hidden="true" className="h-px bg-hairline" />
+                      )}
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-body font-medium text-ink">
+                            {e.name}
+                          </p>
+                          {muscle && (
+                            <p className="text-caption text-ink-2">{muscle}</p>
+                          )}
+                        </div>
+                        <IconButton
+                          size="sm"
+                          label="Reorder"
+                          onPointerDown={(ev) => onHandlePointerDown(i, ev)}
+                          onPointerMove={onHandlePointerMove}
+                          onPointerUp={onHandlePointerUp}
+                          onPointerCancel={onHandlePointerUp}
+                          className="touch-none cursor-grab select-none"
+                        >
+                          <IconGrip />
+                        </IconButton>
+                        <IconButton
+                          size="sm"
+                          label="Remove"
+                          onClick={() =>
+                            setExercises(exercises.filter((_, j) => j !== i))
+                          }
+                        >
+                          <IconX className="h-4 w-4" />
+                        </IconButton>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-caption font-semibold text-ink-2">
+                          Sets
+                        </span>
+                        <Stepper
+                          ariaLabel={`Sets for ${e.name}`}
+                          min={1}
+                          max={30}
+                          value={e.setCount}
+                          onChange={(n) =>
+                            setExercises((prev) =>
+                              prev.map((x, j) =>
+                                j === i ? { ...x, setCount: n } : x,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
-      {kind === 'strength' ? (
-        <>
-          {exercises.map((e, i) => (
-            <div
-              key={i}
-              ref={(el) => {
-                rowRefs.current[i] = el
-              }}
-              className={`flex items-center gap-2 border p-1 ${
-                dragIndex === i
-                  ? 'border-accent opacity-60'
-                  : 'border-transparent'
-              }`}
-            >
-              <button
-                onPointerDown={(ev) => onHandlePointerDown(i, ev)}
-                onPointerMove={onHandlePointerMove}
-                onPointerUp={onHandlePointerUp}
-                onPointerCancel={onHandlePointerUp}
-                aria-label={`reorder ${e.name}`}
-                className="touch-none cursor-grab select-none px-1 text-base leading-none text-ink/45 hover:text-ink"
-              >
-                ≡
-              </button>
-              <span className="flex-1 truncate text-sm text-ink">
-                {e.muscle !== undefined && (
-                  <span className="mr-1.5 bg-accent-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent-800">
-                    slot
-                  </span>
-                )}
-                {e.name}
-              </span>
-              <label className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink/55">
-                sets
-                <NumberField
-                  className={`${inputClass} w-16 text-center`}
-                  aria-label={`sets for ${e.name}`}
-                  min={1}
-                  max={30}
-                  value={e.setCount}
-                  onCommit={(n) =>
-                    setExercises((prev) =>
-                      prev.map((x, j) =>
-                        j === i ? { ...x, setCount: n } : x,
-                      ),
-                    )
-                  }
-                />
-              </label>
-              <button
-                onClick={() => setExercises(exercises.filter((_, j) => j !== i))}
-                className="text-ink/45 hover:text-accent-700"
-                aria-label="remove exercise"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-          <div className="flex gap-2">
-            <input
-              className={inputClass}
-              list="template-exercise-names"
-              placeholder="add exercise…"
-              value={exName}
-              onChange={(e) => setExName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addExercise()}
-            />
-            <datalist id="template-exercise-names">
-              {names.map((n) => (
-                <option key={n} value={n} />
-              ))}
-            </datalist>
-            <button onClick={addExercise} className={`${buttonClass} shrink-0`}>
-              Add
-            </button>
-          </div>
-          {typedUnknown && (
-            <label className="flex items-center gap-2 text-xs text-ink/55">
-              new exercise — muscle group:
-              <select
-                className={`${inputClass} w-auto py-1.5`}
-                value={newMuscle}
-                onChange={(e) => setNewMuscle(e.target.value)}
-              >
-                {MUSCLE_GROUPS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
+            <Field label="Exercise" htmlFor={exId}>
+              <TextInput
+                id={exId}
+                list="template-exercise-names"
+                value={exName}
+                onChange={(e) => setExName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addExercise()}
+              />
+              <datalist id="template-exercise-names">
+                {names.map((n) => (
+                  <option key={n} value={n} />
                 ))}
-              </select>
-            </label>
-          )}
-          <label className="flex items-center gap-2 text-xs text-ink/55">
-            or a generic slot:
-            <select
-              className={`${inputClass} w-auto py-1.5`}
-              value={slotMuscle}
-              onChange={(e) => setSlotMuscle(e.target.value)}
-            >
-              {MUSCLE_GROUPS.filter((m) => m !== 'other').map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={addSlot}
-              className="border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5"
-            >
-              Add slot
-            </button>
-          </label>
-        </>
-      ) : (
-        <PlanFields plan={plan} onChange={setPlan} />
-      )}
+              </datalist>
+            </Field>
+            {typedUnknown && (
+              <Field label="Muscle group" htmlFor={muscleId}>
+                <select
+                  id={muscleId}
+                  className={SELECT_WELL}
+                  value={newMuscle}
+                  onChange={(e) => setNewMuscle(e.target.value)}
+                >
+                  {MUSCLE_GROUPS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            <Button variant="quiet" block onClick={addExercise}>
+              Add exercise
+            </Button>
 
-      {error && <p className="text-sm font-semibold text-accent-700">{error}</p>}
+            <Field label="Slot" htmlFor={slotId}>
+              <div className="flex gap-2">
+                <select
+                  id={slotId}
+                  className={`${SELECT_WELL} min-w-0 flex-1`}
+                  value={slotMuscle}
+                  onChange={(e) => setSlotMuscle(e.target.value)}
+                >
+                  {MUSCLE_GROUPS.filter((m) => m !== 'other').map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                <Button variant="quiet" onClick={addSlot}>
+                  Add slot
+                </Button>
+              </div>
+            </Field>
+          </>
+        ) : (
+          <PlanFields plan={plan} onChange={setPlan} />
+        )}
 
-      <button
-        onClick={save}
-        disabled={busy}
-        className={`${buttonClass} w-full justify-between`}
-      >
-        <span>{busy ? 'Saving…' : 'Save template'}</span>
-        <span>→</span>
-      </button>
-    </div>
+        {error && <Banner tone="error">{error}</Banner>}
+
+        <Button variant="primary" block disabled={busy} onClick={save}>
+          Save
+        </Button>
+        {initial && onDelete && (
+          <Button variant="ghost-danger" block disabled={busy} onClick={remove}>
+            Delete
+          </Button>
+        )}
+        <Button variant="ghost" block onClick={() => dismiss(onCancel)}>
+          Cancel
+        </Button>
+      </div>
+    </Sheet>
   )
 }

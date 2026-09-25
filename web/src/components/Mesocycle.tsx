@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useId, useMemo, useState, type ReactNode } from 'react'
 import {
   EXERCISES,
   MUSCLE_GROUPS,
@@ -15,55 +15,137 @@ import {
   nextDayIndex,
   plannedSets,
   WEEKDAY_SHORT,
+  workoutsInWeek,
   type MesoDay,
   type Mesocycle,
   type MesoTemplate,
 } from '../lib/mesocycle'
 import { fmtSec, totalSec, type Template } from '../lib/templates'
 import type { Workout } from '../lib/workouts'
-import { buttonClass, inputClass, NumberField, XIcon } from './ui'
+import { Banner } from './cadence/Banner'
+import { Button } from './cadence/Button'
+import { Card, CardHead } from './cadence/Card'
+import { Field, TextInput } from './cadence/Field'
+import { IconButton } from './cadence/IconButton'
+import { List, ListItem } from './cadence/ListItem'
+import { Progress } from './cadence/SessionBar'
+import { StatusPill } from './cadence/StatusPill'
+import { Stepper } from './cadence/Stepper'
+import { WeekStrip, type WeekDay } from './cadence/WeekStrip'
+import { IconCheck, IconX } from './shell/icons'
+import { Segment } from './shell/Segment'
+import { Sheet } from './shell/Sheet'
+import { useSheetDismiss } from './shell/useSheetDismiss'
 
 const FOCUS_CHOICES = MUSCLE_GROUPS.filter(
   (m) => m !== 'other' && m !== 'full body',
 )
 
-/** Session chip colors — cardio and strength read as different labels. */
-const CHIP: Record<'strength' | 'cardio', string> = {
-  strength: 'border-accent bg-accent-100 text-accent-800',
-  cardio: 'border-accent2-500 bg-accent2-100 text-accent2-800',
+/** 'FRI' becomes 'Fri'. */
+const weekdayLabel = (i: number) =>
+  WEEKDAY_SHORT[i][0] + WEEKDAY_SHORT[i].slice(1).toLowerCase()
+
+/** The sub line of a day: its lifts, its interval plan, or the stopwatch. */
+function dayMeta(d: MesoDay): string {
+  if (dayKind(d) === 'cardio') {
+    return d.sections && d.sections.length > 0
+      ? `Intervals · ${d.sections.length} sections · ${fmtSec(totalSec(d.sections))}`
+      : 'Stopwatch'
+  }
+  const sets = d.exercises.reduce((n, e) => n + e.setCount, 0)
+  return `${d.exercises.length} exercises · ${sets} sets`
 }
-const CHIP_NEXT: Record<'strength' | 'cardio', string> = {
-  strength: 'border-accent bg-accent text-paper',
-  cardio: 'border-accent2-500 bg-accent2-500 text-paper',
+
+/** A toggle chip, the Chips row's pill for a multi-select. */
+function Chip({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onClick}
+      className={`pressable h-9 shrink-0 rounded-pill px-3.5 text-[14px] ${
+        selected
+          ? 'bg-brand-soft font-semibold text-brand-strong'
+          : 'bg-surface-2 font-medium text-ink-2'
+      }`}
+    >
+      {children}
+    </button>
+  )
 }
-const CHIP_DONE = 'border-ink/25 bg-surface text-ink/40'
+
+/** Seven day circles; the chosen weekday is brand. */
+function WeekdayPicker({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value: number | undefined
+  onChange: (weekday: number) => void
+  ariaLabel: string
+}) {
+  return (
+    <div role="group" aria-label={ariaLabel} className="grid grid-cols-7 gap-1">
+      {WEEKDAY_SHORT.map((wd, wi) => {
+        const selected = value === wi
+        return (
+          <button
+            key={wd}
+            type="button"
+            aria-pressed={selected}
+            aria-label={weekdayLabel(wi)}
+            onClick={() => onChange(wi)}
+            className={`pressable mx-auto flex h-11 w-11 items-center justify-center rounded-pill text-caption font-semibold ${
+              selected ? 'bg-brand text-on-brand' : 'bg-surface-2 text-ink-2'
+            }`}
+          >
+            {wd[0]}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 /**
- * Plan-screen mesocycle card: block progress up top, then the current
- * week as an actual calendar — one column per weekday, each scheduled
- * session a tappable colored label (red = strength, salmon = cardio).
+ * Plan-screen block cards: the current block as a hero (name, status,
+ * week line, progress, edit and end), then this week as a strip of day
+ * circles with the week's sessions as rows.
  */
 export function MesoCard({
   meso,
   workouts,
   onStartDay,
   onEnd,
+  onEdit,
   onPlan,
 }: {
   meso?: Mesocycle
   workouts: Workout[]
   onStartDay: (dayIndex: number) => void
   onEnd: (status: 'completed' | 'abandoned') => void
+  onEdit: () => void
   onPlan: () => void
 }) {
   if (!meso) {
     return (
-      <button
-        onClick={onPlan}
-        className="border border-dashed border-ink/40 p-3 text-left text-sm font-semibold text-ink/55 hover:bg-ink/5 hover:text-ink"
-      >
-        + Plan a mesocycle — focused block with per-session prescriptions
-      </button>
+      <Card>
+        <p className="text-title-sm text-ink">No block</p>
+        <p className="mt-1 text-body text-ink-2">
+          Plan weeks of sessions with progression.
+        </p>
+        <Button variant="primary" className="mt-3.5" onClick={onPlan}>
+          New block
+        </Button>
+      </Card>
     )
   }
 
@@ -78,13 +160,14 @@ export function MesoCard({
   // here is a completion, not an abandonment.
   const wrapUp = overdue || deload
 
-  // Monday-anchored dates for the calendar row
+  // Monday-anchored dates for the week strip
   const monday = new Date(now)
   monday.setDate(monday.getDate() - todayW)
 
   const scheduled = meso.days
     .map((d, i) => ({ d, i }))
     .filter(({ d }) => d.weekday != null)
+    .sort((a, b) => a.d.weekday! - b.d.weekday! || a.i - b.i)
   const unscheduled = meso.days
     .map((d, i) => ({ d, i }))
     .filter(({ d }) => d.weekday == null)
@@ -92,149 +175,192 @@ export function MesoCard({
   const sessionsDone = done.size
   const totalSessions = meso.days.length
 
-  function chipClass(i: number, kind: 'strength' | 'cardio'): string {
-    if (done.has(i)) return CHIP_DONE
-    if (i === next && !overdue) return CHIP_NEXT[kind]
-    return CHIP[kind]
+  // A scheduled session whose day has passed this week without being
+  // trained — but only days the block already covered: a block started
+  // on a Friday is not behind on Monday's session.
+  const startDay = new Date(meso.startDate)
+  startDay.setHours(0, 0, 0, 0)
+  const todayDay = new Date(now)
+  todayDay.setHours(0, 0, 0, 0)
+  const missed = (d: MesoDay, i: number): boolean => {
+    if (d.weekday == null || done.has(i)) return false
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + d.weekday)
+    date.setHours(0, 0, 0, 0)
+    return date < todayDay && date >= startDay
+  }
+  const behind = !overdue && scheduled.some(({ d, i }) => missed(d, i))
+  const status: { tone: 'good' | 'mid' | 'neutral'; label: string } = overdue
+    ? { tone: 'neutral', label: 'Finished' }
+    : behind
+      ? { tone: 'mid', label: 'Behind' }
+      : { tone: 'good', label: 'On track' }
+
+  const weekLine = [
+    `Week ${Math.min(week, meso.weeks - 1) + 1} of ${meso.weeks}`,
+    meso.focus.length > 0 ? meso.focus.join(', ') : null,
+    overdue ? null : deload ? 'Deload' : `Deload in week ${meso.weeks}`,
+  ]
+    .filter((s): s is string => s != null)
+    .join(' · ')
+
+  // The strip: trained days are done, scheduled sessions still to come are
+  // planned; a legacy weekday-less block spreads its remaining sessions
+  // over the days left in the week.
+  const trained = new Set(workouts.map((w) => new Date(w.start).toDateString()))
+  let remaining =
+    scheduled.length === 0
+      ? Math.max(0, totalSessions - workoutsInWeek(meso, workouts, week).length)
+      : 0
+  const weekDays: WeekDay[] = WEEKDAY_SHORT.map((_, wi) => {
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + wi)
+    const isToday = wi === todayW
+    const isDone = trained.has(date.toDateString())
+    let planned = false
+    if (!isDone && wi >= todayW && !overdue) {
+      if (scheduled.length > 0) {
+        planned = scheduled.some(
+          ({ d, i }) => d.weekday === wi && !done.has(i),
+        )
+      } else if (remaining > 0) {
+        planned = true
+        remaining -= 1
+      }
+    }
+    return {
+      label: date.toLocaleDateString(undefined, { weekday: 'narrow' }),
+      num: date.getDate(),
+      done: isDone,
+      planned,
+      today: isToday,
+    }
+  })
+
+  function endBlock() {
+    if (window.confirm('End this mesocycle?')) {
+      onEnd(wrapUp ? 'completed' : 'abandoned')
+    }
+  }
+
+  function sessionRow(d: MesoDay, i: number, title: string) {
+    const isDone = done.has(i)
+    const isToday = d.weekday === todayW
+    // Today's, the next one, any missed session, and every floating
+    // ("any day") session can start from here
+    const startable =
+      !isDone && (d.weekday == null || isToday || i === next || missed(d, i))
+    return (
+      <div
+        key={i}
+        className="flex min-h-11 items-center justify-between gap-3"
+      >
+        <span className="min-w-0 truncate text-body font-medium text-ink">
+          {title}
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          {isDone ? (
+            <StatusPill tone="good">Done</StatusPill>
+          ) : (
+            <>
+              {isToday && <StatusPill tone="good">Today</StatusPill>}
+              {startable ? (
+                <Button
+                  variant="tonal"
+                  size="sm"
+                  onClick={() => onStartDay(i)}
+                >
+                  Start
+                </Button>
+              ) : (
+                <span className="text-caption text-ink-3">Planned</span>
+              )}
+            </>
+          )}
+        </span>
+      </div>
+    )
   }
 
   return (
-    <div className="border-t-2 border-ink/40 pt-2.5">
-      <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <p className="min-w-0 truncate text-lg font-extrabold tracking-tight text-ink">
-          {meso.name}
-        </p>
-        <span className="shrink-0 bg-accent-200 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent-800">
-          {overdue
-            ? 'finished — wrap up'
-            : deload
-              ? `deload · week ${week + 1}/${meso.weeks}`
-              : `week ${week + 1}/${meso.weeks}`}
-        </span>
-      </div>
-
-      {/* block progress — one cell per week, filled through the current */}
-      <div className="mb-1 flex gap-0.5">
-        {Array.from({ length: meso.weeks }, (_, w) => (
-          <div
-            key={w}
-            className={`h-1.5 flex-1 ${
-              w < week
-                ? 'bg-accent'
-                : w === week && !overdue
-                  ? 'bg-accent-400'
-                  : 'bg-ink/15'
-            }`}
+    <>
+      <Card hero>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-eyebrow text-ink-2">Current block</p>
+            <h2 className="mt-0.5 truncate text-title text-ink">{meso.name}</h2>
+          </div>
+          <StatusPill tone={status.tone}>{status.label}</StatusPill>
+        </div>
+        <p className="mt-1 text-caption text-ink-2">{weekLine}</p>
+        <div className="mt-3">
+          <Progress
+            value={Math.min(week, meso.weeks) / meso.weeks}
+            label="Weeks done"
           />
-        ))}
-      </div>
-      <div className="mb-3 flex justify-between text-[9px] font-semibold uppercase tracking-wider text-ink/50">
-        <span>
-          {meso.focus.length > 0
-            ? `focus: ${meso.focus.join(' + ')}`
-            : 'no focus muscles'}
-        </span>
-        <span>
-          {sessionsDone}/{totalSessions} sessions this week
-        </span>
-      </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {overdue && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => onEnd('completed')}
+            >
+              Mark completed
+            </Button>
+          )}
+          <Button variant="tonal" size="sm" onClick={onEdit}>
+            Edit block
+          </Button>
+          <Button variant="ghost-danger" size="sm" onClick={endBlock}>
+            End block
+          </Button>
+        </div>
+      </Card>
 
       {!overdue && (
-        <>
-          <div className="grid grid-cols-7 border border-ink/40">
-            {WEEKDAY_SHORT.map((wd, wi) => {
-              const date = new Date(monday)
-              date.setDate(monday.getDate() + wi)
-              const isToday = wi === todayW
-              const cells = scheduled.filter(({ d }) => d.weekday === wi)
-              return (
-                <div
-                  key={wd}
-                  className={`min-h-20 border-ink/25 p-1 ${
-                    wi < 6 ? 'border-r' : ''
-                  } ${isToday ? 'bg-accent-100/60' : ''}`}
-                >
-                  <div
-                    className={`mb-1 text-center text-[9px] font-semibold ${
-                      isToday ? 'text-accent-700' : 'text-ink/45'
-                    }`}
-                  >
-                    {wd[0]}
-                    <span className="ml-0.5 font-extrabold">
-                      {date.getDate()}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    {cells.map(({ d, i }) => (
-                      <button
-                        key={i}
-                        onClick={() => onStartDay(i)}
-                        title={`${d.label} — ${dayKind(d)}`}
-                        className={`w-full truncate border px-0.5 py-1 text-[8px] font-semibold uppercase leading-tight tracking-wide ${chipClass(i, dayKind(d))}`}
-                      >
-                        {done.has(i) ? '✓ ' : ''}
-                        {d.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
+        <Card>
+          <CardHead
+            title="This week"
+            action={
+              <span className="text-caption text-ink-2">
+                {sessionsDone} of {totalSessions} done
+              </span>
+            }
+          />
+          <div className="mt-4">
+            <WeekStrip days={weekDays} />
           </div>
-
-          <div className="mt-1.5 flex gap-3 text-[9px] font-semibold uppercase tracking-wider text-ink/50">
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 border border-accent bg-accent-100" />
-              strength
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 border border-accent2-500 bg-accent2-100" />
-              cardio
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 border border-ink/25 bg-surface" />
-              done
-            </span>
-          </div>
-
-          {unscheduled.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {unscheduled.map(({ d, i }) => (
-                <button
-                  key={i}
-                  onClick={() => onStartDay(i)}
-                  className={`border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${chipClass(i, dayKind(d))}`}
-                >
-                  {done.has(i) ? '✓ ' : ''}
-                  {d.label}
-                </button>
+          {scheduled.length > 0 && (
+            <div className="mt-4 flex flex-col">
+              {scheduled.map(({ d, i }, k) => (
+                <Fragment key={i}>
+                  {k > 0 && (
+                    <div aria-hidden="true" className="h-px bg-hairline" />
+                  )}
+                  {sessionRow(d, i, `${weekdayLabel(d.weekday!)} · ${d.label}`)}
+                </Fragment>
               ))}
             </div>
           )}
-        </>
+          {unscheduled.length > 0 && (
+            <>
+              <p className="mt-4 text-caption text-ink-3">Any day</p>
+              <div className="flex flex-col">
+                {unscheduled.map(({ d, i }, k) => (
+                  <Fragment key={i}>
+                    {k > 0 && (
+                      <div aria-hidden="true" className="h-px bg-hairline" />
+                    )}
+                    {sessionRow(d, i, d.label)}
+                  </Fragment>
+                ))}
+              </div>
+            </>
+          )}
+        </Card>
       )}
-
-      <div className="mt-2.5 flex gap-4 text-xs">
-        {overdue && (
-          <button
-            onClick={() => onEnd('completed')}
-            className="font-semibold text-accent-700 hover:text-accent"
-          >
-            Mark completed
-          </button>
-        )}
-        <button
-          onClick={() => {
-            if (window.confirm('End this mesocycle?')) {
-              onEnd(wrapUp ? 'completed' : 'abandoned')
-            }
-          }}
-          className="font-semibold text-ink/45 hover:text-accent-700"
-        >
-          End meso
-        </button>
-      </div>
-    </div>
+    </>
   )
 }
 
@@ -242,8 +368,12 @@ export function MesoCard({
 // Setup wizard: 1 basics (templates, length, focus) → 2 days → 3 review
 // ---------------------------------------------------------------------------
 
-const STEPS = ['Basics', 'Days', 'Review'] as const
 type Step = 1 | 2 | 3
+const STEP_OPTIONS: Array<{ value: `${Step}`; label: string }> = [
+  { value: '1', label: 'Basics' },
+  { value: '2', label: 'Days' },
+  { value: '3', label: 'Review' },
+]
 
 /** First weekday with fewer than two sessions planned — new days land
  * somewhere sensible instead of stacking on Monday. */
@@ -257,11 +387,21 @@ function nextFreeWeekday(days: MesoDay[]): number {
   return 0
 }
 
+/** Deep copy so edits never mutate a shared preset or the live block. */
+function copyDays(days: MesoDay[]): MesoDay[] {
+  return days.map((d) => ({
+    ...d,
+    exercises: d.exercises.map((e) => ({ ...e })),
+    ...(d.sections && { sections: d.sections.map((s) => ({ ...s })) }),
+  }))
+}
+
 export function MesoSetup({
   templates,
   customs,
   lookup,
   history,
+  initial,
   onSave,
   onCancel,
 }: {
@@ -269,16 +409,29 @@ export function MesoSetup({
   customs: CustomExercise[]
   lookup: (name: string) => string | undefined
   history: Workout[]
+  /** An existing block to edit; its id, start and status are kept. */
+  initial?: Mesocycle
+  /** Runs once the sheet has dropped. */
   onSave: (meso: Mesocycle) => void
+  /** Runs once the sheet has dropped. */
   onCancel: () => void
 }) {
   const [step, setStep] = useState<Step>(1)
   const [presetId, setPresetId] = useState<string | null>(null)
-  const [name, setName] = useState('')
-  const [weeks, setWeeks] = useState(5)
-  const [focus, setFocus] = useState<string[]>([])
-  const [days, setDays] = useState<MesoDay[]>([])
+  const [name, setName] = useState(initial?.name ?? '')
+  const [weeks, setWeeks] = useState(initial?.weeks ?? 5)
+  const [focus, setFocus] = useState<string[]>(initial ? [...initial.focus] : [])
+  const [days, setDays] = useState<MesoDay[]>(
+    initial ? copyDays(initial.days) : [],
+  )
+  /** The day open in the step-2 editor. */
+  const [editingDay, setEditingDay] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const nameId = useId()
+  const weeksId = useId()
+  const labelId = useId()
+  const namesId = useId()
+  const { open, dismiss, onExited } = useSheetDismiss()
 
   const strengthTemplates = templates.filter((t) => t.kind === 'strength')
   const timerTemplates = templates.filter(
@@ -311,6 +464,17 @@ export function MesoSetup({
 
   const dirty = name.trim() !== '' || days.length > 0
 
+  function goTo(s: Step) {
+    setEditingDay(null)
+    setStep(s)
+  }
+
+  function cancel() {
+    if (!dirty || window.confirm('Discard this mesocycle plan?')) {
+      dismiss(onCancel)
+    }
+  }
+
   function loadPreset(t: MesoTemplate) {
     if (
       dirty &&
@@ -323,15 +487,19 @@ export function MesoSetup({
     setName(t.name)
     setWeeks(t.weeks)
     setFocus([...t.focus])
-    // deep copy so edits never mutate the shared preset
-    setDays(
-      t.days.map((d) => ({
-        ...d,
-        exercises: d.exercises.map((e) => ({ ...e })),
-        ...(d.sections && { sections: d.sections.map((s) => ({ ...s })) }),
-      })),
-    )
+    setDays(copyDays(t.days))
     setError(null)
+  }
+
+  function startFromScratch() {
+    if (dirty && !window.confirm('Clear the current plan and start over?')) {
+      return
+    }
+    setPresetId(null)
+    setDays([])
+    setFocus([])
+    setName('')
+    setWeeks(5)
   }
 
   function toggleFocus(m: string) {
@@ -390,6 +558,11 @@ export function MesoSetup({
     setDays((prev) => prev.map((d, j) => (j === i ? { ...d, ...patch } : d)))
   }
 
+  function removeDay(i: number) {
+    setDays((prev) => prev.filter((_, j) => j !== i))
+    setEditingDay(null)
+  }
+
   /** Mirrors api/src/mesos.ts parse rules — an optimistic save the server
    * rejects would be silently wiped on the next refresh. */
   function daysError(): string | null {
@@ -417,7 +590,7 @@ export function MesoSetup({
     while (s < target) {
       if (s === 1) {
         if (!name.trim()) {
-          setStep(1)
+          goTo(1)
           setError('Name the mesocycle.')
           return
         }
@@ -425,21 +598,21 @@ export function MesoSetup({
       } else {
         const err = daysError()
         if (err) {
-          setStep(2)
+          goTo(2)
           setError(err)
           return
         }
         s = 3
       }
     }
-    setStep(target)
+    goTo(target)
   }
 
   function save() {
     const err = !name.trim() ? 'Name the mesocycle.' : daysError()
     if (err) return setError(err)
     const meso: Mesocycle = {
-      id: crypto.randomUUID(),
+      id: initial?.id ?? crypto.randomUUID(),
       name: name.trim(),
       weeks,
       focus,
@@ -448,8 +621,8 @@ export function MesoSetup({
         label: d.label.trim() || 'Day',
         exercises: d.exercises.map((e) => ({ ...e, name: e.name.trim() })),
       })),
-      startDate: new Date().toISOString(),
-      status: 'active',
+      startDate: initial?.startDate ?? new Date().toISOString(),
+      status: initial?.status ?? 'active',
     }
     // The API rejects bodies over 32KB — catch it here instead of letting
     // an optimistic save be silently wiped on the next refresh.
@@ -458,11 +631,11 @@ export function MesoSetup({
         'This plan is too large to sync — trim exercises or shorten names.',
       )
     }
-    onSave(meso)
+    dismiss(() => onSave(meso))
   }
 
-  // Projection for the review grid: planned sets per strength day per
-  // week, ramp only (no feedback history yet).
+  // Projection for the review: planned sets per strength day per week,
+  // ramp only (no feedback history yet).
   const draftMeso: Mesocycle = {
     id: 'draft',
     name: name || 'draft',
@@ -472,302 +645,129 @@ export function MesoSetup({
     startDate: new Date().toISOString(),
     status: 'active',
   }
-  const weekTints = ['bg-accent-200', 'bg-accent-300', 'bg-accent-400', 'bg-accent-500 text-paper', 'bg-accent-600 text-paper']
 
   const sortedDayIdx = days
     .map((_, i) => i)
     .sort((a, b) => (days[a].weekday ?? 99) - (days[b].weekday ?? 99) || a - b)
 
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
-          Plan a mesocycle
-        </h1>
-        <button
-          onClick={() => {
-            if (!dirty || window.confirm('Discard this mesocycle plan?')) {
-              onCancel()
-            }
-          }}
-          className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
-        >
-          Cancel
-        </button>
-      </div>
+  const check = <IconCheck className="h-5 w-5 text-brand-strong" />
 
-      {/* step bar — numbered, red inset marker on the active step */}
-      <div className="-mx-4 grid grid-cols-3 border-y-2 border-ink/40">
-        {STEPS.map((label, i) => {
-          const n = (i + 1) as Step
-          const active = step === n
-          const complete = step > n
-          return (
-            <button
-              key={label}
-              onClick={() => {
-                // free navigation backward; forward runs validation
-                if (n < step) setStep(n)
-                else if (n > step) tryAdvanceTo(n)
-              }}
-              className={`px-4 py-2.5 text-left text-[10px] uppercase tracking-wider ${
-                i > 0 ? 'border-l border-ink/25' : ''
-              } ${
-                active
-                  ? 'font-extrabold text-accent-700 shadow-[inset_0_3px_0_#ec3013]'
-                  : 'font-semibold text-ink/45 hover:text-ink'
-              }`}
-            >
-              {n} {label}
-              {complete ? ' ✓' : ''}
-            </button>
-          )
-        })}
-      </div>
-
-      {step === 1 && (
-        <>
-          <div className="flex flex-col gap-2">
-            <p className="kicker">Start from a block template</p>
-            {MESO_TEMPLATES.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => loadPreset(t)}
-                className={`border p-3 text-left ${
-                  presetId === t.id
-                    ? 'border-accent bg-accent-100'
-                    : 'border-ink/40 hover:bg-ink/5'
-                }`}
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-base font-extrabold text-ink">
-                    {t.name}
-                  </span>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink/50">
-                    {t.weeks} wks · {t.days.length} sessions
-                  </span>
-                </div>
-                <p className="mt-0.5 text-xs text-ink/60">{t.blurb}</p>
-                {t.focus.length > 0 && (
-                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-accent-700">
-                    focus: {t.focus.join(' + ')}
-                  </p>
-                )}
-              </button>
-            ))}
-            <button
-              onClick={() => {
-                if (
-                  dirty &&
-                  !window.confirm('Clear the current plan and start over?')
-                ) {
-                  return
-                }
-                setPresetId(null)
-                setDays([])
-                setFocus([])
-                setName('')
-                setWeeks(5)
-              }}
-              className={`border border-dashed p-3 text-left text-sm font-semibold ${
-                presetId === null
-                  ? 'border-ink/60 text-ink'
-                  : 'border-ink/40 text-ink/55 hover:text-ink'
-              }`}
-            >
-              Start from scratch
-            </button>
-          </div>
-
-          <input
-            className={inputClass}
-            placeholder="name (e.g. Leg block, Push emphasis)"
-            maxLength={80}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+  function dayEditor(di: number) {
+    const day = days[di]
+    if (!day) return null
+    const cardio = dayKind(day) === 'cardio'
+    return (
+      <div className="flex flex-col gap-3">
+        <div>
+          <StatusPill tone={cardio ? 'rest' : 'good'}>
+            {cardio ? 'Cardio' : 'Strength'}
+          </StatusPill>
+        </div>
+        <Field label="Label" htmlFor={labelId}>
+          <TextInput
+            id={labelId}
+            maxLength={60}
+            value={day.label}
+            onChange={(e) => patchDay(di, { label: e.target.value })}
           />
+        </Field>
+        <div className="flex flex-col gap-2">
+          <p className="text-caption font-semibold text-ink-2">Weekday</p>
+          <WeekdayPicker
+            value={day.weekday}
+            onChange={(wi) => patchDay(di, { weekday: wi })}
+            ariaLabel={`Weekday for ${day.label}`}
+          />
+        </div>
 
-          <label className="flex items-center gap-2 text-sm text-ink/70">
-            length
-            <NumberField
-              className={`${inputClass} w-16 text-center`}
-              aria-label="mesocycle length in weeks"
-              min={2}
-              max={12}
-              value={weeks}
-              onCommit={setWeeks}
-            />
-            weeks — 4–6 recommended, the last one is a deload
-          </label>
-
-          <div className="flex flex-col gap-1.5">
-            <p className="kicker">
-              focus muscles (up to 3) — these ramp toward their weekly max
-              while everything else holds steady
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {FOCUS_CHOICES.map((m) => (
-                <button
-                  key={m}
-                  onClick={() => toggleFocus(m)}
-                  className={`border px-3 py-1 text-sm ${
-                    focus.includes(m)
-                      ? 'border-accent bg-accent font-extrabold text-paper'
-                      : 'border-ink/40 font-semibold text-ink/60 hover:bg-ink/5'
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
+        {cardio ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-caption font-semibold text-ink-2">Plan</p>
+            <p className="text-caption text-ink-3">{dayMeta(day)}</p>
+            <div className="flex flex-wrap gap-2">
+              <Chip
+                selected={!day.sections || day.sections.length === 0}
+                onClick={() => patchDay(di, { sections: [] })}
+              >
+                Stopwatch
+              </Chip>
+              {timerTemplates.map((t) => {
+                // sections are copied on pick, so match by content
+                const selected =
+                  !!day.sections &&
+                  day.sections.length > 0 &&
+                  JSON.stringify(day.sections) ===
+                    JSON.stringify(t.sections ?? [])
+                return (
+                  <Chip
+                    key={t.id}
+                    selected={selected}
+                    onClick={() =>
+                      patchDay(di, {
+                        sections: (t.sections ?? []).map((s) => ({ ...s })),
+                      })
+                    }
+                  >
+                    {t.name}
+                  </Chip>
+                )
+              })}
             </div>
           </div>
-        </>
-      )}
-
-      {step === 2 && (
-        <>
-          <p className="text-xs text-ink/55">
-            Pick a weekday for every session. Two sessions can share a day —
-            cardio in the morning before an evening lift, for example.
-          </p>
-
-          {days.map((day, di) => (
-            <div
-              key={di}
-              className={`flex flex-col gap-2 border border-ink/40 p-3 ${
-                di > 0 ? '-mt-4 border-t-0' : ''
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span
-                  className={`shrink-0 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${
-                    dayKind(day) === 'cardio'
-                      ? 'bg-accent2-100 text-accent2-800'
-                      : 'bg-accent-100 text-accent-800'
-                  }`}
-                >
-                  {dayKind(day)}
-                </span>
-                <input
-                  className={inputClass}
-                  aria-label={`day ${di + 1} label`}
-                  maxLength={60}
-                  value={day.label}
-                  onChange={(e) => patchDay(di, { label: e.target.value })}
-                />
-                <button
-                  onClick={() =>
-                    setDays((prev) => prev.filter((_, j) => j !== di))
-                  }
-                  aria-label={`remove ${day.label}`}
-                  className="shrink-0 px-1 text-ink/45 hover:text-accent-700"
-                >
-                  <XIcon />
-                </button>
-              </div>
-
-              <div
-                className="flex border border-ink/40"
-                role="group"
-                aria-label={`weekday for ${day.label}`}
-              >
-                {WEEKDAY_SHORT.map((wd, wi) => (
-                  <button
-                    key={wd}
-                    onClick={() => patchDay(di, { weekday: wi })}
-                    aria-pressed={day.weekday === wi}
-                    className={`flex-1 py-1.5 text-[10px] tracking-wider ${
-                      wi > 0 ? 'border-l border-ink/25' : ''
-                    } ${
-                      day.weekday === wi
-                        ? 'bg-accent font-extrabold text-paper'
-                        : 'font-semibold text-ink/55 hover:bg-ink/5'
-                    }`}
-                  >
-                    {wd[0]}
-                  </button>
-                ))}
-              </div>
-
-              {dayKind(day) === 'cardio' ? (
-                <div className="flex flex-col gap-1.5">
-                  <p className="text-xs text-ink/55">
-                    {day.sections && day.sections.length > 0
-                      ? `Interval plan · ${day.sections.length} sections · ${fmtSec(totalSec(day.sections))}`
-                      : 'Stopwatch — open-ended, log miles afterwards.'}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      onClick={() => patchDay(di, { sections: [] })}
-                      className={`border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${
-                        !day.sections || day.sections.length === 0
-                          ? 'border-accent bg-accent text-paper'
-                          : 'border-ink/40 text-ink/60 hover:bg-ink/5'
-                      }`}
-                    >
-                      Stopwatch
-                    </button>
-                    {timerTemplates.map((t) => {
-                      // sections are copied on pick, so match by content
-                      const selected =
-                        !!day.sections &&
-                        day.sections.length > 0 &&
-                        JSON.stringify(day.sections) ===
-                          JSON.stringify(t.sections ?? [])
-                      return (
-                        <button
-                          key={t.id}
-                          onClick={() =>
+        ) : (
+          <>
+            {day.exercises.length > 0 && (
+              <div className="flex flex-col">
+                {day.exercises.map((e, ei) => (
+                  <Fragment key={ei}>
+                    {ei > 0 && (
+                      <div aria-hidden="true" className="h-px bg-hairline" />
+                    )}
+                    <div className="flex flex-col gap-2 py-2">
+                      <div className="flex items-center gap-2">
+                        <TextInput
+                          className="min-w-0 flex-1"
+                          list={namesId}
+                          maxLength={80}
+                          aria-label={`Exercise ${ei + 1}`}
+                          placeholder={
+                            e.muscle !== undefined
+                              ? `${e.muscle} exercise`
+                              : 'Exercise'
+                          }
+                          value={e.name}
+                          onChange={(ev) =>
                             patchDay(di, {
-                              sections: (t.sections ?? []).map((s) => ({
-                                ...s,
-                              })),
+                              exercises: day.exercises.map((x, j) =>
+                                j === ei ? { ...x, name: ev.target.value } : x,
+                              ),
                             })
                           }
-                          className={`border px-2.5 py-1 text-[10px] uppercase tracking-wider ${
-                            selected
-                              ? 'border-accent bg-accent font-extrabold text-paper'
-                              : 'border-ink/40 font-semibold text-ink/60 hover:bg-ink/5'
-                          }`}
+                        />
+                        <IconButton
+                          size="sm"
+                          label="Remove"
+                          onClick={() =>
+                            patchDay(di, {
+                              exercises: day.exercises.filter(
+                                (_, j) => j !== ei,
+                              ),
+                            })
+                          }
                         >
-                          {t.name}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {day.exercises.map((e, ei) => (
-                    <div key={ei} className="flex items-center gap-2">
-                      <input
-                        className={inputClass}
-                        list="meso-exercise-names"
-                        maxLength={80}
-                        aria-label={`day ${di + 1} exercise ${ei + 1}`}
-                        placeholder={
-                          e.muscle !== undefined
-                            ? `pick a ${e.muscle} exercise…`
-                            : 'exercise…'
-                        }
-                        value={e.name}
-                        onChange={(ev) =>
-                          patchDay(di, {
-                            exercises: day.exercises.map((x, j) =>
-                              j === ei ? { ...x, name: ev.target.value } : x,
-                            ),
-                          })
-                        }
-                      />
-                      <label className="flex shrink-0 items-center gap-1.5 text-xs text-ink/55">
-                        sets
-                        <NumberField
-                          className={`${inputClass} w-14 text-center`}
-                          aria-label={`sets for day ${di + 1} exercise ${ei + 1}`}
+                          <IconX className="h-4 w-4" />
+                        </IconButton>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-caption font-semibold text-ink-2">
+                          Sets
+                        </span>
+                        <Stepper
+                          ariaLabel={`Sets for exercise ${ei + 1}`}
                           min={1}
                           max={30}
                           value={e.setCount}
-                          onCommit={(n) =>
+                          onChange={(n) =>
                             patchDay(di, {
                               exercises: day.exercises.map((x, j) =>
                                 j === ei ? { ...x, setCount: n } : x,
@@ -775,226 +775,294 @@ export function MesoSetup({
                             })
                           }
                         />
-                      </label>
-                      <button
-                        onClick={() =>
-                          patchDay(di, {
-                            exercises: day.exercises.filter(
-                              (_, j) => j !== ei,
-                            ),
-                          })
-                        }
-                        aria-label="remove exercise"
-                        className="shrink-0 text-ink/45 hover:text-accent-700"
-                      >
-                        ✕
-                      </button>
+                      </div>
                     </div>
-                  ))}
-                  {day.exercises.length < 30 && (
-                    <button
-                      onClick={() =>
-                        patchDay(di, {
-                          exercises: [
-                            ...day.exercises,
-                            { name: '', setCount: 3 },
-                          ],
-                        })
-                      }
-                      className="self-start text-xs font-semibold text-accent-700 hover:text-accent"
-                    >
-                      + add exercise
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          ))}
-          <datalist id="meso-exercise-names">
-            {knownNames.map((n) => (
-              <option key={n} value={n} />
-            ))}
-          </datalist>
-
-          {days.length < 14 && (
-            <div className="flex flex-col gap-2">
-              <p className="kicker">add a session</p>
-              <div className="flex flex-wrap gap-2">
-                {strengthTemplates.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => addDayFromTemplate(t)}
-                    className="border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5"
-                  >
-                    from “{t.name}”
-                  </button>
+                  </Fragment>
                 ))}
-                <button
-                  onClick={addBlankDay}
-                  className="border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5"
-                >
-                  blank lift day
-                </button>
-                <button
-                  onClick={addCardioDay}
-                  className="border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink hover:bg-ink/5"
-                >
-                  cardio day
-                </button>
+              </div>
+            )}
+            <datalist id={namesId}>
+              {knownNames.map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
+            {day.exercises.length < 30 && (
+              <Button
+                variant="quiet"
+                block
+                onClick={() =>
+                  patchDay(di, {
+                    exercises: [...day.exercises, { name: '', setCount: 3 }],
+                  })
+                }
+              >
+                Add exercise
+              </Button>
+            )}
+          </>
+        )}
+
+        <Button variant="primary" block onClick={() => setEditingDay(null)}>
+          Done
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <Sheet
+      open={open}
+      onClose={cancel}
+      onExited={onExited}
+      title={initial ? 'Edit block' : 'New block'}
+    >
+      <div className="flex flex-col gap-3">
+        <Segment
+          block
+          options={STEP_OPTIONS}
+          value={`${step}`}
+          onChange={(v) => {
+            const n = Number(v) as Step
+            // free navigation backward; forward runs validation
+            if (n < step) goTo(n)
+            else if (n > step) tryAdvanceTo(n)
+          }}
+          ariaLabel="Step"
+        />
+
+        {step === 1 && (
+          <>
+            <List>
+              {MESO_TEMPLATES.map((t) => (
+                <ListItem
+                  key={t.id}
+                  title={t.name}
+                  sub={`${t.weeks} weeks · ${t.days.length} sessions${
+                    t.focus.length > 0 ? ` · ${t.focus.join(', ')}` : ''
+                  }`}
+                  trail={presetId === t.id ? check : undefined}
+                  onClick={() => loadPreset(t)}
+                />
+              ))}
+              <ListItem
+                key="scratch"
+                title="From scratch"
+                trail={presetId === null ? check : undefined}
+                onClick={startFromScratch}
+              />
+            </List>
+
+            <Field label="Name" htmlFor={nameId}>
+              <TextInput
+                id={nameId}
+                maxLength={80}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </Field>
+
+            <div className="flex min-h-11 items-center justify-between gap-3">
+              <label
+                htmlFor={weeksId}
+                className="text-caption font-semibold text-ink-2"
+              >
+                Weeks
+              </label>
+              <Stepper
+                id={weeksId}
+                ariaLabel="Weeks"
+                min={2}
+                max={12}
+                value={weeks}
+                onChange={setWeeks}
+              />
+            </div>
+            <p className="text-caption text-ink-3">Last week deloads</p>
+
+            <div className="flex flex-col gap-2">
+              <p className="text-caption font-semibold text-ink-2">
+                Focus (up to 3)
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {FOCUS_CHOICES.map((m) => (
+                  <Chip
+                    key={m}
+                    selected={focus.includes(m)}
+                    onClick={() => toggleFocus(m)}
+                  >
+                    {m}
+                  </Chip>
+                ))}
               </div>
             </div>
-          )}
-        </>
-      )}
+          </>
+        )}
 
-      {step === 3 && (
-        <>
-          <div>
-            <p className="kicker mb-1">
-              {name || 'Untitled block'} — {weeks} weeks
-              {focus.length > 0 ? ` · focus ${focus.join(' + ')}` : ''}
+        {step === 2 && editingDay != null && dayEditor(editingDay)}
+
+        {step === 2 && editingDay == null && (
+          <>
+            {days.length > 0 && (
+              <List>
+                {days.map((day, di) => (
+                  <ListItem
+                    key={di}
+                    title={day.label}
+                    sub={dayMeta(day)}
+                    trail={
+                      day.weekday != null ? weekdayLabel(day.weekday) : 'Any day'
+                    }
+                    chevron
+                    onClick={() => setEditingDay(di)}
+                    action={
+                      <IconButton
+                        size="sm"
+                        label={`Remove ${day.label}`}
+                        onClick={() => removeDay(di)}
+                      >
+                        <IconX className="h-4 w-4" />
+                      </IconButton>
+                    }
+                  />
+                ))}
+              </List>
+            )}
+            {days.length < 14 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-caption font-semibold text-ink-2">Add</p>
+                <div className="flex flex-wrap gap-2">
+                  {strengthTemplates.map((t) => (
+                    <Button
+                      key={t.id}
+                      variant="quiet"
+                      size="sm"
+                      onClick={() => addDayFromTemplate(t)}
+                    >
+                      {t.name}
+                    </Button>
+                  ))}
+                  <Button variant="quiet" size="sm" onClick={addBlankDay}>
+                    Lift day
+                  </Button>
+                  <Button variant="quiet" size="sm" onClick={addCardioDay}>
+                    Cardio day
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <p className="text-caption text-ink-2">
+              {name || 'Untitled'} · {weeks} weeks
+              {focus.length > 0 ? ` · ${focus.join(', ')}` : ''}
             </p>
-            <div className="flex flex-col">
+            <List>
               {sortedDayIdx.map((i) => {
                 const d = days[i]
                 return (
-                  <div
+                  <ListItem
                     key={i}
-                    className="flex items-baseline justify-between border-b border-ink/20 py-1.5 text-sm"
-                  >
-                    <span className="font-extrabold text-ink">
-                      <span className="mr-2 text-[10px] font-semibold tracking-wider text-ink/50">
-                        {d.weekday != null ? WEEKDAY_SHORT[d.weekday] : '—'}
-                      </span>
-                      {d.label}
-                    </span>
-                    <span className="text-xs text-ink/55">
-                      {dayKind(d) === 'cardio'
-                        ? d.sections && d.sections.length > 0
-                          ? fmtSec(totalSec(d.sections))
-                          : 'stopwatch'
-                        : `${d.exercises.length} exercises · ${d.exercises.reduce((n, e) => n + e.setCount, 0)} sets`}
-                    </span>
-                  </div>
+                    title={d.label}
+                    sub={dayMeta(d)}
+                    trail={
+                      d.weekday != null ? weekdayLabel(d.weekday) : 'Any day'
+                    }
+                  />
                 )
               })}
-            </div>
-          </div>
+            </List>
 
-          <div>
-            <div className="mb-1.5 flex items-baseline justify-between">
-              <span className="kicker">Week at a glance</span>
-              <span className="text-[9px] font-semibold tracking-widest text-ink/45">
-                SETS RAMP → WK {Math.max(1, weeks - 1)} · WK {weeks} DELOAD
-              </span>
-            </div>
-            <div className="overflow-x-auto scroll-thin">
-              <div
-                className="grid gap-0.5 text-[10px] font-semibold"
-                style={{
-                  gridTemplateColumns: `44px repeat(${sortedDayIdx.length}, minmax(56px, 1fr))`,
-                }}
-              >
-                <div />
-                {sortedDayIdx.map((i) => (
-                  <div
-                    key={i}
-                    className="truncate px-1 text-center text-[9px] uppercase tracking-wider text-ink/50"
-                  >
-                    {days[i].label}
-                  </div>
-                ))}
-                {Array.from({ length: weeks }, (_, wk) => {
-                  const deload = wk === weeks - 1
+            <Card>
+              <p className="text-caption font-semibold text-ink-2">
+                Week at a glance
+              </p>
+              <div className="mt-3 grid grid-cols-7 gap-1">
+                {WEEKDAY_SHORT.map((wd, wi) => {
+                  const count = days.filter((d) => d.weekday === wi).length
                   return (
-                    <Fragment key={wk}>
-                      <div
-                        className={`self-center text-[9px] uppercase tracking-wider ${
-                          deload ? 'font-extrabold text-accent-700' : 'text-ink/50'
+                    <div key={wd} className="flex flex-col items-center gap-1.5">
+                      <span className="text-micro text-ink-3">{wd[0]}</span>
+                      <span
+                        className={`flex h-9 w-9 items-center justify-center rounded-pill text-caption font-semibold ${
+                          count > 0
+                            ? 'bg-brand-soft text-brand-strong'
+                            : 'bg-surface-2 text-ink-3'
                         }`}
                       >
-                        WK {wk + 1}
-                      </div>
-                      {sortedDayIdx.map((i) => {
-                        const d = days[i]
-                        // Cardio plans don't deload — their cell stays the
-                        // same duration in every week row.
-                        if (deload && dayKind(d) !== 'cardio') {
-                          return (
-                            <div
-                              key={i}
-                              className="border border-dashed border-accent py-1.5 text-center text-[9px] tracking-wider text-accent-700"
-                            >
-                              DELOAD
-                            </div>
-                          )
-                        }
-                        if (dayKind(d) === 'cardio') {
-                          return (
-                            <div
-                              key={i}
-                              className="bg-surface py-1.5 text-center text-ink/70"
-                            >
-                              {d.sections && d.sections.length > 0
-                                ? fmtSec(totalSec(d.sections))
-                                : 'free'}
-                            </div>
-                          )
-                        }
-                        const sets = plannedSets(
-                          draftMeso,
-                          d,
-                          wk,
-                          [],
-                          lookup,
-                          Date.now(),
-                        ).reduce((n, e) => n + e.setCount, 0)
-                        return (
-                          <div
-                            key={i}
-                            className={`py-1.5 text-center ${
-                              weekTints[Math.min(wk, weekTints.length - 1)]
-                            }`}
-                          >
-                            {sets}
-                          </div>
-                        )
-                      })}
-                    </Fragment>
+                        {count > 0 ? count : ''}
+                      </span>
+                    </div>
                   )
                 })}
               </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {error && <p className="text-sm font-semibold text-accent-700">{error}</p>}
-
-      <div className="flex items-center gap-4">
-        {step < 3 ? (
-          <button
-            onClick={() => tryAdvanceTo((step + 1) as Step)}
-            className={`${buttonClass} flex-1 justify-between`}
-          >
-            Continue — {STEPS[step as 1 | 2]}
-            <span>→</span>
-          </button>
-        ) : (
-          <button onClick={save} className={`${buttonClass} flex-1 justify-between`}>
-            Start mesocycle
-            <span>→</span>
-          </button>
+              <div className="mt-4 flex flex-col">
+                {Array.from({ length: weeks }, (_, wk) => {
+                  const deload = wk === weeks - 1
+                  // Cardio plans don't deload and carry no sets — the ramp
+                  // projection sums the strength days only.
+                  const sets = sortedDayIdx.reduce((n, i) => {
+                    const d = days[i]
+                    if (dayKind(d) === 'cardio') return n
+                    return (
+                      n +
+                      plannedSets(draftMeso, d, wk, [], lookup, Date.now()).reduce(
+                        (s, e) => s + e.setCount,
+                        0,
+                      )
+                    )
+                  }, 0)
+                  return (
+                    <div
+                      key={wk}
+                      className="flex min-h-9 items-center justify-between gap-3"
+                    >
+                      <span className="text-caption text-ink-2">
+                        Week {wk + 1}
+                      </span>
+                      <span
+                        className={`text-caption font-semibold ${
+                          deload ? 'text-brand-strong' : 'text-ink'
+                        }`}
+                      >
+                        {deload ? `Deload · ${sets} sets` : `${sets} sets`}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </Card>
+          </>
         )}
-        {step > 1 && (
-          <button
-            onClick={() => setStep((s) => (s - 1) as Step)}
-            className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
-          >
-            Back
-          </button>
-        )}
+
+        {error && <Banner tone="error">{error}</Banner>}
+
+        <div className="flex items-center gap-3">
+          {step > 1 && (
+            <Button variant="tonal" onClick={() => goTo((step - 1) as Step)}>
+              Back
+            </Button>
+          )}
+          {step < 3 ? (
+            <Button
+              variant="primary"
+              className="flex-1"
+              onClick={() => tryAdvanceTo((step + 1) as Step)}
+            >
+              Next
+            </Button>
+          ) : (
+            <Button variant="primary" className="flex-1" onClick={save}>
+              Save block
+            </Button>
+          )}
+        </div>
+        <Button variant="ghost" block onClick={cancel}>
+          Cancel
+        </Button>
       </div>
-    </div>
+    </Sheet>
   )
 }

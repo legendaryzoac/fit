@@ -84,6 +84,19 @@ export function finalizeWorkout(w: Workout): Workout {
   }
 }
 
+/** Set count and tonnage (weight × reps over every set that has both). */
+export function workoutVolume(w: Workout): { sets: number; volume: number } {
+  let sets = 0
+  let volume = 0
+  for (const e of w.exercises) {
+    for (const s of e.sets) {
+      sets++
+      if (s.weight != null && s.reps != null) volume += s.weight * s.reps
+    }
+  }
+  return { sets, volume }
+}
+
 export interface SessionRecord {
   sk: string
   sport?: string

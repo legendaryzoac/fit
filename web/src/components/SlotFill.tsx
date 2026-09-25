@@ -1,8 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { EXERCISES, type CustomExercise } from '../lib/exercises'
 import type { Template } from '../lib/templates'
 import type { Workout } from '../lib/workouts'
-import { buttonClass, inputClass } from './ui'
+import { Button } from './cadence/Button'
+import { Card } from './cadence/Card'
+import { Field, TextInput } from './cadence/Field'
+import { Sheet } from './shell/Sheet'
+import { useSheetDismiss } from './shell/useSheetDismiss'
+
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 /**
  * Pre-session picker for templates with generic slots ("quads exercise 1"):
@@ -22,10 +28,18 @@ export function SlotFill({
   lookup: (name: string) => string | undefined
   /** Sorted newest-first — used for choices and most-recent defaults. */
   history: Workout[]
-  onStart: (exercises: Array<{ name: string; setCount: number }>) => void
+  /** Set up the session on the click (drafts, lock screen) and hand back
+   * what runs once the sheet has dropped; null when the start was
+   * declined and the sheet stays up. */
+  onStart: (
+    exercises: Array<{ name: string; setCount: number }>,
+  ) => (() => void) | null
+  /** Runs once the sheet has dropped. */
   onCancel: () => void
 }) {
   const entries = template.exercises ?? []
+  const id = useId()
+  const { open, dismiss, onExited } = useSheetDismiss()
 
   const choices = useMemo(() => {
     const byMuscle = new Map<string, Set<string>>()
@@ -65,77 +79,73 @@ export function SlotFill({
 
   const allFilled = picks.every((p) => p.trim().length > 0)
 
+  function start() {
+    const then = onStart(
+      entries.map((entry, i) => ({
+        name: entry.muscle === undefined ? entry.name : picks[i].trim(),
+        setCount: entry.setCount,
+      })),
+    )
+    if (then) dismiss(then)
+  }
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
-          {template.name} — pick today’s exercises
-        </h1>
-        <button
-          onClick={onCancel}
-          className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
-        >
-          Cancel
-        </button>
-      </div>
-
-      {entries.map((entry, i) =>
-        entry.muscle === undefined ? (
-          <div
-            key={i}
-            className="flex items-baseline justify-between border border-ink/40 p-3"
-          >
-            <span className="text-sm font-semibold text-ink">{entry.name}</span>
-            <span className="text-xs text-ink/55">{entry.setCount} sets</span>
-          </div>
-        ) : (
-          <label
-            key={i}
-            className="flex flex-col gap-1.5 border border-ink/40 p-3"
-          >
-            <span className="flex items-baseline justify-between text-xs text-ink/55">
-              <span>
-                <span className="mr-1.5 bg-accent-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent-800">
-                  {entry.muscle}
+    <Sheet
+      open={open}
+      onClose={() => dismiss(onCancel)}
+      onExited={onExited}
+      title="Fill in"
+    >
+      <div className="flex flex-col gap-3">
+        {entries.map((entry, i) =>
+          entry.muscle === undefined ? (
+            <Card key={i}>
+              <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 truncate text-body font-medium text-ink">
+                  {entry.name}
+                </p>
+                <span className="shrink-0 text-caption text-ink-2">
+                  {entry.setCount} sets
                 </span>
-                {entry.name}
-              </span>
-              <span>{entry.setCount} sets</span>
-            </span>
-            <input
-              className={inputClass}
-              list={`slot-choices-${i}`}
-              placeholder={`pick a ${entry.muscle} exercise…`}
-              value={picks[i]}
-              onChange={(e) =>
-                setPicks((prev) =>
-                  prev.map((p, j) => (j === i ? e.target.value : p)),
-                )
-              }
-            />
-            <datalist id={`slot-choices-${i}`}>
-              {choices(entry.muscle).map((n) => (
-                <option key={n} value={n} />
-              ))}
-            </datalist>
-          </label>
-        ),
-      )}
+              </div>
+            </Card>
+          ) : (
+            <Card key={i}>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-caption text-ink-2">
+                    {capitalise(entry.muscle)}
+                  </span>
+                  <span className="text-caption text-ink-2">
+                    {entry.setCount} sets
+                  </span>
+                </div>
+                <Field label="Exercise" htmlFor={`${id}-${i}`}>
+                  <TextInput
+                    id={`${id}-${i}`}
+                    list={`${id}-choices-${i}`}
+                    value={picks[i]}
+                    onChange={(e) =>
+                      setPicks((prev) =>
+                        prev.map((p, j) => (j === i ? e.target.value : p)),
+                      )
+                    }
+                  />
+                  <datalist id={`${id}-choices-${i}`}>
+                    {choices(entry.muscle).map((n) => (
+                      <option key={n} value={n} />
+                    ))}
+                  </datalist>
+                </Field>
+              </div>
+            </Card>
+          ),
+        )}
 
-      <button
-        disabled={!allFilled}
-        onClick={() =>
-          onStart(
-            entries.map((entry, i) => ({
-              name: entry.muscle === undefined ? entry.name : picks[i].trim(),
-              setCount: entry.setCount,
-            })),
-          )
-        }
-        className={`${buttonClass} w-full justify-between`}
-      >
-        Start workout<span>→</span>
-      </button>
-    </div>
+        <Button variant="primary" block disabled={!allFilled} onClick={start}>
+          Start
+        </Button>
+      </div>
+    </Sheet>
   )
 }

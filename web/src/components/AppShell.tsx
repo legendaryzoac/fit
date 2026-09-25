@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Api } from '../lib/api'
 import { maybeResumeLockScreen } from '../lib/lockScreen'
 import {
@@ -17,7 +17,6 @@ import {
   timerSnapshot,
 } from '../lib/workouts'
 import { Banner } from './cadence/Banner'
-import { Chips } from './shell/Chips'
 import {
   Dock,
   type DockLive,
@@ -30,24 +29,13 @@ import { SettingsSheet } from './shell/SettingsSheet'
 import { TopBar } from './shell/TopBar'
 import { Workouts, type WorkoutsTab } from './Workouts'
 
-// Recharts only loads when someone opens a chart view — keeps the login
-// and logger critical path light for first-time (and demo) visitors.
-const Recovery = lazy(() =>
-  import('./Recovery').then((m) => ({ default: m.Recovery })),
-)
-
 type Tab = DockTab
-type TrendsView = 'strength' | 'recovery'
 
-const TRENDS: Array<{ value: TrendsView; label: string }> = [
-  { value: 'strength', label: 'Strength' },
-  { value: 'recovery', label: 'Recovery' },
-]
-
-const WORKOUTS_TAB: Record<Exclude<Tab, 'trends'>, WorkoutsTab> = {
+const WORKOUTS_TAB: Record<Tab, WorkoutsTab> = {
   today: 'today',
   log: 'history',
   plan: 'plan',
+  trends: 'progress',
 }
 
 export function AppShell({
@@ -62,13 +50,9 @@ export function AppShell({
   onSignOut: () => void
 }) {
   // The WHOOP OAuth redirect (?whoop=connected|error) must land where its
-  // result banner lives — Recovery, under Trends — instead of Today.
-  const [whoopLanding] = useState(() =>
-    new URLSearchParams(window.location.search).has('whoop'),
-  )
-  const [tab, setTab] = useState<Tab>(whoopLanding ? 'trends' : 'today')
-  const [trendsView, setTrendsView] = useState<TrendsView>(
-    whoopLanding ? 'recovery' : 'strength',
+  // result banner lives — Trends, which reads the query itself — not Today.
+  const [tab, setTab] = useState<Tab>(() =>
+    new URLSearchParams(window.location.search).has('whoop') ? 'trends' : 'today',
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -89,10 +73,6 @@ export function AppShell({
     return () => anim.cancel()
   }, [tab])
 
-  const showRecovery = tab === 'trends' && trendsView === 'recovery'
-  const workoutsTab: WorkoutsTab =
-    tab === 'trends' ? 'progress' : WORKOUTS_TAB[tab]
-
   return (
     <div className="min-h-dvh bg-canvas text-ink">
       <TopBar demo={demo} onSettings={() => setSettingsOpen(true)} />
@@ -103,27 +83,9 @@ export function AppShell({
         )}
 
         <div ref={contentRef} className="flex flex-col gap-4">
-          {tab === 'trends' && (
-            <Chips
-              options={TRENDS}
-              value={trendsView}
-              onChange={setTrendsView}
-              ariaLabel="Trends"
-            />
-          )}
-          <Suspense
-            fallback={
-              <p className="py-12 text-center text-body text-ink-3">Loading</p>
-            }
-          >
-            {/* One Workouts instance stays mounted across today, log, plan
-                and strength trends so drafts and caches survive tab hops. */}
-            {showRecovery ? (
-              <Recovery api={api} />
-            ) : (
-              <Workouts api={api} tab={workoutsTab} />
-            )}
-          </Suspense>
+          {/* One Workouts instance stays mounted across all four tabs so
+              drafts and caches survive tab hops. */}
+          <Workouts api={api} tab={WORKOUTS_TAB[tab]} />
         </div>
       </main>
 

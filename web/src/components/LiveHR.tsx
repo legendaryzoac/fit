@@ -1,14 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import { Card } from './ui'
+import { Button } from './cadence/Button'
+import { Card, CardHead } from './cadence/Card'
+import { TrendChart } from './cadence/charts'
 
 // Web Bluetooth is missing from lib.dom in this TS setup — declare just the
 // narrow surface we touch, no `any`, no new dependencies.
@@ -48,25 +41,6 @@ function parseHeartRate(value: DataView): number | null {
   return flags & 0x1 ? value.getUint16(1, true) : value.getUint8(1)
 }
 
-// Copied from Workouts.tsx to keep this card self-contained.
-const secondaryButton =
-  'border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink ' +
-  'hover:bg-ink/5'
-
-const tickStyle = {
-  fill: '#7d7979',
-  fontSize: 10,
-  fontWeight: 600,
-  letterSpacing: '.06em',
-}
-const tooltipStyle = {
-  backgroundColor: '#f3f2f2',
-  border: '1px solid #201e1d',
-  borderRadius: 0,
-  fontSize: 12,
-  color: '#201e1d',
-}
-
 const WINDOW_MS = 3 * 60 * 1000 // rolling ~3-minute chart window
 
 type Status = 'idle' | 'connecting' | 'connected' | 'disconnected'
@@ -81,12 +55,9 @@ export function LiveHR() {
 
   if (!supported) {
     return (
-      <Card title="Live heart rate">
-        <p className="text-sm text-ink/55">
-          Live HR needs Web Bluetooth — use Chrome or Edge on desktop or
-          Android, and turn on your strap&rsquo;s Broadcast Heart Rate mode.
-          This browser doesn&rsquo;t support it.
-        </p>
+      <Card>
+        <CardHead title="Live heart rate" />
+        <p className="mt-2 text-caption text-ink-3">Not available in this browser.</p>
       </Card>
     )
   }
@@ -183,7 +154,7 @@ function LiveHRConnected() {
       setError(
         name === 'NotFoundError'
           ? 'No monitor selected.'
-          : 'Could not connect to a heart rate monitor.',
+          : 'Could not connect.',
       )
     }
   }, [teardown])
@@ -195,93 +166,59 @@ function LiveHRConnected() {
   }, [teardown])
 
   const now = Date.now()
+  // Seconds ago (negative) as the x category, oldest first.
   const chartData = samples.map((s) => ({
-    ago: Math.round((s.t - now) / 1000), // seconds-ago (negative)
-    bpm: s.bpm,
+    date: String(Math.round((s.t - now) / 1000)),
+    value: s.bpm,
   }))
 
   return (
-    <Card title="Live heart rate">
+    <Card>
+      <CardHead
+        title="Live heart rate"
+        action={
+          status === 'connected' ? (
+            <Button variant="ghost" size="sm" onClick={disconnect}>
+              Disconnect
+            </Button>
+          ) : undefined
+        }
+      />
       {status === 'idle' || status === 'disconnected' ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-3">
-            <button className={secondaryButton} onClick={connect}>
-              Connect HR monitor
-            </button>
-            {status === 'disconnected' && (
-              <span className="text-xs text-ink/55">disconnected</span>
-            )}
-          </div>
-          <p className="text-xs text-ink/45">
-            Pairs with any BLE chest strap, or a WHOOP with Broadcast Heart
-            Rate enabled.
-          </p>
-          {error && (
-            <p className="text-xs font-semibold text-accent-700">{error}</p>
+        <div className="mt-3 flex flex-col gap-3">
+          <p className="text-caption text-ink-3">Chest strap or broadcast mode.</p>
+          <Button variant="tonal" onClick={connect} className="self-start">
+            Connect monitor
+          </Button>
+          {status === 'disconnected' && (
+            <p className="text-caption text-ink-3">Disconnected.</p>
           )}
+          {error && <p className="text-caption text-rose-strong">{error}</p>}
         </div>
       ) : status === 'connecting' ? (
-        <p className="py-6 text-center text-sm text-ink/55">Connecting…</p>
+        <p className="mt-3 text-caption text-ink-3">Connecting</p>
       ) : (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-ink/55">
-              {deviceName ?? 'Heart rate monitor'}
-            </span>
-            <button className={secondaryButton} onClick={disconnect}>
-              Disconnect
-            </button>
-          </div>
-          <div className="text-center">
-            <span className="text-6xl font-extrabold leading-none tracking-tight tabular-nums text-accent-700">
+        <div className="mt-3 flex flex-col gap-3">
+          <p className="text-caption text-ink-3">
+            {deviceName ?? 'Heart rate monitor'}
+          </p>
+          <p className="flex items-baseline gap-1.5">
+            <span className="text-display-lg text-ink tabular-nums">
               {bpm ?? '—'}
             </span>
-            <span className="ml-2 text-sm text-ink/55">bpm</span>
-          </div>
+            <span className="text-title-sm text-ink-2">bpm</span>
+          </p>
           {chartData.length > 1 ? (
-            <ResponsiveContainer width="100%" height={180}>
-              <LineChart
-                data={chartData}
-                margin={{ top: 4, right: 4, bottom: 0, left: -18 }}
-              >
-                <CartesianGrid stroke="rgba(32,30,29,.18)" vertical={false} />
-                <XAxis
-                  dataKey="ago"
-                  type="number"
-                  domain={['dataMin', 0]}
-                  tick={tickStyle}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v: number) => `${v}s`}
-                  minTickGap={32}
-                />
-                <YAxis
-                  width={40}
-                  domain={['auto', 'auto']}
-                  tick={tickStyle}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip
-                  contentStyle={tooltipStyle}
-                  labelStyle={{ color: '#201e1d' }}
-                  formatter={(value) => [`${value} bpm`, 'HR']}
-                  labelFormatter={(label) => `${label}s`}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="bpm"
-                  stroke="#ec3013"
-                  strokeWidth={2}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <TrendChart
+              data={chartData}
+              tone="effort"
+              unit="bpm"
+              height={180}
+              formatX={(v) => `${v} s`}
+              animate={false}
+            />
           ) : (
-            <p className="py-4 text-center text-sm text-ink/45">
-              Waiting for beats…
-            </p>
+            <p className="text-caption text-ink-3">Waiting for beats</p>
           )}
         </div>
       )}

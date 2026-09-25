@@ -43,6 +43,7 @@ import {
   saveDraft,
   saveTimerDraft,
   saveWorkoutCache,
+  workoutVolume,
   type IntervalSection,
   type SessionRecord,
   type TimerDraft,
@@ -75,21 +76,22 @@ import {
   recommendations,
   type Recommendation,
 } from '../lib/progression'
-import { onResume, setInSession, setOverlay } from '../lib/sessionBus'
+import { onResume, setInSession } from '../lib/sessionBus'
 import { currentBodyWeight, loadWeightCache, saveWeightCache, type WeightEntry } from '../lib/weights'
+import { Banner } from './cadence/Banner'
 import { Button } from './cadence/Button'
 import { Card } from './cadence/Card'
-import { Field, TextArea, TextInput, WELL_FOCUS } from './cadence/Field'
+import { Field, SELECT_WELL, TextArea, TextInput } from './cadence/Field'
 import { IconButton } from './cadence/IconButton'
-import { List, ListItem, type LeadTone } from './cadence/ListItem'
+import { List, ListItem } from './cadence/ListItem'
 import { Progress, SessionBar } from './cadence/SessionBar'
 import { AddSetButton, SetHeader, SetRow, type SetField } from './cadence/SetRow'
 import { StatusPill } from './cadence/StatusPill'
-import { Stepper } from './cadence/Stepper'
 import { FeedbackModal } from './Feedback'
 import { IntervalSession } from './IntervalTimer'
 import { LockScreenSwitch } from './LockScreenSwitch'
 import { Manage } from './Manage'
+import { Chips } from './shell/Chips'
 import {
   IconChevronDown,
   IconChevronLeft,
@@ -103,17 +105,14 @@ import {
 import { Sheet } from './shell/Sheet'
 import { useSheetDismiss } from './shell/useSheetDismiss'
 import { SlotFill } from './SlotFill'
-import { TemplateBuilder } from './TemplateBuilder'
+import { KIND_LEAD, PlanFields, TemplateBuilder, templateMeta } from './TemplateBuilder'
 import { Today } from './Today'
-import { buttonClass, Card as LedgerCard } from './ui'
+import { WorkoutDetail } from './WorkoutDetail'
 
-// Analytics carries the recharts dependency — split it out of the logger path
-const Analytics = lazy(() =>
-  import('./Analytics').then((m) => ({ default: m.Analytics })),
+// Trends carries the recharts dependency — split it out of the logger path
+const Trends = lazy(() =>
+  import('./Trends').then((m) => ({ default: m.Trends })),
 )
-
-const secondaryButton =
-  'border border-ink/40 px-4 py-2 text-sm font-semibold text-ink hover:bg-ink/5'
 
 const YD = 0.9144
 const MILE = 1609.34
@@ -121,39 +120,22 @@ const MILE = 1609.34
 /** Long histories render in pages — keeps the list DOM small offline too. */
 const PAGE = 20
 
-// Kind identity in a monochrome+red system: strength=red, speed=ink,
-// cardio=salmon.
-const KIND_STYLE: Record<WorkoutKind, string> = {
-  strength: 'bg-accent-100 text-accent-800',
-  speed: 'bg-ink text-paper',
-  cardio: 'bg-accent2-100 text-accent2-800',
-}
+/** The Log chips: every kind, one kind, or the strap's captured sessions. */
+type LogFilter = 'all' | WorkoutKind | 'captured'
 
-function KindPill({ kind }: { kind: WorkoutKind }) {
-  return (
-    <span
-      className={`px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${KIND_STYLE[kind]}`}
-    >
-      {kind}
-    </span>
-  )
-}
+const LOG_CHIPS: Array<{ value: LogFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'strength', label: 'Strength' },
+  { value: 'speed', label: 'Speed' },
+  { value: 'cardio', label: 'Cardio' },
+  { value: 'captured', label: 'Captured' },
+]
 
 const KIND_LABEL: Record<WorkoutKind, string> = {
   strength: 'Strength',
   speed: 'Speed',
   cardio: 'Cardio',
 }
-
-/** The picker's lead circle per kind: barbell, bolt, wave. */
-const KIND_LEAD: Record<WorkoutKind, { icon: ReactNode; tone: LeadTone }> = {
-  strength: { icon: <IconStrength />, tone: 'brand' },
-  speed: { icon: <IconSpeed />, tone: 'effort' },
-  cardio: { icon: <IconRun />, tone: 'rest' },
-}
-
-/** The muscle <select> as a well, matching TextInput. */
-const SELECT_WELL = `h-11 w-full rounded-sm bg-surface-2 px-3.5 text-body text-ink hover:bg-surface-3 ${WELL_FOCUS}`
 
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -176,15 +158,41 @@ function toLocalInput(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-function prevSummary(kind: WorkoutKind, s: WorkoutSet): string | null {
-  if (kind === 'speed') {
-    if (s.distanceM == null && s.durationSec == null) return null
-    const yd = s.distanceM != null ? `${Math.round(s.distanceM / YD)}yd` : ''
-    const t = s.durationSec != null ? `${s.durationSec}s` : ''
-    return [yd, t].filter(Boolean).join(' ')
-  }
-  if (s.weight == null && s.reps == null) return null
-  return `${s.weight ?? '—'}×${s.reps ?? '—'}`
+/** Local calendar day as YYYY-MM-DD. */
+function localDay(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** Monday of the local week holding an instant, as a local day. */
+function mondayOf(ms: number): string {
+  const d = new Date(ms)
+  d.setHours(12, 0, 0, 0)
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return localDay(d)
+}
+
+/** A local day moved by whole days, safe across DST. */
+function shiftDay(day: string, days: number): string {
+  const d = new Date(`${day}T12:00:00`)
+  d.setDate(d.getDate() + days)
+  return localDay(d)
+}
+
+/** "Sep 8" for a section heading. */
+function fmtDay(day: string): string {
+  return new Date(`${day}T12:00:00`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+/** Minutes a workout took: the logged figure, else its clock span. */
+function workoutMinutes(w: Workout): number | null {
+  if (w.durationMin != null) return w.durationMin
+  if (!w.end) return null
+  const ms = new Date(w.end).getTime() - new Date(w.start).getTime()
+  return ms > 0 ? Math.round(ms / 60_000) : null
 }
 
 /** The ghost line under a set row: what this set was last time. */
@@ -221,18 +229,6 @@ function ghostRpe(
 ): number | undefined {
   if (presc) return presc.rir != null ? 10 - presc.rir : undefined
   return prev?.rpe
-}
-
-function setVolume(w: Workout): { sets: number; volume: number } {
-  let sets = 0
-  let volume = 0
-  for (const e of w.exercises) {
-    for (const s of e.sets) {
-      sets++
-      if (s.weight != null && s.reps != null) volume += s.weight * s.reps
-    }
-  }
-  return { sets, volume }
 }
 
 // ---------------------------------------------------------------------------
@@ -971,31 +967,6 @@ function SessionEditor({
 // Start flow: templates, an open workout, a stopwatch, or quick intervals
 // ---------------------------------------------------------------------------
 
-const PLAN_FIELDS: Array<{
-  key: keyof QuickIntervalPlan
-  label: string
-  min: number
-  max: number
-  step: number
-}> = [
-  { key: 'workSec', label: 'Work (s)', min: 1, max: 7200, step: 5 },
-  { key: 'restSec', label: 'Rest (s)', min: 0, max: 7200, step: 5 },
-  { key: 'sets', label: 'Rounds', min: 1, max: 99, step: 1 },
-  { key: 'warmupSec', label: 'Warm up (s)', min: 0, max: 7200, step: 30 },
-  { key: 'cooldownSec', label: 'Cool down (s)', min: 0, max: 7200, step: 30 },
-]
-
-function templateMeta(t: Template): string {
-  if (t.kind === 'strength' && t.exercises) {
-    const sets = t.exercises.reduce((n, e) => n + e.setCount, 0)
-    return `${t.exercises.length} exercises · ${sets} sets`
-  }
-  if (t.sections) {
-    return `${t.sections.length} sections · ${fmtSec(totalSec(t.sections))}`
-  }
-  return ''
-}
-
 function StartPicker({
   templates,
   onStrength,
@@ -1018,7 +989,6 @@ function StartPicker({
 }) {
   const [plan, setPlan] = useState<QuickIntervalPlan>(DEFAULT_PLAN)
   const [intervalsOpen, setIntervalsOpen] = useState(false)
-  const planId = useId()
   const { open, dismiss, onExited } = useSheetDismiss()
 
   const planSections = useMemo(() => buildIntervals(plan), [plan])
@@ -1091,28 +1061,7 @@ function StartPicker({
           />
           {intervalsOpen && (
             <div className="mx-1 mb-1 flex flex-col gap-3 rounded-md bg-surface-2 p-4">
-              {PLAN_FIELDS.map(({ key, label, min, max, step }) => (
-                <div
-                  key={key}
-                  className="flex min-h-11 items-center justify-between gap-3"
-                >
-                  <label
-                    htmlFor={`${planId}-${key}`}
-                    className="text-caption font-semibold text-ink-2"
-                  >
-                    {label}
-                  </label>
-                  <Stepper
-                    id={`${planId}-${key}`}
-                    ariaLabel={label}
-                    min={min}
-                    max={max}
-                    step={step}
-                    value={plan[key]}
-                    onChange={(n) => setPlan({ ...plan, [key]: n })}
-                  />
-                </div>
-              ))}
+              <PlanFields plan={plan} onChange={setPlan} summary={false} />
               <Button
                 variant="primary"
                 block
@@ -1134,79 +1083,33 @@ function StartPicker({
 // Lists: logged training, separated from WHOOP-captured activity
 // ---------------------------------------------------------------------------
 
-function WorkoutCard({
-  workout,
-  onEdit,
-  onRepeat,
-}: {
-  workout: Workout
-  onEdit: () => void
-  onRepeat: () => void
-}) {
-  const { sets, volume } = setVolume(workout)
-  const metaParts: string[] = []
-  if (workout.kind === 'strength' && sets > 0) {
-    metaParts.push(`${workout.exercises.length} exercises · ${sets} sets`)
-    if (volume > 0) {
-      metaParts.push(`${Math.round(volume).toLocaleString()} ${workout.weightUnit}`)
-    }
+/** The sub line of a Log row: what the workout held, without the weekday. */
+function workoutMeta(w: Workout): string[] {
+  const { sets, volume } = workoutVolume(w)
+  const parts: string[] = []
+  if (w.kind === 'strength' && sets > 0) {
+    parts.push(`${w.exercises.length} exercises · ${sets} sets`)
+    // Tonnage shows in the row's trail instead
   }
-  if (workout.intervals && workout.intervals.length > 0) {
-    metaParts.push(`${workout.intervals.length} intervals`)
+  if (w.intervals && w.intervals.length > 0) {
+    parts.push(`${w.intervals.length} intervals`)
   }
-  if (workout.durationMin != null) metaParts.push(`${workout.durationMin} min`)
-  if (workout.distanceM != null) {
-    metaParts.push(`${Math.round((workout.distanceM / MILE) * 100) / 100} mi`)
+  if (w.durationMin != null) parts.push(`${w.durationMin} min`)
+  // Distance shows in the trail when there is no tonnage
+  if (w.distanceM != null && volume > 0) {
+    parts.push(`${Math.round((w.distanceM / MILE) * 100) / 100} mi`)
   }
-  if (workout.linkedSessionSk) metaParts.push('WHOOP linked')
+  return parts
+}
 
-  return (
-    <div className="border-t-2 border-ink/40 pt-2.5">
-      <div className="mb-0.5 flex items-baseline justify-between gap-2">
-        <p className="min-w-0 truncate text-lg font-extrabold tracking-tight text-ink">
-          {workout.title ??
-            `${workout.kind[0].toUpperCase()}${workout.kind.slice(1)} session`}
-        </p>
-        <KindPill kind={workout.kind} />
-      </div>
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
-        {fmtDateTime(workout.start)}
-        {metaParts.map((part) => ` · ${part}`).join('')}
-      </p>
-      <div className="flex flex-col gap-0.5 text-sm text-ink/80">
-        {workout.exercises.slice(0, 4).map((e, i) => (
-          <p key={i} className="truncate">
-            <span className="font-semibold text-ink">{e.name}</span>{' '}
-            <span className="text-ink/50">
-              {e.sets.map((s) => prevSummary(workout.kind, s) ?? '—').join(', ')}
-            </span>
-          </p>
-        ))}
-        {workout.exercises.length > 4 && (
-          <p className="text-xs text-ink/45">
-            +{workout.exercises.length - 4} more
-          </p>
-        )}
-        {workout.notes && <p className="text-xs text-ink/55">{workout.notes}</p>}
-      </div>
-      <div className="mt-2 flex gap-4">
-        <button
-          onClick={onEdit}
-          className="text-[10px] font-extrabold uppercase tracking-widest text-accent-700 hover:text-accent-600"
-        >
-          Edit
-        </button>
-        {workout.kind === 'strength' && (
-          <button
-            onClick={onRepeat}
-            className="text-[10px] font-extrabold uppercase tracking-widest text-accent-700 hover:text-accent-600"
-          >
-            Repeat
-          </button>
-        )}
-      </div>
-    </div>
-  )
+/** The trail of a Log row: tonnage, else distance. */
+function workoutTrail(w: Workout): string | undefined {
+  const { volume } = workoutVolume(w)
+  if (volume > 0) return `${Math.round(volume).toLocaleString()} ${w.weightUnit}`
+  if (w.distanceM != null) {
+    return `${Math.round((w.distanceM / MILE) * 100) / 100} mi`
+  }
+  return undefined
 }
 
 type Mode =
@@ -1217,7 +1120,7 @@ type Mode =
   | { m: 'timer'; draft: TimerDraft }
   | { m: 'slots'; template: Template }
   | { m: 'feedback'; workout: Workout }
-  | { m: 'meso-setup' }
+  | { m: 'meso-setup'; initial?: Mesocycle }
 
 /** Which bottom-nav tab this instance is rendering (Recovery lives in its
  * own component). One Workouts instance persists across all four so live
@@ -1225,7 +1128,9 @@ type Mode =
 export type WorkoutsTab = 'today' | 'history' | 'plan' | 'progress'
 
 export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
-  const [segment, setSegment] = useState<'log' | 'captured'>('log')
+  const [logFilter, setLogFilter] = useState<LogFilter>('all')
+  /** The workout open in the Log's detail sheet. */
+  const [detail, setDetail] = useState<Workout | null>(null)
   const [workouts, setWorkouts] = useState<Workout[]>(loadWorkoutCache)
   const [sessions, setSessions] = useState<SessionRecord[]>([])
   const [templates, setTemplates] = useState<Template[]>(loadTemplateCache)
@@ -1324,21 +1229,14 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
 
   useEffect(() => {
     setVisibleCount(PAGE)
-  }, [segment, tab])
+  }, [logFilter, tab])
 
-  // Keep the session bus in sync so the dock knows when we're live, and
-  // tell the shell to yield the dock to the full-screen flows. Sessions,
-  // the picker and the check-in are sheets over the tab, so the dock stays
-  // (under the scrim) and takes over the moment a session is minimised.
+  // Keep the session bus in sync so the dock knows when we're live. Every
+  // flow here is a sheet over the tab, so the dock stays (under the scrim)
+  // and takes over the moment a session is minimised.
   useEffect(() => {
     setInSession(mode.m === 'strength' || mode.m === 'timer')
-    setOverlay(
-      mode.m === 'slots' || mode.m === 'build' || mode.m === 'meso-setup',
-    )
-    return () => {
-      setInSession(false)
-      setOverlay(false)
-    }
+    return () => setInSession(false)
   }, [mode])
 
   // Resume from the dock while already mounted: re-enter the draft —
@@ -1431,7 +1329,8 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     void api.send('POST', '/api/exercises', { name, muscle }).catch(() => {})
   }
 
-  async function removeTemplate(t: Template) {
+  /** Delete a template; resolves true once it is gone. */
+  async function removeTemplate(t: Template): Promise<boolean> {
     try {
       const res = await api.send(
         'DELETE',
@@ -1443,8 +1342,10 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
         saveTemplateCache(next)
         return next
       })
+      return true
     } catch {
       setError('Deleting templates needs a connection.')
+      return false
     }
   }
 
@@ -1643,82 +1544,6 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     )
   }
 
-  // ---- full-screen flows (part 5 owns these) ----
-
-  if (mode.m === 'slots') {
-    return (
-      <SlotFill
-        template={mode.template}
-        customs={customs}
-        lookup={muscleLookup}
-        history={workouts}
-        onStart={(entries) => {
-          if (!confirmReplaceLive()) return
-          // A free-typed pick inherits its slot's muscle group, otherwise
-          // feedback and progression would never see the exercise.
-          const slotEntries = mode.template.exercises ?? []
-          entries.forEach((e, i) => {
-            const muscle = slotEntries[i]?.muscle
-            if (muscle && muscleLookup(e.name) === undefined) {
-              saveCustomExercise(e.name, muscle)
-            }
-          })
-          const w = newWorkout('strength')
-          w.title = mode.template.name
-          w.exercises = buildExercises(entries)
-          setMode(beginStrength(w))
-        }}
-        onCancel={() => setMode({ m: 'pick' })}
-      />
-    )
-  }
-
-  if (mode.m === 'meso-setup') {
-    return (
-      <MesoSetup
-        templates={templates}
-        customs={customs}
-        lookup={muscleLookup}
-        history={workouts}
-        onSave={(m) => {
-          // Slot-derived rows carry a muscle — register free-typed names
-          // so feedback/volume/prescriptions can resolve them (the same
-          // convention SlotFill established).
-          for (const day of m.days) {
-            for (const e of day.exercises) {
-              if (e.muscle && muscleLookup(e.name) === undefined) {
-                saveCustomExercise(e.name, e.muscle)
-              }
-            }
-          }
-          upsertMeso(m)
-          setMode({ m: 'list' })
-        }}
-        onCancel={toList}
-      />
-    )
-  }
-
-  if (mode.m === 'build') {
-    return (
-      <TemplateBuilder
-        api={api}
-        customs={customs}
-        initial={mode.initial}
-        onSaveCustom={saveCustomExercise}
-        onSaved={(t) => {
-          setTemplates((prev) => {
-            const next = [...prev.filter((x) => x.id !== t.id), t]
-            saveTemplateCache(next)
-            return next
-          })
-          setMode({ m: 'list' })
-        }}
-        onCancel={toList}
-      />
-    )
-  }
-
   // ---- tabbed content, with the session sheets over it ----
 
   let content: ReactNode
@@ -1746,28 +1571,26 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     content = (
       <Suspense
         fallback={
-          <p className="py-12 text-center text-sm text-ink/45">Loading…</p>
+          <p className="py-12 text-center text-body text-ink-3">Loading</p>
         }
       >
-        <div className="flex flex-col gap-4">
-          <h1 className="text-2xl font-extrabold tracking-tight text-ink">
-            Progress
-          </h1>
-          <Analytics
-            api={api}
-            workouts={workouts}
-            sessions={sessions}
-            customs={customs}
-          />
-        </div>
+        <Trends
+          api={api}
+          workouts={workouts}
+          sessions={sessions}
+          lookup={muscleLookup}
+          weights={weights}
+          onWeightsChange={(next) => {
+            setWeights(next)
+            saveWeightCache(next)
+          }}
+        />
       </Suspense>
     )
   } else if (tab === 'plan') {
     content = (
-      <div className="flex flex-col gap-4">
-        <h1 className="text-2xl font-extrabold tracking-tight text-ink">
-          Plan
-        </h1>
+      <div className="flex flex-col gap-3">
+        <h1 className="text-title-lg text-ink">Plan</h1>
         <MesoCard
           meso={activeMeso(mesos)}
           workouts={workouts}
@@ -1779,11 +1602,13 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
             const m = activeMeso(mesos)
             if (m) upsertMeso({ ...m, status })
           }}
+          onEdit={() => {
+            const m = activeMeso(mesos)
+            if (m) setMode({ m: 'meso-setup', initial: m })
+          }}
           onPlan={() => setMode({ m: 'meso-setup' })}
         />
-        {error && (
-          <p className="text-sm font-semibold text-accent-700">{error}</p>
-        )}
+        {error && <Banner tone="error">{error}</Banner>}
         <Manage
           api={api}
           templates={templates}
@@ -1791,7 +1616,6 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
           workouts={workouts}
           onNewTemplate={() => setMode({ m: 'build' })}
           onEditTemplate={(t) => setMode({ m: 'build', initial: t })}
-          onDeleteTemplate={removeTemplate}
           onCustomsChange={(next) => {
             setCustoms(next)
             saveCustomExercises(next)
@@ -1809,161 +1633,210 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     )
   } else {
     // tab === 'history'
-    content = (
-      <>
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-extrabold tracking-tight text-ink">
-            History
-          </h1>
-          <button onClick={() => setMode({ m: 'pick' })} className={buttonClass}>
-            Start workout
-          </button>
-        </div>
+    const captured = logFilter === 'captured'
+    const shown =
+      logFilter === 'all' || captured
+        ? workouts
+        : workouts.filter((w) => w.kind === logFilter)
+    const visible = shown.slice(0, visibleCount)
 
-        <div className="flex border border-ink/40">
-          {(
-            [
-              ['log', 'Logged'],
-              ['captured', 'Captured'],
-            ] as const
-          ).map(([value, label], i) => (
-            <button
-              key={value}
-              onClick={() => setSegment(value)}
-              className={`flex-1 py-1.5 text-[10px] uppercase tracking-wider ${
-                i > 0 ? 'border-l border-ink/40' : ''
-              } ${
-                segment === value
-                  ? 'bg-accent font-extrabold text-paper'
-                  : 'font-semibold text-ink/60 hover:bg-ink/5'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+    // Calendar weeks, Monday first, newest week on top.
+    const thisMonday = mondayOf(Date.now())
+    const lastMonday = shiftDay(thisMonday, -7)
+    const sections: Array<{ monday: string; items: Workout[] }> = []
+    for (const w of visible) {
+      const monday = mondayOf(new Date(w.start).getTime())
+      const last = sections.at(-1)
+      if (last && last.monday === monday) last.items.push(w)
+      else sections.push({ monday, items: [w] })
+    }
+
+    const sortedSessions = captured
+      ? sessions.slice().sort((a, b) => b.start.localeCompare(a.start))
+      : []
+    const visibleSessions = sortedSessions.slice(0, visibleCount)
+
+    content = (
+      <div className="flex flex-col gap-3">
+        <h1 className="text-title-lg text-ink">Log</h1>
+        <Chips
+          options={LOG_CHIPS}
+          value={logFilter}
+          onChange={setLogFilter}
+          ariaLabel="Log"
+        />
 
         {offline && (
-          <p className="bg-accent-200 px-2 py-1 text-xs font-semibold text-accent-800">
-            Offline — showing cached workouts.
-            {pendingCount > 0 && ` ${pendingCount} pending sync.`}
-          </p>
+          <Banner tone="info">
+            {pendingCount > 0
+              ? `Offline. ${pendingCount} workouts will sync.`
+              : 'Offline.'}
+          </Banner>
         )}
         {!offline && pendingCount > 0 && (
-          <p className="bg-accent-200 px-2 py-1 text-xs font-semibold text-accent-800">
-            {pendingCount} workout(s) pending sync…
+          <Banner tone="info">{pendingCount} workouts will sync.</Banner>
+        )}
+        {error && <Banner tone="error">{error}</Banner>}
+
+        {!captured && workouts.length === 0 && (
+          <Card>
+            <p className="text-title-sm text-ink">No workouts yet</p>
+            <p className="mt-1 text-body text-ink-2">Start one from Today.</p>
+          </Card>
+        )}
+        {!captured && workouts.length > 0 && shown.length === 0 && (
+          <Card>
+            <p className="text-body text-ink-2">Nothing logged.</p>
+          </Card>
+        )}
+
+        {!captured &&
+          sections.map(({ monday, items }) => {
+            const minutes = items
+              .map(workoutMinutes)
+              .filter((m): m is number => m != null)
+            const total = minutes.reduce((a, b) => a + b, 0)
+            return (
+              <section key={monday} className="flex flex-col gap-2">
+                <div className="flex items-baseline justify-between gap-3 px-1">
+                  <h2 className="text-title-sm text-ink">
+                    {monday === thisMonday
+                      ? 'This week'
+                      : monday === lastMonday
+                        ? 'Last week'
+                        : fmtDay(monday)}
+                  </h2>
+                  <span className="text-caption text-ink-3">
+                    {items.length} {items.length === 1 ? 'session' : 'sessions'}
+                    {minutes.length > 0 && ` · ${total} min`}
+                  </span>
+                </div>
+                <List>
+                  {items.map((w) => (
+                    <ListItem
+                      key={w.id}
+                      lead={KIND_LEAD[w.kind].icon}
+                      leadTone={KIND_LEAD[w.kind].tone}
+                      title={w.title || KIND_LABEL[w.kind]}
+                      sub={[
+                        new Date(w.start).toLocaleDateString(undefined, {
+                          weekday: 'short',
+                        }),
+                        ...workoutMeta(w),
+                      ].join(' · ')}
+                      trail={workoutTrail(w)}
+                      chevron
+                      onClick={() => setDetail(w)}
+                    />
+                  ))}
+                </List>
+              </section>
+            )
+          })}
+        {!captured && shown.length > PAGE && (
+          <p className="text-center text-caption text-ink-3">
+            Showing {visible.length} of {shown.length}
           </p>
         )}
-        {error && (
-          <p className="text-sm font-semibold text-accent-700">{error}</p>
+        {!captured && visibleCount < shown.length && (
+          <Button
+            variant="quiet"
+            block
+            onClick={() => setVisibleCount((n) => n + PAGE)}
+          >
+            Show more
+          </Button>
         )}
 
-        {segment === 'log' && (
-          <div className="flex flex-col gap-3">
-            {workouts.length === 0 && (
-              <p className="py-8 text-center text-sm text-ink/45">
-                Nothing logged yet — hit “Start workout” at the gym.
-              </p>
-            )}
-            {workouts.slice(0, visibleCount).map((w) => (
-              <WorkoutCard
-                key={w.id}
-                workout={w}
-                onEdit={() => setMode({ m: 'strength', workout: w, isNew: false })}
-                onRepeat={() => {
-                  // Through beginStrength: guards a live draft like every
-                  // other session start.
-                  if (!confirmReplaceLive()) return
-                  setMode(
-                    beginStrength({
-                      ...w,
-                      id: crypto.randomUUID(),
-                      start: new Date().toISOString(),
-                      end: undefined,
-                      updatedAt: undefined,
-                      // Ratings and meso membership belong to the session
-                      // they came from — a repeat is a plain ad-hoc workout.
-                      feedback: undefined,
-                      mesoId: undefined,
-                      mesoDayIndex: undefined,
-                      exercises: w.exercises.map((e) => ({
-                        ...e,
-                        sets: e.sets.map((s) => ({ ...s, done: false })),
-                      })),
-                    }),
-                  )
-                }}
-              />
-            ))}
-            {workouts.length > PAGE && (
-              <p className="text-xs text-ink/45">
-                Showing {Math.min(visibleCount, workouts.length)} of{' '}
-                {workouts.length}
-              </p>
-            )}
-            {visibleCount < workouts.length && (
-              <button
-                onClick={() => setVisibleCount((n) => n + PAGE)}
-                className={`${secondaryButton} w-full`}
-              >
-                Show more
-              </button>
-            )}
-          </div>
+        {captured && sessions.length === 0 && (
+          <p className="text-caption text-ink-3">Nothing captured yet.</p>
         )}
-
-        {segment === 'captured' &&
-          (() => {
-            const sorted = sessions
-              .slice()
-              .sort((a, b) => b.start.localeCompare(a.start))
-            const visible = sorted.slice(0, visibleCount)
-            return (
-              <div className="flex flex-col gap-3">
-                {sessions.length === 0 && (
-                  <p className="py-8 text-center text-sm text-ink/45">
-                    No captured activity yet — data from connected wearables lands
-                    here automatically.
-                  </p>
-                )}
-                {visible.map((s) => (
-                  <LedgerCard
-                    key={s.sk}
-                    title={s.sport ?? 'Activity'}
-                    subtitle={fmtDateTime(s.start)}
-                  >
-                    <p className="text-sm text-ink/70">
-                      {s.strain != null && `strain ${Math.round(s.strain * 10) / 10}`}
-                      {s.avgHr != null && ` · ${Math.round(s.avgHr)} bpm avg`}
-                      {s.maxHr != null && ` · ${Math.round(s.maxHr)} max`}
-                      {s.distanceM != null &&
-                        ` · ${Math.round((s.distanceM / MILE) * 100) / 100} mi`}
-                    </p>
-                  </LedgerCard>
-                ))}
-                {sorted.length > 0 && (
-                  <p className="text-xs text-ink/45">
-                    Showing {visible.length} of {sorted.length}
-                  </p>
-                )}
-                {visibleCount < sorted.length && (
-                  <button
-                    onClick={() => setVisibleCount((n) => n + PAGE)}
-                    className={`${secondaryButton} w-full`}
-                  >
-                    Show more
-                  </button>
-                )}
-              </div>
-            )
-          })()}
-      </>
+        {captured && visibleSessions.length > 0 && (
+          <List>
+            {visibleSessions.map((s) => {
+              const sport = s.sport ?? 'Activity'
+              const lifting = sport === 'weightlifting'
+              const parts = [fmtDateTime(s.start)]
+              if (s.strain != null) {
+                parts.push(`strain ${Math.round(s.strain * 10) / 10}`)
+              }
+              if (s.avgHr != null) parts.push(`${Math.round(s.avgHr)} bpm avg`)
+              if (s.maxHr != null) parts.push(`${Math.round(s.maxHr)} max`)
+              if (s.distanceM != null) {
+                parts.push(`${Math.round((s.distanceM / MILE) * 100) / 100} mi`)
+              }
+              return (
+                <ListItem
+                  key={s.sk}
+                  lead={lifting ? <IconStrength /> : <IconRun />}
+                  leadTone={lifting ? 'brand' : 'rest'}
+                  title={sport.charAt(0).toUpperCase() + sport.slice(1)}
+                  sub={parts.join(' · ')}
+                />
+              )
+            })}
+          </List>
+        )}
+        {captured && sortedSessions.length > 0 && (
+          <p className="text-center text-caption text-ink-3">
+            Showing {visibleSessions.length} of {sortedSessions.length}
+          </p>
+        )}
+        {captured && visibleCount < sortedSessions.length && (
+          <Button
+            variant="quiet"
+            block
+            onClick={() => setVisibleCount((n) => n + PAGE)}
+          >
+            Show more
+          </Button>
+        )}
+      </div>
     )
   }
 
   return (
     <>
       {content}
+
+      {detail && (
+        <WorkoutDetail
+          key={detail.id}
+          workout={detail}
+          history={workouts}
+          mesos={mesos}
+          onClose={() => setDetail(null)}
+          onEdit={() => {
+            setDetail(null)
+            setMode({ m: 'strength', workout: detail, isNew: false })
+          }}
+          onRepeat={() => {
+            setDetail(null)
+            // Through beginStrength: guards a live draft like every
+            // other session start.
+            if (!confirmReplaceLive()) return
+            setMode(
+              beginStrength({
+                ...detail,
+                id: crypto.randomUUID(),
+                start: new Date().toISOString(),
+                end: undefined,
+                updatedAt: undefined,
+                // Ratings and meso membership belong to the session
+                // they came from — a repeat is a plain ad-hoc workout.
+                feedback: undefined,
+                mesoId: undefined,
+                mesoDayIndex: undefined,
+                exercises: detail.exercises.map((e) => ({
+                  ...e,
+                  sets: e.sets.map((s) => ({ ...s, done: false })),
+                })),
+              }),
+            )
+          }}
+          onDelete={remove}
+        />
+      )}
 
       {mode.m === 'strength' && sessionSheet(mode)}
 
@@ -1994,6 +1867,82 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
           confirmStart={confirmReplaceLive}
           onEnter={setMode}
           onDeleteTemplate={removeTemplate}
+          onCancel={toList}
+        />
+      )}
+
+      {mode.m === 'slots' && (
+        <SlotFill
+          key={mode.template.id}
+          template={mode.template}
+          customs={customs}
+          lookup={muscleLookup}
+          history={workouts}
+          onStart={(entries) => {
+            if (!confirmReplaceLive()) return null
+            // A free-typed pick inherits its slot's muscle group, otherwise
+            // feedback and progression would never see the exercise.
+            const slotEntries = mode.template.exercises ?? []
+            entries.forEach((e, i) => {
+              const muscle = slotEntries[i]?.muscle
+              if (muscle && muscleLookup(e.name) === undefined) {
+                saveCustomExercise(e.name, muscle)
+              }
+            })
+            const w = newWorkout('strength')
+            w.title = mode.template.name
+            w.exercises = buildExercises(entries)
+            // The draft swap and lock-screen autoplay run on the click;
+            // the mode flips once the sheet has dropped.
+            const next = beginStrength(w)
+            return () => setMode(next)
+          }}
+          onCancel={() => setMode({ m: 'pick' })}
+        />
+      )}
+
+      {mode.m === 'meso-setup' && (
+        <MesoSetup
+          key={mode.initial?.id ?? 'new'}
+          templates={templates}
+          customs={customs}
+          lookup={muscleLookup}
+          history={workouts}
+          initial={mode.initial}
+          onSave={(m) => {
+            // Slot-derived rows carry a muscle — register free-typed names
+            // so feedback/volume/prescriptions can resolve them (the same
+            // convention SlotFill established).
+            for (const day of m.days) {
+              for (const e of day.exercises) {
+                if (e.muscle && muscleLookup(e.name) === undefined) {
+                  saveCustomExercise(e.name, e.muscle)
+                }
+              }
+            }
+            upsertMeso(m)
+            setMode({ m: 'list' })
+          }}
+          onCancel={toList}
+        />
+      )}
+
+      {mode.m === 'build' && (
+        <TemplateBuilder
+          key={mode.initial?.id ?? 'new'}
+          api={api}
+          customs={customs}
+          initial={mode.initial}
+          onSaveCustom={saveCustomExercise}
+          onSaved={(t) => {
+            setTemplates((prev) => {
+              const next = [...prev.filter((x) => x.id !== t.id), t]
+              saveTemplateCache(next)
+              return next
+            })
+            setMode({ m: 'list' })
+          }}
+          onDelete={removeTemplate}
           onCancel={toList}
         />
       )}

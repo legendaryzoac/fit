@@ -1,26 +1,23 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { Api } from '../lib/api'
 import { MUSCLE_GROUPS, type CustomExercise } from '../lib/exercises'
-import { fmtSec, totalSec, type Template } from '../lib/templates'
-import type { Workout, WorkoutKind } from '../lib/workouts'
-import { KIND_STYLE } from './TemplateBuilder'
-import { buttonClass, inputClass } from './ui'
+import type { Template } from '../lib/templates'
+import type { Workout } from '../lib/workouts'
+import { Banner } from './cadence/Banner'
+import { Button } from './cadence/Button'
+import { Card } from './cadence/Card'
+import { Field, SELECT_WELL, TextInput } from './cadence/Field'
+import { IconButton } from './cadence/IconButton'
+import { List, ListItem } from './cadence/ListItem'
+import { IconX } from './shell/icons'
+import { KIND_LEAD, templateMeta } from './TemplateBuilder'
 
-const secondaryButton =
-  'border border-ink/40 px-3 py-1.5 text-sm font-semibold text-ink ' +
-  'hover:bg-ink/5'
-
-function templateMeta(t: Template): string {
-  if (t.kind === 'strength' && t.exercises) {
-    const sets = t.exercises.reduce((n, e) => n + e.setCount, 0)
-    return `${t.exercises.length} exercises · ${sets} sets`
-  }
-  if (t.sections) {
-    return `${t.sections.length} sections · ${fmtSec(totalSec(t.sections))}`
-  }
-  return ''
-}
-
+/**
+ * The Plan tab's library: the templates (edited in the builder sheet) and
+ * the custom exercises, with one form that adds a new one or renames an
+ * existing one — a rename propagates through logged history so ghosts,
+ * PRs and e1RM trends stay on one line.
+ */
 export function Manage({
   api,
   templates,
@@ -28,11 +25,9 @@ export function Manage({
   workouts,
   onNewTemplate,
   onEditTemplate,
-  onDeleteTemplate,
   onCustomsChange,
   onTemplatesChange,
   onWorkoutsChange,
-  onClose,
 }: {
   api: Api
   templates: Template[]
@@ -40,18 +35,17 @@ export function Manage({
   workouts: Workout[]
   onNewTemplate: () => void
   onEditTemplate: (t: Template) => void
-  onDeleteTemplate: (t: Template) => void
   onCustomsChange: (next: CustomExercise[]) => void
   onTemplatesChange: (next: Template[]) => void
   onWorkoutsChange: (next: Workout[]) => void
-  /** Absent when Manage renders inline as the Plan tab. */
-  onClose?: () => void
 }) {
   const [editing, setEditing] = useState<CustomExercise | null>(null)
   const [editName, setEditName] = useState('')
   const [editMuscle, setEditMuscle] = useState('other')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const nameId = useId()
+  const muscleId = useId()
 
   const matches = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
@@ -69,8 +63,14 @@ export function Manage({
     setError(null)
   }
 
+  function cancelEdit() {
+    setEditing(null)
+    setEditName('')
+    setEditMuscle('other')
+    setError(null)
+  }
+
   async function saveExercise() {
-    if (!editing) return
     const nextName = editName.trim()
     if (!nextName) {
       setError('Exercise needs a name.')
@@ -83,8 +83,8 @@ export function Manage({
       const res = await api.send('POST', '/api/exercises', next)
       if (!res.ok) throw new Error(`API responded ${res.status}`)
 
-      const renamed = !matches(nextName, editing.name)
-      if (renamed) {
+      const renamed = editing != null && !matches(nextName, editing.name)
+      if (editing && renamed) {
         await api.send(
           'DELETE',
           `/api/exercises?name=${encodeURIComponent(editing.name)}`,
@@ -131,11 +131,15 @@ export function Manage({
         onTemplatesChange(updatedTemplates)
       }
 
+      // Same name (case aside) replaces in place, whether editing or adding
+      const oldName = editing?.name ?? nextName
       onCustomsChange([
-        ...customs.filter((c) => !matches(c.name, editing.name)),
+        ...customs.filter(
+          (c) => !matches(c.name, oldName) && !matches(c.name, nextName),
+        ),
         next,
       ])
-      setEditing(null)
+      cancelEdit()
     } catch {
       setError('Saving needs a connection — try again when online.')
     } finally {
@@ -152,157 +156,127 @@ export function Manage({
       )
       if (!res.ok) throw new Error(`API responded ${res.status}`)
       onCustomsChange(customs.filter((c) => !matches(c.name, exercise.name)))
+      if (editing && matches(editing.name, exercise.name)) cancelEdit()
     } catch {
       setError('Deleting needs a connection — try again when online.')
     }
   }
 
+  const sortedCustoms = customs
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  // The muscle list always holds the current value, even a legacy one
+  const muscleOptions = [
+    ...MUSCLE_GROUPS.filter((m) => m !== editMuscle),
+    editMuscle,
+  ].sort()
+
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold tracking-tight text-ink">Manage</h1>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
-          >
-            ← Back
-          </button>
+    <>
+      <section className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <h2 className="text-title-sm text-ink">Templates</h2>
+          <Button variant="ghost" size="sm" onClick={onNewTemplate}>
+            New
+          </Button>
+        </div>
+        {templates.length === 0 ? (
+          <Card>
+            <p className="text-body text-ink-2">No templates yet.</p>
+          </Card>
+        ) : (
+          <List>
+            {templates.map((t) => (
+              <ListItem
+                key={t.id}
+                lead={KIND_LEAD[t.kind].icon}
+                leadTone={KIND_LEAD[t.kind].tone}
+                title={t.name}
+                sub={templateMeta(t)}
+                chevron
+                onClick={() => onEditTemplate(t)}
+              />
+            ))}
+          </List>
         )}
-      </div>
+      </section>
 
-      {error && <p className="text-sm font-semibold text-accent-700">{error}</p>}
-
-      <section className="flex flex-col gap-2 border-t-2 border-ink/40 pt-2.5">
-        <p className="kicker">Templates</p>
-        {templates.length === 0 && (
-          <p className="text-sm text-ink/45">
-            No templates yet — they make starting a workout one tap.
-          </p>
+      <section className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3 px-1">
+          <h2 className="text-title-sm text-ink">Exercises</h2>
+          <Button variant="ghost" size="sm" onClick={cancelEdit}>
+            New
+          </Button>
+        </div>
+        {error && <Banner tone="error">{error}</Banner>}
+        {sortedCustoms.length > 0 && (
+          <List>
+            {sortedCustoms.map((c) => (
+              <ListItem
+                key={c.name}
+                title={c.name}
+                sub={c.muscle}
+                onClick={() => startEdit(c)}
+                action={
+                  <IconButton
+                    size="sm"
+                    label={`Delete ${c.name}`}
+                    onClick={() => deleteExercise(c)}
+                  >
+                    <IconX className="h-4 w-4" />
+                  </IconButton>
+                }
+              />
+            ))}
+          </List>
         )}
-        {templates.map((t) => (
-          <div
-            key={t.id}
-            className="flex items-center gap-3 border border-ink/40 p-3"
-          >
-            <span
-              className={`px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ${KIND_STYLE[t.kind as WorkoutKind]}`}
+        <Card>
+          <div className="flex flex-col gap-3">
+            <Field label="Name" htmlFor={nameId}>
+              <TextInput
+                id={nameId}
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && saveExercise()}
+              />
+            </Field>
+            <Field label="Muscle group" htmlFor={muscleId}>
+              <select
+                id={muscleId}
+                className={SELECT_WELL}
+                value={editMuscle}
+                onChange={(e) => setEditMuscle(e.target.value)}
+              >
+                {muscleOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {affectedCount > 0 && (
+              <Banner tone="info">
+                Renames it in {affectedCount}{' '}
+                {affectedCount === 1 ? 'workout' : 'workouts'}.
+              </Banner>
+            )}
+            <Button
+              variant="quiet"
+              block
+              disabled={busy}
+              onClick={saveExercise}
             >
-              {t.kind}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-ink">
-                {t.name}
-              </p>
-              <p className="text-xs text-ink/55">{templateMeta(t)}</p>
-            </div>
-            <button
-              onClick={() => onEditTemplate(t)}
-              className="text-xs font-semibold text-accent-700 hover:text-accent"
-            >
-              Edit
-            </button>
-            <button
-              onClick={() => onDeleteTemplate(t)}
-              className="px-1 text-ink/45 hover:text-accent-700"
-              aria-label={`delete template ${t.name}`}
-            >
-              ✕
-            </button>
+              {editing ? 'Save' : 'Add'}
+            </Button>
+            {editing && (
+              <Button variant="ghost" block onClick={cancelEdit}>
+                Cancel
+              </Button>
+            )}
           </div>
-        ))}
-        <button onClick={onNewTemplate} className={`${secondaryButton} w-full`}>
-          + New template
-        </button>
+        </Card>
       </section>
-
-      <section className="flex flex-col gap-2 border-t-2 border-ink/40 pt-2.5">
-        <p className="kicker">Custom exercises</p>
-        {customs.length === 0 && (
-          <p className="text-sm text-ink/45">
-            Exercises you type in during a session are saved here for
-            renaming or muscle-group fixes.
-          </p>
-        )}
-        {customs
-          .slice()
-          .sort((a, b) => a.name.localeCompare(b.name))
-          .map((c) =>
-            editing && matches(editing.name, c.name) ? (
-              <div
-                key={c.name}
-                className="flex flex-col gap-2 border-2 border-accent p-3"
-              >
-                <div className="flex gap-2">
-                  <input
-                    className={inputClass}
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                  />
-                  <select
-                    className={`${inputClass} w-auto`}
-                    value={editMuscle}
-                    onChange={(e) => setEditMuscle(e.target.value)}
-                  >
-                    {[...MUSCLE_GROUPS.filter((m) => m !== editMuscle), editMuscle]
-                      .sort()
-                      .map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                {affectedCount > 0 && (
-                  <p className="bg-accent-200 px-2 py-1 text-xs font-semibold text-accent-800">
-                    Also renames it in {affectedCount} logged workout
-                    {affectedCount === 1 ? '' : 's'}.
-                  </p>
-                )}
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={saveExercise}
-                    disabled={busy}
-                    className={buttonClass}
-                  >
-                    {busy ? 'Saving…' : 'Save'}
-                  </button>
-                  <button
-                    onClick={() => setEditing(null)}
-                    className="text-[10px] font-semibold uppercase tracking-widest text-ink/45 hover:text-ink"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div
-                key={c.name}
-                className="flex items-center gap-3 border border-ink/40 p-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-ink">{c.name}</p>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ink/45">
-                    {c.muscle}
-                  </p>
-                </div>
-                <button
-                  onClick={() => startEdit(c)}
-                  className="text-xs font-semibold text-accent-700 hover:text-accent"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => deleteExercise(c)}
-                  className="px-1 text-ink/45 hover:text-accent-700"
-                  aria-label={`delete exercise ${c.name}`}
-                >
-                  ✕
-                </button>
-              </div>
-            ),
-          )}
-      </section>
-    </div>
+    </>
   )
 }
