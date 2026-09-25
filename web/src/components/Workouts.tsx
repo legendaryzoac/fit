@@ -1899,6 +1899,7 @@ export function Workouts({
           sessions={sessions}
           lookup={muscleLookup}
           weights={weights}
+          checkins={checkins}
           onWeightsChange={(next) => {
             setWeights(next)
             saveWeightCache(next)

@@ -114,6 +114,7 @@ export function AppShell({
         demo={demo}
         email={email}
         onSignOut={onSignOut}
+        api={api}
       />
       <ConfirmDialog />
     </div>

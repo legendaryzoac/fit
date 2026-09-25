@@ -183,6 +183,8 @@ export function TrendChart({
   baselineLabel = 'baseline',
   formatX = shortDate,
   animate = true,
+  connectNulls = true,
+  ticks,
 }: {
   data: TrendPoint[]
   tone: ChartTone
@@ -192,6 +194,9 @@ export function TrendChart({
   baselineLabel?: string
   formatX?: (x: string) => string
   animate?: boolean
+  /** False leaves missing days as gaps instead of bridging them. */
+  connectNulls?: boolean
+  ticks?: number[]
 }) {
   const colour = TONE[tone]
   const hasBaseline = data.some((d) => d.baseline != null)
@@ -211,6 +216,7 @@ export function TrendChart({
           {...AXIS}
           width={yWidth(data, ['value'])}
           domain={domain ?? ['auto', 'auto']}
+          ticks={ticks}
           tickFormatter={compact}
         />
         <Tooltip
@@ -234,7 +240,7 @@ export function TrendChart({
           fillOpacity={0.12}
           dot={lastDot(colour, last)}
           activeDot={{ r: 4, fill: colour, stroke: 'var(--surface)', strokeWidth: 2 }}
-          connectNulls
+          connectNulls={connectNulls}
           isAnimationActive={animate}
         />
         {hasBaseline && (
@@ -252,6 +258,91 @@ export function TrendChart({
         )}
       </ComposedChart>
     </ResponsiveContainer>
+  )
+}
+
+export interface LineKey {
+  key: string
+  label: string
+  color: string
+}
+
+/** Several series over time, gaps left as gaps, with a legend row underneath. */
+export function LinesChart({
+  data,
+  keys,
+  unit,
+  domain,
+  ticks,
+  height = 200,
+  xKey = 'date',
+  formatX = shortDate,
+}: {
+  data: object[]
+  keys: LineKey[]
+  unit: string
+  domain?: Domain
+  ticks?: number[]
+  height?: number
+  xKey?: string
+  formatX?: (x: string) => string
+}) {
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={height}>
+        <ComposedChart data={data} margin={MARGIN}>
+          <CartesianGrid stroke="var(--hairline)" vertical={false} />
+          <XAxis dataKey={xKey} {...AXIS} tickFormatter={formatX} minTickGap={32} />
+          <YAxis
+            {...AXIS}
+            width={yWidth(data, keys.map((k) => k.key))}
+            domain={domain ?? ['auto', 'auto']}
+            ticks={ticks}
+            tickFormatter={compact}
+          />
+          <Tooltip
+            cursor={LINE_CURSOR}
+            content={(p: TooltipContentProps) => {
+              const row = activeRow<Record<string, unknown>>(p)
+              if (!row) return null
+              const rows: TipRow[] = keys
+                .filter((k) => typeof row[k.key] === 'number')
+                .map((k) => ({
+                  label: k.label,
+                  value: fmtValue(row[k.key], unit),
+                  color: k.color,
+                }))
+              if (rows.length === 0) return null
+              return <ChartTip title={formatX(String(row[xKey]))} rows={rows} />
+            }}
+          />
+          {keys.map((k) => (
+            <Line
+              key={k.key}
+              type="monotone"
+              dataKey={k.key}
+              stroke={k.color}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4, fill: k.color, stroke: 'var(--surface)', strokeWidth: 2 }}
+              connectNulls={false}
+            />
+          ))}
+        </ComposedChart>
+      </ResponsiveContainer>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-micro text-ink-3">
+        {keys.map((k) => (
+          <span key={k.key} className="inline-flex items-center gap-1.5">
+            <span
+              aria-hidden="true"
+              className="h-2 w-2 rounded-pill"
+              style={{ background: k.color }}
+            />
+            {k.label}
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 

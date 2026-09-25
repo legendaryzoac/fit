@@ -14,14 +14,33 @@ import {
   weeklyZones,
 } from '../lib/analytics'
 import type { Api } from '../lib/api'
+import { CHECKIN_ITEMS, type Checkin } from '../lib/checkins'
+import { confirm } from '../lib/confirm'
 import {
   localDate,
   mean,
   withRollingMean,
   type Metrics,
 } from '../lib/metrics'
+import {
+  ROM_TESTS,
+  RETEST_DAYS,
+  romSummary,
+  useRomTests,
+  type RomKey,
+  type RomTest,
+} from '../lib/romtests'
+import {
+  baselineAt,
+  behaviourImpact,
+  consistencyPct,
+  dailySeries,
+  IMPACT_MIN_N,
+  weeklyLoad,
+  weeklyMinutesByModality,
+} from '../lib/wellness'
 import { localToday, sortWeights, type WeightEntry } from '../lib/weights'
-import type { SessionRecord, Workout } from '../lib/workouts'
+import type { Modality, SessionRecord, Workout, WorkoutKind } from '../lib/workouts'
 import { Banner, type BannerTone } from './cadence/Banner'
 import { Button } from './cadence/Button'
 import { Card, CardHead } from './cadence/Card'
@@ -34,23 +53,64 @@ import {
   TrendChart,
   ZONES,
   shortDate,
+  type ChartTone,
   type TrendPoint,
 } from './cadence/charts'
 import { Field, TextInput } from './cadence/Field'
+import { IconButton } from './cadence/IconButton'
 import { List, ListItem } from './cadence/ListItem'
+import { StatusPill } from './cadence/StatusPill'
 import { LiveHR } from './LiveHR'
+import { modalityLabel } from './QuickLog'
 import { Chips } from './shell/Chips'
+import { IconX } from './shell/icons'
 import { Segment } from './shell/Segment'
+import { Sheet } from './shell/Sheet'
+import { useSheetDismiss } from './shell/useSheetDismiss'
 
-type Group = 'recovery' | 'sleep' | 'strength' | 'running' | 'body'
+type Group = 'recovery' | 'sleep' | 'strength' | 'running' | 'load' | 'body'
 
 const GROUPS: Array<{ value: Group; label: string }> = [
   { value: 'recovery', label: 'Recovery' },
   { value: 'sleep', label: 'Sleep' },
   { value: 'strength', label: 'Strength' },
   { value: 'running', label: 'Running' },
+  { value: 'load', label: 'Load' },
   { value: 'body', label: 'Body' },
 ]
+
+/** Kind colours, shared by the load chart and the recovery signals. */
+const KIND_COLOR: Record<WorkoutKind, string> = {
+  strength: 'var(--brand)',
+  speed: 'var(--ember)',
+  cardio: 'var(--sky)',
+  recovery: 'var(--amber)',
+}
+
+const KIND_LABEL: Record<WorkoutKind, string> = {
+  strength: 'Strength',
+  speed: 'Speed',
+  cardio: 'Cardio',
+  recovery: 'Recovery',
+}
+
+/** Recovery-minutes bars, in the order the design calls for. */
+const MINUTES_COLORS = [
+  'var(--amber)',
+  'var(--sky)',
+  'var(--brand)',
+  'var(--ember)',
+  'var(--rose)',
+]
+
+const OUTCOME_LABEL: Record<'soreness' | 'fatigue' | 'prs', string> = {
+  soreness: 'Soreness',
+  fatigue: 'Energy',
+  prs: 'Recovered',
+}
+
+/** Sleep, energy, soreness, stress: one chart tone each. */
+const READINESS_TONE: ChartTone[] = ['brand', 'effort', 'rest', 'caution']
 
 type Range = '30' | '90' | '180'
 
@@ -304,6 +364,227 @@ function BodyCard({
   )
 }
 
+/** cm → "toe touch" from "Toe touch" for the compact history line. */
+function firstWord(label: string): string {
+  return label.split(' ')[0]
+}
+
+/**
+ * Range-of-motion field tests: the outcome measure for stretching. Read
+ * against each test's minimal detectable change, so a within-band wobble
+ * is never shown as progress.
+ */
+function MobilityCard({ api }: { api: Api }) {
+  const { tests, save, remove } = useRomTests(api)
+  const [open, setOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const summary = useMemo(() => romSummary(tests), [tests])
+  const last = tests[0]
+  const daysSince =
+    last != null
+      ? Math.floor(
+          (Date.now() - new Date(`${last.date}T00:00:00`).getTime()) / 86_400_000,
+        )
+      : null
+  const due = daysSince == null || daysSince >= RETEST_DAYS
+
+  return (
+    <Card>
+      <CardHead
+        title="Mobility tests"
+        action={
+          due ? (
+            <StatusPill tone="mid" dot={false}>
+              Due
+            </StatusPill>
+          ) : (
+            <span className="text-caption text-ink-3">
+              Next in {RETEST_DAYS - (daysSince ?? 0)} d
+            </span>
+          )
+        }
+      />
+      <p className="mt-1 text-caption text-ink-3">
+        {last ? `Last ${daysSince === 0 ? 'today' : `${daysSince} d ago`}` : 'None yet'}
+      </p>
+
+      {error && (
+        <div className="mt-3">
+          <Banner tone="error">{error}</Banner>
+        </div>
+      )}
+
+      {tests.length > 0 && (
+        <div className="mt-4 flex flex-col">
+          {summary
+            .filter((s) => s.latest != null)
+            .map((s, i) => {
+              const meta = ROM_TESTS.find((t) => t.key === s.key)!
+              return (
+                <div key={s.key}>
+                  {i > 0 && <div aria-hidden="true" className="h-px bg-hairline" />}
+                  <div className="flex items-center justify-between gap-3 py-2">
+                    <span className="text-body text-ink">
+                      {meta.label}
+                      {meta.side === 'L' && ' · Left'}
+                      {meta.side === 'R' && ' · Right'}
+                    </span>
+                    <span className="flex flex-col items-end">
+                      <span className="tabular-nums text-body font-medium text-ink">
+                        {s.latest} cm
+                      </span>
+                      {s.delta != null && (
+                        <span
+                          className={`text-caption ${
+                            s.beyondNoise
+                              ? s.improved
+                                ? 'text-brand-strong'
+                                : 'text-rose-strong'
+                              : 'text-ink-3'
+                          }`}
+                        >
+                          {s.delta > 0 ? '+' : ''}
+                          {s.delta}
+                          {s.beyondNoise
+                            ? ` · ${s.improved ? 'better' : 'worse'}`
+                            : ` · within ±${meta.mdcCm}`}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+        </div>
+      )}
+
+      <div className="mt-4">
+        <Button variant="tonal" onClick={() => setOpen(true)}>
+          Log a test
+        </Button>
+      </div>
+
+      {tests.length > 1 && (
+        <div className="-mx-5 mt-4">
+          <List>
+            {tests.slice(0, 8).map((t) => (
+              <ListItem
+                key={t.date}
+                title={shortDate(t.date)}
+                sub={ROM_TESTS.filter((m) => typeof t[m.key] === 'number')
+                  .map((m) => `${firstWord(m.label)}${m.side ?? ''} ${t[m.key]}`)
+                  .join(' · ')}
+                action={
+                  <IconButton
+                    size="sm"
+                    label="Delete"
+                    onClick={async () => {
+                      if (
+                        await confirm({ title: 'Delete this test?', action: 'Delete' })
+                      ) {
+                        remove(t.date).catch(() =>
+                          setError('Deleting needs a connection.'),
+                        )
+                      }
+                    }}
+                  >
+                    <IconX className="h-4 w-4" />
+                  </IconButton>
+                }
+              />
+            ))}
+          </List>
+        </div>
+      )}
+
+      {open && (
+        <MobilityForm
+          onSave={(t) => {
+            save(t)
+            setOpen(false)
+          }}
+          onCancel={() => setOpen(false)}
+        />
+      )}
+    </Card>
+  )
+}
+
+function MobilityForm({
+  onSave,
+  onCancel,
+}: {
+  onSave: (t: RomTest) => void
+  onCancel: () => void
+}) {
+  const { open, dismiss, onExited } = useSheetDismiss()
+  const [draft, setDraft] = useState<Record<RomKey, string>>({
+    toeTouchCm: '',
+    kneeToWallLCm: '',
+    kneeToWallRCm: '',
+    handBehindBackLCm: '',
+    handBehindBackRCm: '',
+  })
+  const [note, setNote] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  function submit() {
+    const t: RomTest = { date: localToday() }
+    let any = false
+    for (const k of Object.keys(draft) as RomKey[]) {
+      const raw = draft[k].trim()
+      if (raw === '') continue
+      const n = Number(raw)
+      if (!Number.isFinite(n)) {
+        setError('Numbers only, in centimetres.')
+        return
+      }
+      t[k] = Math.round(n * 10) / 10
+      any = true
+    }
+    if (!any) {
+      setError('Enter at least one measurement.')
+      return
+    }
+    if (note.trim()) t.note = note.trim()
+    dismiss(() => onSave(t))
+  }
+
+  return (
+    <Sheet open={open} onClose={() => dismiss(onCancel)} onExited={onExited} title="Mobility test">
+      <div className="flex flex-col gap-4">
+        {ROM_TESTS.map((t) => (
+          <Field
+            key={t.key}
+            label={`${t.label}${t.side === 'L' ? ' · Left' : t.side === 'R' ? ' · Right' : ''}`}
+            help={`${t.how} ±${t.mdcCm} cm noise.`}
+          >
+            <TextInput
+              type="number"
+              inputMode="decimal"
+              step="0.5"
+              placeholder="cm"
+              value={draft[t.key]}
+              onChange={(e) => setDraft({ ...draft, [t.key]: e.target.value })}
+            />
+          </Field>
+        ))}
+        <Field label="Notes">
+          <TextInput value={note} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+        {error && <Banner tone="error">{error}</Banner>}
+        <Button variant="primary" block onClick={submit}>
+          Save
+        </Button>
+        <Button variant="ghost" block onClick={() => dismiss(onCancel)}>
+          Cancel
+        </Button>
+      </div>
+    </Sheet>
+  )
+}
+
 export function Trends({
   api,
   workouts,
@@ -311,6 +592,7 @@ export function Trends({
   lookup,
   weights,
   onWeightsChange,
+  checkins,
 }: {
   api: Api
   workouts: Workout[]
@@ -318,6 +600,7 @@ export function Trends({
   lookup: (name: string) => string | undefined
   weights: WeightEntry[]
   onWeightsChange: (entries: WeightEntry[]) => void
+  checkins: Checkin[]
 }) {
   const [landing] = useState(whoopLanding)
   const [picked, setPicked] = useState<Group | null>(landing.group)
@@ -511,13 +794,58 @@ export function Trends({
   const runs = useMemo(() => runSeries(sessions), [sessions])
   const zones = useMemo(() => weeklyZones(sessions), [sessions])
 
+  // ---- readiness, recovery minutes and what-helps, from the log ----
+
+  // One small multiple per item: four integer series on one chart read as
+  // noise. Gaps stay gaps; the dashed line is the 28-day personal baseline
+  // once it has a week behind it.
+  const readiness = useMemo(() => {
+    const today = localToday()
+    return CHECKIN_ITEMS.map((it, i) => {
+      const series = dailySeries(checkins, it.key, 60, today)
+      const points: TrendPoint[] = series.map((p, j) => {
+        const b = baselineAt(series, j)
+        return {
+          date: p.date,
+          value: p.value,
+          baseline: b && b.n >= 7 ? Math.round(b.mean * 10) / 10 : null,
+        }
+      })
+      const latest = [...series].reverse().find((p) => p.value != null)
+      return {
+        ...it,
+        points,
+        latest: latest?.value ?? null,
+        tone: READINESS_TONE[i],
+      }
+    })
+  }, [checkins])
+  const hasReadiness = readiness.some((r) => r.latest != null)
+
+  const recoveryMinutes = useMemo(
+    () => weeklyMinutesByModality(workouts, 12),
+    [workouts],
+  )
+
+  const impacts = useMemo(
+    () => behaviourImpact(workouts, checkins, localToday()),
+    [workouts, checkins],
+  )
+  const impactModalities = [...new Set(impacts.map((r) => r.modality))]
+
   // ---- which group ----
 
   const settled = metrics != null || apiError != null
   const hasRecovery = recoverySeries.length > 0
-  // Recovery leads; an account with no strap data at all opens on Strength.
+  const hasCheckin = checkins.length > 0
+  const hasRecoveryWorkout = workouts.some((w) => w.kind === 'recovery')
+  // Recovery leads whenever there is a wearable-free or strap signal at all;
+  // an account with none of those opens on Strength instead.
   const group: Group =
-    picked ?? (settled && !hasRecovery ? 'strength' : 'recovery')
+    picked ??
+    (settled && !hasRecovery && !hasCheckin && !hasRecoveryWorkout
+      ? 'strength'
+      : 'recovery')
   const connected = me?.whoop.connected === true
   const showConnect = me != null && !connected
 
@@ -550,13 +878,125 @@ export function Trends({
   let connectCard = showConnect
 
   if (group === 'recovery') {
+    const readinessCard = hasReadiness && (
+      <Card>
+        <CardHead title="Readiness" />
+        <p className="mt-1 text-caption text-ink-3">1 to 5, higher is better</p>
+        <div className="mt-3 flex flex-col gap-3">
+          {readiness.map((r) => (
+            <div key={r.key}>
+              <div className="flex items-baseline justify-between">
+                <span className="text-caption font-semibold text-ink-2">
+                  {r.label}
+                </span>
+                <span className="text-caption tabular-nums text-ink-3">
+                  {r.latest ?? '—'}
+                  <span className="text-ink-4">/5</span>
+                </span>
+              </div>
+              <TrendChart
+                data={r.points}
+                tone={r.tone}
+                unit=""
+                domain={[1, 5]}
+                ticks={[1, 3, 5]}
+                height={96}
+                baselineLabel="28 d baseline"
+                connectNulls={false}
+                animate={false}
+              />
+            </div>
+          ))}
+        </div>
+      </Card>
+    )
+
+    const recoveryMinutesCard = recoveryMinutes.modalities.length > 0 && (
+      <Card>
+        <CardHead
+          title="Recovery minutes"
+          action={
+            <StatusPill tone="mid" dot={false}>
+              {consistencyPct(workouts, localToday())}% of 28 d
+            </StatusPill>
+          }
+        />
+        <div className="mt-4">
+          <StackedBars
+            data={recoveryMinutes.rows}
+            keys={recoveryMinutes.modalities.map((m, i) => ({
+              key: m,
+              label: modalityLabel(m as Modality),
+              color: MINUTES_COLORS[i % MINUTES_COLORS.length],
+            }))}
+            unit="min"
+            xKey="week"
+            formatX={(x) => x}
+          />
+        </div>
+      </Card>
+    )
+
+    const whatHelpsCard = (
+      <Card>
+        <CardHead title="What helps" />
+        <p className="mt-1 text-caption text-ink-3">
+          Next morning, with a session the day before vs without
+        </p>
+        {impacts.length === 0 ? (
+          <p className="mt-4 text-body text-ink-2">
+            Needs {IMPACT_MIN_N} or more mornings with and without, in 90 days.
+          </p>
+        ) : (
+          <div className="mt-4 flex flex-col">
+            {impactModalities.map((m, i) => (
+              <div key={m}>
+                {i > 0 && (
+                  <div aria-hidden="true" className="my-3 h-px bg-hairline" />
+                )}
+                <p className="text-body font-medium text-ink">
+                  {modalityLabel(m as Modality)}
+                </p>
+                <div className="mt-1 flex flex-col gap-1">
+                  {impacts
+                    .filter((r) => r.modality === m)
+                    .map((r) => (
+                      <p key={r.outcome} className="text-caption text-ink-2">
+                        {OUTCOME_LABEL[r.outcome]}{' '}
+                        <span
+                          className={
+                            r.diff > 0
+                              ? 'font-semibold text-brand-strong'
+                              : r.diff < 0
+                                ? 'font-semibold text-rose-strong'
+                                : 'font-semibold text-ink-3'
+                          }
+                        >
+                          {r.diff > 0 ? '+' : ''}
+                          {r.diff}
+                        </span>{' '}
+                        <span className="text-ink-3">
+                          {r.meanWith} vs {r.meanWithout} · n {r.nWith} vs{' '}
+                          {r.nWithout}
+                        </span>
+                      </p>
+                    ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    )
+
+    let strapCards: React.ReactNode
     if (!settled) {
-      cards = <p className="py-8 text-center text-body text-ink-3">Loading</p>
+      strapCards = <p className="py-8 text-center text-body text-ink-3">Loading</p>
     } else if (!hasRecovery) {
-      cards = strapEmpty
+      strapCards = strapEmpty
       connectCard = false
     } else {
-      cards = (
+      strapCards = (
         <>
           <Card>
             <CardHead title="Recovery" action={range} />
@@ -640,6 +1080,15 @@ export function Trends({
         </>
       )
     }
+
+    cards = (
+      <>
+        {readinessCard}
+        {recoveryMinutesCard}
+        {whatHelpsCard}
+        {strapCards}
+      </>
+    )
   } else if (group === 'sleep') {
     if (!settled) {
       cards = <p className="py-8 text-center text-body text-ink-3">Loading</p>
@@ -704,40 +1153,11 @@ export function Trends({
       )
     }
   } else if (group === 'strength') {
-    if (exercises.length === 0 && overlay.length === 0) {
+    if (exercises.length === 0) {
       cards = <Empty>Log a session to see strength.</Empty>
     } else {
       cards = (
         <>
-          {overlay.length > 0 && (
-            <Card>
-              <CardHead title="Load and recovery" action={range} />
-              <div className="mt-4">
-                <ComboChart
-                  data={overlay}
-                  height={220}
-                  series={[
-                    {
-                      key: 'strain',
-                      label: 'Strain',
-                      color: 'var(--ember)',
-                      kind: 'bar',
-                    },
-                    {
-                      key: 'recovery',
-                      label: 'Recovery',
-                      color: 'var(--brand)',
-                      kind: 'line',
-                      axis: 'right',
-                      unit: '%',
-                    },
-                  ]}
-                  left={{ domain: [0, 21] }}
-                  right={{ domain: [0, 100] }}
-                />
-              </div>
-            </Card>
-          )}
           {exercises.length > 0 && (
             <Card>
               <CardHead title="Estimated 1RM" />
@@ -914,14 +1334,105 @@ export function Trends({
         )}
       </>
     )
+  } else if (group === 'load') {
+    const load = weeklyLoad(workouts, 8)
+    const ratedAny = load.some((w) => w.rated > 0)
+    if (!ratedAny) {
+      cards = <Empty>Rate a session's effort to see load.</Empty>
+    } else {
+      const thisWeek = load[load.length - 1]
+      const lastWeek = load[load.length - 2]
+      const weekChange =
+        lastWeek && lastWeek.load > 0
+          ? Math.round(((thisWeek.load - lastWeek.load) / lastWeek.load) * 100)
+          : null
+      const loadKinds = (
+        ['strength', 'speed', 'cardio', 'recovery'] as WorkoutKind[]
+      ).filter((k) => load.some((w) => (w.byKind[k] ?? 0) > 0))
+      cards = (
+        <>
+          <Card>
+            <CardHead title="Training load" />
+            <p className="mt-1 text-caption text-ink-3">Effort × minutes per week</p>
+            <div className="mt-4">
+              <StackedBars
+                data={load.map((w) => ({ week: w.label, ...w.byKind }))}
+                keys={loadKinds.map((k) => ({
+                  key: k,
+                  label: KIND_LABEL[k],
+                  color: KIND_COLOR[k],
+                }))}
+                unit=""
+                xKey="week"
+                formatX={(x) => x}
+              />
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <Well
+                label="This week"
+                value={thisWeek.load.toLocaleString()}
+                sub={
+                  weekChange != null
+                    ? `${weekChange >= 0 ? '+' : ''}${weekChange}% vs last week`
+                    : undefined
+                }
+              />
+              <Well
+                label="Monotony"
+                value={thisWeek.monotony != null ? thisWeek.monotony.toLocaleString() : '—'}
+              />
+              <Well
+                label="Strain"
+                value={thisWeek.strain != null ? thisWeek.strain.toLocaleString() : '—'}
+              />
+            </div>
+            <p className="mt-3 text-caption text-ink-3">
+              {thisWeek.rated} of {thisWeek.sessions} rated this week
+            </p>
+          </Card>
+          {overlay.length > 0 && (
+            <Card>
+              <CardHead title="Load and recovery" action={range} />
+              <div className="mt-4">
+                <ComboChart
+                  data={overlay}
+                  height={220}
+                  series={[
+                    {
+                      key: 'strain',
+                      label: 'Strain',
+                      color: 'var(--ember)',
+                      kind: 'bar',
+                    },
+                    {
+                      key: 'recovery',
+                      label: 'Recovery',
+                      color: 'var(--brand)',
+                      kind: 'line',
+                      axis: 'right',
+                      unit: '%',
+                    },
+                  ]}
+                  left={{ domain: [0, 21] }}
+                  right={{ domain: [0, 100] }}
+                />
+              </div>
+            </Card>
+          )}
+        </>
+      )
+    }
   } else {
     cards = (
-      <BodyCard
-        api={api}
-        entries={weights}
-        onChange={onWeightsChange}
-        whoopLb={me?.whoop.bodyWeightLb}
-      />
+      <>
+        <BodyCard
+          api={api}
+          entries={weights}
+          onChange={onWeightsChange}
+          whoopLb={me?.whoop.bodyWeightLb}
+        />
+        <MobilityCard api={api} />
+      </>
     )
   }
 

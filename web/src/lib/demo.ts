@@ -448,9 +448,9 @@ function generate(): DemoStore {
   return store
 }
 
-function respond(body: unknown): Response {
+function respond(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { 'content-type': 'application/json' },
   })
 }
@@ -508,6 +508,9 @@ export function makeDemoApi(): Api {
       })
     }
     if (pathname === '/api/romtests') return respond({ tests: store.romtests })
+    if (pathname === '/api/whoop/connect') {
+      return respond({ error: 'Not available in the demo' }, 400)
+    }
     return respond({ error: 'not found in demo' })
   }
 
@@ -582,6 +585,13 @@ export function makeDemoApi(): Api {
       const date = new URL(path, 'http://demo').searchParams.get('date')
       store.romtests = store.romtests.filter((t) => t.date !== date)
       return respond({ deleted: date })
+    }
+    if (path.startsWith('/api/whoop')) {
+      if (method === 'DELETE') {
+        store.me = { ...(store.me as Record<string, unknown>), whoop: { connected: false } }
+        return respond({ ok: true })
+      }
+      return respond({ error: 'not found in demo' })
     }
     if (path.startsWith('/api/exercises')) {
       if (method === 'POST') {
