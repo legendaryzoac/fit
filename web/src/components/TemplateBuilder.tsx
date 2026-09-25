@@ -12,6 +12,7 @@ import {
   DEFAULT_PLAN,
   fmtSec,
   planFromSections,
+  routineToSections,
   totalSec,
   type QuickIntervalPlan,
   type Template,
@@ -24,7 +25,14 @@ import { Field, SELECT_WELL, TextInput } from './cadence/Field'
 import { IconButton } from './cadence/IconButton'
 import type { LeadTone } from './cadence/ListItem'
 import { Stepper } from './cadence/Stepper'
-import { IconGrip, IconRun, IconSpeed, IconStrength, IconX } from './shell/icons'
+import {
+  IconGrip,
+  IconRecover,
+  IconRun,
+  IconSpeed,
+  IconStrength,
+  IconX,
+} from './shell/icons'
 import { Segment } from './shell/Segment'
 import { confirm } from '../lib/confirm'
 import { Sheet } from './shell/Sheet'
@@ -35,6 +43,7 @@ export const KIND_LEAD: Record<WorkoutKind, { icon: ReactNode; tone: LeadTone }>
   strength: { icon: <IconStrength />, tone: 'brand' },
   speed: { icon: <IconSpeed />, tone: 'effort' },
   cardio: { icon: <IconRun />, tone: 'rest' },
+  recovery: { icon: <IconRecover />, tone: 'calm' },
 }
 
 const KIND_OPTIONS: Array<{ value: WorkoutKind; label: string }> = [
@@ -48,6 +57,9 @@ export function templateMeta(t: Template): string {
   if (t.kind === 'strength' && t.exercises) {
     const sets = t.exercises.reduce((n, e) => n + e.setCount, 0)
     return `${t.exercises.length} exercises · ${sets} sets`
+  }
+  if (t.items) {
+    return `${t.items.length} stretches · ${fmtSec(totalSec(routineToSections(t.items, t.transitionSec)))}`
   }
   if (t.sections) {
     return `${t.sections.length} sections · ${fmtSec(totalSec(t.sections))}`

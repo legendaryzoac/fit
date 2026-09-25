@@ -1,13 +1,27 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { cue } from '../lib/cue'
+import {
+  cue,
+  getSpeakPref,
+  setSpeakPref,
+  speak,
+  speakSupported,
+  warnCue,
+} from '../lib/cue'
 import { SPEED_DRILLS } from '../lib/exercises'
 import { lockScreenSupported, registerTimerControls } from '../lib/lockScreen'
+import { recoveryExercisesFromSections } from '../lib/routines'
+import { stretchByName } from '../lib/stretches'
 import {
   fmtSec,
+  holdBaseName,
+  holdSide,
+  isTransition,
   sectionTone,
+  SWITCH_LABEL,
   totalSec,
   type SectionTone,
 } from '../lib/templates'
+import { acquireWakeLock, releaseWakeLock } from '../lib/wakeLock'
 import {
   backSection,
   saveTimerDraft,
@@ -25,9 +39,12 @@ import { Field, TextArea, TextInput } from './cadence/Field'
 import { IconButton } from './cadence/IconButton'
 import { List, ListItem } from './cadence/ListItem'
 import { Progress, SessionBar } from './cadence/SessionBar'
+import { ScaleRow } from './cadence/ScaleRow'
 import { AddSetButton, SetHeader, SetRow } from './cadence/SetRow'
 import { StatusPill } from './cadence/StatusPill'
+import { Switch } from './cadence/Switch'
 import { LockScreenSwitch } from './LockScreenSwitch'
+import { Segment } from './shell/Segment'
 import { IconChevronDown, IconRun, IconX } from './shell/icons'
 import { confirm } from '../lib/confirm'
 import { Sheet } from './shell/Sheet'
@@ -182,6 +199,24 @@ const TONE: Record<SectionTone, CountdownTone> = {
   other: 'neutral',
 }
 
+/** What to say when a recovery section begins. */
+function phraseFor(label: string): string {
+  if (label === SWITCH_LABEL) return 'Switch sides'
+  const base = holdBaseName(label)
+  const side = holdSide(label)
+  const sideText =
+    side === 'L' ? ', left side' : side === 'R' ? ', right side' : ''
+  return isTransition(label) ? `Next, ${base}${sideText}` : `${base}${sideText}`
+}
+
+const FEEL_OPTIONS = [
+  { value: '1', label: '1' },
+  { value: '2', label: '2' },
+  { value: '3', label: '3' },
+  { value: '4', label: '4' },
+  { value: '5', label: '5' },
+]
+
 export function IntervalSession({
   initial,
   sessions,
@@ -203,7 +238,11 @@ export function IntervalSession({
   const [notes, setNotes] = useState('')
   const [linkedSk, setLinkedSk] = useState<string | undefined>()
   const [drills, setDrills] = useState<WorkoutExercise[]>([])
+  const [rpe, setRpe] = useState<number | undefined>()
+  const [feel, setFeel] = useState<number | undefined>()
+  const [speakOn, setSpeakOn] = useState(getSpeakPref)
   const lastIdxRef = useRef(0)
+  const lastWarnRef = useRef(-1)
   const doneElapsedRef = useRef(0)
   // When the timer actually ENDED — lingering on the summary screen must
   // not drift the workout's date (a meso session bucketed by start date
@@ -224,6 +263,7 @@ export function IntervalSession({
 
   const sections = draft.sections
   const stopwatch = sections.length === 0
+  const recovery = draft.kind === 'recovery'
   const total = useMemo(() => totalSec(sections), [sections])
   const cumEnd = useMemo(() => {
     let acc = 0
@@ -257,7 +297,11 @@ export function IntervalSession({
     if (phase !== 'run') return
     if (!finished && idx !== lastIdxRef.current) {
       lastIdxRef.current = idx
+      lastWarnRef.current = -1
       cue(2)
+      if (recovery && sections[idx]) {
+        speak(phraseFor(sections[idx].label))
+      }
     }
     if (finished) {
       doneElapsedRef.current = Math.min(elapsedMs, total * 1000)
@@ -283,6 +327,46 @@ export function IntervalSession({
       }),
     [],
   )
+
+  // The opening section is never an index CHANGE, so announce it once.
+  useEffect(() => {
+    if (recovery && !stopwatch && sections[0]) {
+      speak(phraseFor(sections[0].label))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Keep the screen on while the countdown is on it; a minimized or
+  // finished session gives the lock back.
+  useEffect(() => {
+    if (phase !== 'run') return
+    acquireWakeLock()
+    return () => releaseWakeLock()
+  }, [phase])
+
+  // Guided holds: a soft tick at three seconds left so the next position
+  // can be set up before the change beep. Once per section.
+  const secLeft = Math.ceil(remaining)
+  useEffect(() => {
+    if (!recovery || stopwatch || phase !== 'run' || finished || draft.paused) {
+      return
+    }
+    if (isTransition(current.label) || current.durationSec < 15) return
+    if (secLeft <= 3 && secLeft > 0 && lastWarnRef.current !== idx) {
+      lastWarnRef.current = idx
+      warnCue()
+    }
+  }, [
+    recovery,
+    stopwatch,
+    phase,
+    finished,
+    draft.paused,
+    current.label,
+    current.durationSec,
+    secLeft,
+    idx,
+  ])
 
   // These also fire from lock-screen media keys, which arrive in any state
   // (a headset can send play while running) and possibly while the 250ms
@@ -339,6 +423,16 @@ export function IntervalSession({
   function save() {
     const durMs = doneElapsedRef.current
     const doneAt = doneAtRef.current
+    // A session ended early only logs the holds it reached. (A skipped
+    // hold still counts — skipping advances the clock — which is the
+    // honest limit of what the draft records today.)
+    const reached: typeof sections = []
+    let acc = 0
+    for (const s of sections) {
+      if (acc * 1000 >= durMs) break
+      reached.push(s)
+      acc += s.durationSec
+    }
     onSave({
       id: crypto.randomUUID(),
       // Approximate: paused time is excluded from the duration on purpose
@@ -347,7 +441,12 @@ export function IntervalSession({
       kind: draft.kind,
       title: title || undefined,
       weightUnit: 'lb',
-      exercises: drills,
+      // Recovery: per-stretch holds recovered from the executed sections so
+      // history has structure; other kinds keep their hand-logged drills.
+      exercises: recovery ? recoveryExercisesFromSections(reached) : drills,
+      ...(recovery && { modality: draft.modality ?? ('stretch' as const) }),
+      ...(recovery && feel !== undefined && { rating: { post: feel } }),
+      ...(rpe !== undefined && { sessionRpe: rpe }),
       ...(sections.length > 0 && { intervals: sections }),
       durationMin: Math.max(1, Math.round(durMs / 60_000)),
       distanceM: miles ? Math.round(Number(miles) * MILE) : undefined,
@@ -371,7 +470,15 @@ export function IntervalSession({
     }
   }
 
-  const heading = draft.title || (stopwatch ? 'Run' : 'Intervals')
+  const heading =
+    draft.title ||
+    (recovery
+      ? stopwatch
+        ? 'Free stretch'
+        : 'Routine'
+      : stopwatch
+        ? 'Run'
+        : 'Intervals')
 
   let body
   if (phase === 'done') {
@@ -392,6 +499,30 @@ export function IntervalSession({
             onChange={(e) => setTitle(e.target.value)}
           />
         </Field>
+        <ScaleRow
+          label="Effort"
+          low="Rest"
+          high="Max"
+          value={rpe}
+          onChange={setRpe}
+        />
+        {draft.kind === 'recovery' && (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-baseline justify-between">
+              <span className="text-caption font-semibold text-ink-2">
+                Feel
+              </span>
+              <span className="text-caption text-ink-3">Stiff to loose</span>
+            </div>
+            <Segment
+              options={FEEL_OPTIONS}
+              value={feel === undefined ? undefined : String(feel)}
+              onChange={(v) => setFeel(Number(v))}
+              block
+              ariaLabel="Feel"
+            />
+          </div>
+        )}
         {draft.kind === 'speed' && (
           <DrillSetsEditor drills={drills} onChange={setDrills} />
         )}
@@ -457,19 +588,71 @@ export function IntervalSession({
       </>
     )
   } else {
+    const transition = recovery && isTransition(current.label)
+    const tone: CountdownTone = recovery
+      ? transition
+        ? 'neutral'
+        : 'calm'
+      : TONE[sectionTone(current.label)]
+    // The note below carries "(L)/(R)", so the pill never repeats it.
+    const pillText = !recovery
+      ? current.label
+      : current.label === SWITCH_LABEL
+        ? current.label
+        : transition
+          ? `Next: ${holdBaseName(current.label)}`
+          : holdBaseName(current.label)
+    // Which stretch to explain: the hold itself, the one a lead-in
+    // announces, or (on a side swap) the one coming next.
+    const explainLabel = !recovery
+      ? ''
+      : current.label === SWITCH_LABEL
+        ? next?.label ?? ''
+        : current.label
+    const stretch = recovery
+      ? stretchByName(holdBaseName(explainLabel))
+      : undefined
+    const side = recovery ? holdSide(explainLabel) : undefined
+    const sideLabel =
+      side === 'L' ? 'Left side' : side === 'R' ? 'Right side' : null
+    const note =
+      recovery && (sideLabel || stretch) ? (
+        <>
+          {sideLabel && (
+            <p className="text-caption font-semibold text-ink-2">
+              {sideLabel}
+            </p>
+          )}
+          {stretch?.cues.map((c, i) => (
+            <p key={i} className="text-body text-ink-2">
+              {c}
+            </p>
+          ))}
+        </>
+      ) : undefined
+    const nextText = !next
+      ? 'Final section'
+      : !recovery
+        ? `Next · ${next.label} ${fmtSec(next.durationSec)} · ${idx + 1} of ${sections.length}`
+        : next.label === SWITCH_LABEL
+          ? 'Then · switch sides'
+          : isTransition(next.label)
+            ? `Then · ${holdBaseName(next.label)}`
+            : `Next · ${holdBaseName(next.label)} ${fmtSec(next.durationSec)}`
+    // The Now pill sits on the hold a lead-in or side-swap is announcing,
+    // not on the transition beat itself.
+    const announcedIdx = transition ? idx + 1 : idx
+
     body = (
       <>
         <Countdown
-          label={current.label}
-          tone={TONE[sectionTone(current.label)]}
+          label={pillText}
+          tone={tone}
           time={
             stopwatch ? fmtSec(elapsedSec) : fmtSec(Math.ceil(remaining))
           }
-          next={
-            next
-              ? `Next · ${next.label} ${fmtSec(next.durationSec)} · ${idx + 1} of ${sections.length}`
-              : undefined
-          }
+          note={note}
+          next={nextText}
           remaining={remaining / current.durationSec}
           paused={draft.paused}
           onPause={pause}
@@ -477,24 +660,53 @@ export function IntervalSession({
           onSkip={stopwatch ? undefined : skip}
           stopwatch={stopwatch}
         />
-        {lockScreenSupported() && (
+        {(lockScreenSupported() || (recovery && speakSupported())) && (
           <Card>
-            <LockScreenSwitch />
+            <div className="flex flex-col gap-3">
+              <LockScreenSwitch />
+              {recovery && speakSupported() && (
+                <Switch
+                  checked={speakOn}
+                  onChange={(on) => {
+                    setSpeakPref(on)
+                    setSpeakOn(on)
+                    if (on) speak('Spoken cues on')
+                  }}
+                  label="Spoken cues"
+                />
+              )}
+            </div>
           </Card>
         )}
         {!stopwatch && (
           <List>
-            {sections.map((s, i) => (
-              <ListItem
-                key={i}
-                title={s.label}
-                sub={fmtSec(s.durationSec)}
-                muted={i < idx}
-                trail={
-                  i === idx ? <StatusPill tone="effort">Now</StatusPill> : undefined
-                }
-              />
-            ))}
+            {sections
+              .map((s, i) => ({ s, i }))
+              .filter(({ s }) => !recovery || !isTransition(s.label))
+              .map(({ s, i }) => {
+                const tag = recovery ? holdSide(s.label) : undefined
+                return (
+                  <ListItem
+                    key={i}
+                    title={recovery ? holdBaseName(s.label) : s.label}
+                    sub={
+                      recovery
+                        ? `${s.durationSec} s${
+                            tag === 'L' ? ' · left' : tag === 'R' ? ' · right' : ''
+                          }`
+                        : fmtSec(s.durationSec)
+                    }
+                    muted={i < idx}
+                    trail={
+                      i === announcedIdx ? (
+                        <StatusPill tone={recovery ? 'mid' : 'effort'}>
+                          Now
+                        </StatusPill>
+                      ) : undefined
+                    }
+                  />
+                )
+              })}
           </List>
         )}
       </>

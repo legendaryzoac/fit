@@ -1,15 +1,17 @@
+import type { ReactNode } from 'react'
 import { Button } from './Button'
 import { Card } from './Card'
 import { RING_GEOMETRY } from './RecoveryRing'
 import { StatusPill, type StatusTone } from './StatusPill'
 
-export type CountdownTone = 'effort' | 'rest' | 'caution' | 'neutral'
+export type CountdownTone = 'effort' | 'rest' | 'caution' | 'neutral' | 'calm'
 
 const PILL: Record<CountdownTone, StatusTone> = {
   effort: 'effort',
   rest: 'rest',
   caution: 'mid',
   neutral: 'neutral',
+  calm: 'mid',
 }
 
 const ARC: Record<CountdownTone, string> = {
@@ -17,6 +19,7 @@ const ARC: Record<CountdownTone, string> = {
   rest: 'var(--sky)',
   caution: 'var(--amber)',
   neutral: 'var(--ink-3)',
+  calm: 'var(--amber)',
 }
 
 /**
@@ -30,6 +33,7 @@ export function Countdown({
   label,
   tone,
   time,
+  note,
   next,
   remaining = 1,
   paused,
@@ -42,6 +46,8 @@ export function Countdown({
   label: string
   tone: CountdownTone
   time: string
+  /** Side label and cue lines, centred between the time and the next line. */
+  note?: ReactNode
   next?: string
   /** Fraction of the section still to run, 0–1. */
   remaining?: number
@@ -110,6 +116,8 @@ export function Countdown({
             </span>
           </div>
         </div>
+
+        {note && <div className="max-w-sm px-2 text-center">{note}</div>}
 
         {!stopwatch && (
           <p className="text-body text-ink-2">{next ?? 'Last section'}</p>

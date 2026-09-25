@@ -26,11 +26,14 @@ import {
   fmtSec,
   hasSlots,
   loadTemplateCache,
+  routineToSections,
   saveTemplateCache,
   totalSec,
   type QuickIntervalPlan,
   type Template,
 } from '../lib/templates'
+import { BUILTIN_ROUTINES, routineMinutes, routineSections } from '../lib/routines'
+import { generateRoutine, suggestedMinutes } from '../lib/generate'
 import {
   enqueue,
   finalizeWorkout,
@@ -45,6 +48,7 @@ import {
   saveWorkoutCache,
   workoutVolume,
   type IntervalSection,
+  type Modality,
   type SessionRecord,
   type TimerDraft,
   type Workout,
@@ -91,18 +95,21 @@ import { FeedbackModal } from './Feedback'
 import { IntervalSession } from './IntervalTimer'
 import { LockScreenSwitch } from './LockScreenSwitch'
 import { Manage } from './Manage'
+import { modalityLabel, QuickLog } from './QuickLog'
 import { Chips } from './shell/Chips'
 import {
   IconChevronDown,
   IconChevronLeft,
   IconGrip,
   IconPlus,
+  IconRecover,
   IconRun,
   IconSpeed,
   IconStrength,
   IconX,
 } from './shell/icons'
 import { confirm } from '../lib/confirm'
+import { Segment } from './shell/Segment'
 import { Sheet } from './shell/Sheet'
 import { useSheetDismiss } from './shell/useSheetDismiss'
 import { SlotFill } from './SlotFill'
@@ -129,6 +136,7 @@ const LOG_CHIPS: Array<{ value: LogFilter; label: string }> = [
   { value: 'strength', label: 'Strength' },
   { value: 'speed', label: 'Speed' },
   { value: 'cardio', label: 'Cardio' },
+  { value: 'recovery', label: 'Recovery' },
   { value: 'captured', label: 'Captured' },
 ]
 
@@ -136,6 +144,7 @@ const KIND_LABEL: Record<WorkoutKind, string> = {
   strength: 'Strength',
   speed: 'Speed',
   cardio: 'Cardio',
+  recovery: 'Recovery',
 }
 
 function fmtDateTime(iso: string): string {
@@ -250,6 +259,7 @@ function SessionEditor({
   onClose,
   onDiscard,
   onDelete,
+  onWarmUp,
 }: {
   initial: Workout
   isNew: boolean
@@ -274,6 +284,9 @@ function SessionEditor({
   onDiscard: () => void
   /** Resolves true once the saved workout is gone. */
   onDelete?: (w: Workout) => Promise<boolean>
+  /** Offered before the first set: a dynamic warm-up keyed to the
+   * session's muscle groups. Runs once the sheet has dropped. */
+  onWarmUp?: (muscles: string[]) => void
 }) {
   const [w, setW] = useState<Workout>(initial)
   const [exerciseName, setExerciseName] = useState('')
@@ -592,6 +605,35 @@ function SessionEditor({
   const headerLabels =
     w.kind === 'speed' ? ['yd', 's'] : [w.weightUnit, 'reps', 'rpe']
 
+  // A dynamic warm-up offer, keyed to the muscles this session trains —
+  // generateRoutine returning null (an all-custom exercise list, say)
+  // hides the offer instead of linking to an empty routine. Keyed on the
+  // exercise list's shape (like exerciseShape above) so typing in a set
+  // field can't re-run the generator.
+  const exerciseNames = w.exercises.map((e) => e.name).join('|')
+  const warmupMuscles = useMemo(
+    () => [
+      ...new Set(
+        w.exercises
+          .map((e) => lookup(e.name))
+          .filter((m): m is string => m !== undefined),
+      ),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [exerciseNames, lookup],
+  )
+  const warmupRoutine = useMemo(
+    () =>
+      isNew && doneCount === 0 && w.exercises.length > 0
+        ? generateRoutine({
+            muscles: warmupMuscles,
+            phase: 'pre',
+            minutes: suggestedMinutes(warmupMuscles, 'pre'),
+          })
+        : null,
+    [isNew, doneCount, w.exercises.length, warmupMuscles],
+  )
+
   return (
     <Sheet
       open={open}
@@ -684,6 +726,19 @@ function SessionEditor({
               ))}
             </div>
           </Card>
+        )}
+
+        {isNew && onWarmUp && doneCount === 0 && w.exercises.length > 0 && warmupRoutine && (
+          <List>
+            <ListItem
+              lead={<IconRecover />}
+              leadTone="calm"
+              title="Warm up"
+              sub={`${suggestedMinutes(warmupMuscles, 'pre')} min`}
+              chevron
+              onClick={() => dismiss(() => onWarmUp(warmupMuscles))}
+            />
+          </List>
         )}
 
         {w.kind === 'cardio' && (
@@ -972,26 +1027,42 @@ function SessionEditor({
 // Start flow: templates, an open workout, a stopwatch, or quick intervals
 // ---------------------------------------------------------------------------
 
+type StartPane = 'train' | 'recover'
+
+const START_PANES: Array<{ value: StartPane; label: string }> = [
+  { value: 'train', label: 'Train' },
+  { value: 'recover', label: 'Recover' },
+]
+
 function StartPicker({
   templates,
+  initialKind = null,
   onStrength,
   onTimer,
+  onQuickLog,
   confirmStart,
   onEnter,
   onDeleteTemplate,
   onCancel,
 }: {
   templates: Template[]
+  /** Opens straight to the Recover pane when 'recovery'. */
+  initialKind?: WorkoutKind | null
   /** Set up the session on the click (drafts, lock screen) and hand back
    * the mode that shows it; the mode flips once the sheet has dropped. */
   onStrength: (template?: Template) => Mode
   onTimer: (kind: WorkoutKind, sections: IntervalSection[], title?: string) => Mode
+  /** Runs once the sheet has dropped. */
+  onQuickLog: () => void
   /** False when a live draft exists and the lifter keeps it. */
   confirmStart: () => Promise<boolean>
   onEnter: (m: Mode) => void
   onDeleteTemplate: (t: Template) => void
   onCancel: () => void
 }) {
+  const [pane, setPane] = useState<StartPane>(
+    initialKind === 'recovery' ? 'recover' : 'train',
+  )
   const [plan, setPlan] = useState<QuickIntervalPlan>(DEFAULT_PLAN)
   const [intervalsOpen, setIntervalsOpen] = useState(false)
   const { open, dismiss, onExited } = useSheetDismiss()
@@ -1013,6 +1084,14 @@ function StartPicker({
     }
   }
 
+  function startRoutine(t: Template) {
+    start(
+      () =>
+        onTimer('recovery', routineToSections(t.items ?? [], t.transitionSec), t.name),
+      false,
+    )
+  }
+
   return (
     <Sheet
       open={open}
@@ -1020,66 +1099,127 @@ function StartPicker({
       onExited={onExited}
       title="Start a session"
     >
-      <List>
-        {templates.map((t) => (
-          <ListItem
-            key={t.id}
-            lead={KIND_LEAD[t.kind].icon}
-            leadTone={KIND_LEAD[t.kind].tone}
-            title={t.name}
-            sub={templateMeta(t)}
-            onClick={() => startTemplate(t)}
-            action={
-              <IconButton
-                size="sm"
-                label={`Delete template ${t.name}`}
-                onClick={() => onDeleteTemplate(t)}
-              >
-                <IconX className="h-4 w-4" />
-              </IconButton>
-            }
-          />
-        ))}
-        <ListItem
-          key="open"
-          lead={<IconPlus />}
-          title="Open workout"
-          sub="Add exercises as you go"
-          onClick={() => start(() => onStrength())}
+      <div className="flex flex-col gap-3">
+        <Segment
+          options={START_PANES}
+          value={pane}
+          onChange={setPane}
+          block
+          ariaLabel="Start"
         />
-        <ListItem
-          key="stopwatch"
-          lead={<IconRun />}
-          leadTone="rest"
-          title="Stopwatch"
-          sub="Log the miles after"
-          onClick={() => start(() => onTimer('cardio', []), false)}
-        />
-        <div key="intervals">
-          <ListItem
-            lead={<IconSpeed />}
-            leadTone="effort"
-            title="Intervals"
-            sub={`${planSections.length} sections · ${fmtSec(totalSec(planSections))}`}
-            chevron={!intervalsOpen}
-            onClick={() => setIntervalsOpen((v) => !v)}
-          />
-          {intervalsOpen && (
-            <div className="mx-1 mb-1 flex flex-col gap-3 rounded-md bg-surface-2 p-4">
-              <PlanFields plan={plan} onChange={setPlan} summary={false} />
-              <Button
-                variant="primary"
-                block
-                onClick={() =>
-                  start(() => onTimer('speed', buildIntervals(plan)), false)
-                }
-              >
-                Start
-              </Button>
+
+        {pane === 'train' && (
+          <List>
+            {templates
+              .filter((t) => t.kind !== 'recovery')
+              .map((t) => (
+                <ListItem
+                  key={t.id}
+                  lead={KIND_LEAD[t.kind].icon}
+                  leadTone={KIND_LEAD[t.kind].tone}
+                  title={t.name}
+                  sub={templateMeta(t)}
+                  onClick={() => startTemplate(t)}
+                  action={
+                    <IconButton
+                      size="sm"
+                      label={`Delete template ${t.name}`}
+                      onClick={() => onDeleteTemplate(t)}
+                    >
+                      <IconX className="h-4 w-4" />
+                    </IconButton>
+                  }
+                />
+              ))}
+            <ListItem
+              key="open"
+              lead={<IconPlus />}
+              title="Open workout"
+              sub="Add exercises as you go"
+              onClick={() => start(() => onStrength())}
+            />
+            <ListItem
+              key="stopwatch"
+              lead={<IconRun />}
+              leadTone="rest"
+              title="Stopwatch"
+              sub="Log the miles after"
+              onClick={() => start(() => onTimer('cardio', []), false)}
+            />
+            <div key="intervals">
+              <ListItem
+                lead={<IconSpeed />}
+                leadTone="effort"
+                title="Intervals"
+                sub={`${planSections.length} sections · ${fmtSec(totalSec(planSections))}`}
+                chevron={!intervalsOpen}
+                onClick={() => setIntervalsOpen((v) => !v)}
+              />
+              {intervalsOpen && (
+                <div className="mx-1 mb-1 flex flex-col gap-3 rounded-md bg-surface-2 p-4">
+                  <PlanFields plan={plan} onChange={setPlan} summary={false} />
+                  <Button
+                    variant="primary"
+                    block
+                    onClick={() =>
+                      start(() => onTimer('speed', buildIntervals(plan)), false)
+                    }
+                  >
+                    Start
+                  </Button>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </List>
+          </List>
+        )}
+
+        {pane === 'recover' && (
+          <List>
+            {templates
+              .filter((t) => t.kind === 'recovery')
+              .map((t) => (
+                <ListItem
+                  key={t.id}
+                  lead={<IconRecover />}
+                  leadTone="calm"
+                  title={t.name}
+                  sub={templateMeta(t)}
+                  onClick={() => startRoutine(t)}
+                />
+              ))}
+            {BUILTIN_ROUTINES.map((r) => (
+              <ListItem
+                key={r.id}
+                lead={<IconRecover />}
+                leadTone="calm"
+                title={r.name}
+                sub={`${routineMinutes(r)} min`}
+                onClick={() =>
+                  start(() => onTimer('recovery', routineSections(r), r.name), false)
+                }
+              />
+            ))}
+            <ListItem
+              key="free-stretch"
+              lead={<IconRecover />}
+              leadTone="calm"
+              title="Free stretch"
+              sub="Stopwatch"
+              onClick={() =>
+                start(() => onTimer('recovery', [], 'Free stretch'), false)
+              }
+            />
+            <ListItem
+              key="quicklog"
+              lead={<IconRecover />}
+              leadTone="calm"
+              title="Quick log"
+              sub="Sauna, cold, walk"
+              onClick={() => dismiss(onQuickLog)}
+            />
+          </List>
+        )}
+      </div>
     </Sheet>
   )
 }
@@ -1096,6 +1236,20 @@ function workoutMeta(w: Workout): string[] {
     parts.push(`${w.exercises.length} exercises · ${sets} sets`)
     // Tonnage shows in the row's trail instead
   }
+  if (w.kind === 'recovery') {
+    // The modality, unless the title already says it ("Sauna · Sauna")
+    if (
+      w.modality &&
+      w.modality !== 'stretch' &&
+      w.modality !== 'mobility' &&
+      modalityLabel(w.modality) !== w.title
+    ) {
+      parts.push(modalityLabel(w.modality))
+    }
+    if (sets > 0) parts.push(`${sets} holds`)
+    if (w.rating?.post != null) parts.push(`Feel ${w.rating.post}/5`)
+    return parts
+  }
   if (w.intervals && w.intervals.length > 0) {
     parts.push(`${w.intervals.length} intervals`)
   }
@@ -1107,8 +1261,11 @@ function workoutMeta(w: Workout): string[] {
   return parts
 }
 
-/** The trail of a Log row: tonnage, else distance. */
+/** The trail of a Log row: tonnage, else distance, else (recovery) minutes. */
 function workoutTrail(w: Workout): string | undefined {
+  if (w.kind === 'recovery') {
+    return w.durationMin != null ? `${w.durationMin} min` : undefined
+  }
   const { volume } = workoutVolume(w)
   if (volume > 0) return `${Math.round(volume).toLocaleString()} ${w.weightUnit}`
   if (w.distanceM != null) {
@@ -1117,14 +1274,70 @@ function workoutTrail(w: Workout): string | undefined {
   return undefined
 }
 
+/**
+ * Habit-stack offer after a strength session: the cue is "workout just
+ * finished" and this screen already knows which muscles it was for. Its
+ * own sheet — it is shown alongside the strength save completing, not
+ * nested inside another sheet's render.
+ */
+function CooldownOffer({
+  muscles,
+  onStart,
+  onSkip,
+}: {
+  muscles: string[]
+  onStart: (sections: IntervalSection[], title: string) => void
+  onSkip: () => void
+}) {
+  const { open, dismiss, onExited } = useSheetDismiss()
+  const r = generateRoutine({
+    muscles,
+    phase: 'post',
+    minutes: suggestedMinutes(muscles, 'post'),
+  })
+  const label = muscles.slice(0, 3).join(', ')
+
+  return (
+    <Sheet
+      open={open}
+      onClose={() => dismiss(onSkip)}
+      onExited={onExited}
+      title="Cool down?"
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-body text-ink-2">
+          {label}
+          {r && ` · ${routineMinutes(r)} min`}
+        </p>
+        <Button
+          variant="primary"
+          block
+          onClick={() =>
+            r && dismiss(() => onStart(routineSections(r), `Cool-down · ${label}`))
+          }
+        >
+          Start cool-down
+        </Button>
+        <Button variant="ghost" block onClick={() => dismiss(onSkip)}>
+          Not now
+        </Button>
+      </div>
+    </Sheet>
+  )
+}
+
 type Mode =
   | { m: 'list' }
-  | { m: 'pick' }
+  | { m: 'pick'; kind?: WorkoutKind }
   | { m: 'build'; initial?: Template }
   | { m: 'strength'; workout: Workout; isNew: boolean }
   | { m: 'timer'; draft: TimerDraft }
   | { m: 'slots'; template: Template }
   | { m: 'feedback'; workout: Workout }
+  /** After a strength save: offer a cooldown for the muscles just trained. */
+  | { m: 'cooldown'; muscles: string[] }
+  /** Untimed recovery log, or editing any recovery session. */
+  | { m: 'quicklog'; workout?: Workout }
   | { m: 'meso-setup'; initial?: Mesocycle }
 
 /** Which bottom-nav tab this instance is rendering (Recovery lives in its
@@ -1262,11 +1475,18 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     })
   }, [])
 
+  interface FinishOptions {
+    isNew?: boolean
+    /** A warm-up timer saving from inside a strength session: leave the
+     * strength draft alone and return to the ledger. */
+    keepStrengthDraft?: boolean
+  }
+
   /**
    * Strength sessions detour through the how-did-it-feel sheet before the
    * save lands; timer saves and edits go straight through.
    */
-  function finish(raw: Workout, opts?: { isNew?: boolean }) {
+  function finish(raw: Workout, opts?: FinishOptions) {
     if (
       raw.kind === 'strength' &&
       opts?.isNew &&
@@ -1279,10 +1499,16 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
       setMode({ m: 'feedback', workout: raw })
       return
     }
-    commitFinish(raw)
+    commitFinish(raw, opts)
   }
 
-  function commitFinish(raw: Workout) {
+  /** Back into the live strength draft, or the list if it's gone. */
+  function reenterStrength() {
+    const d = loadDraft()
+    setMode(d ? { m: 'strength', workout: d, isNew: true } : { m: 'list' })
+  }
+
+  function commitFinish(raw: Workout, opts?: FinishOptions) {
     const w = finalizeWorkout(raw)
     enqueue(w)
     setPendingCount(loadPending().length)
@@ -1293,10 +1519,33 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
       saveWorkoutCache(merged)
       return merged
     })
-    saveDraft(null)
     saveTimerDraft(null)
+    if (opts?.keepStrengthDraft) {
+      // The warm-up is logged; the lift it was for is still live.
+      reenterStrength()
+      void sync()
+      return
+    }
+    saveDraft(null)
     setLockScreenSuppressed(false) // drafts are gone; nothing to resurrect
-    setMode({ m: 'list' })
+    // Habit stacking: the cue for a cooldown is "workout finished", and
+    // this is the one screen that knows which muscles it was for.
+    const trained =
+      raw.kind === 'strength' && opts?.isNew
+        ? feedbackMuscles(raw, muscleLookup)
+        : []
+    if (
+      trained.length > 0 &&
+      generateRoutine({
+        muscles: trained,
+        phase: 'post',
+        minutes: suggestedMinutes(trained, 'post'),
+      })
+    ) {
+      setMode({ m: 'cooldown', muscles: trained })
+    } else {
+      setMode({ m: 'list' })
+    }
     void sync()
   }
 
@@ -1461,6 +1710,7 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
     kind: WorkoutKind,
     sections: IntervalSection[],
     title?: string,
+    extra?: Pick<TimerDraft, 'modality' | 'resumeStrength'>,
   ): Mode {
     const draft: TimerDraft = {
       kind,
@@ -1470,10 +1720,35 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
       skipOffsetMs: 0,
       paused: false,
       pausedElapsedMs: 0,
+      ...extra,
     }
     saveTimerDraft(draft)
     autoStartLockScreen()
     return { m: 'timer', draft }
+  }
+
+  /** Dynamic warm-up for the muscles a strength session is about to train.
+   * The strength draft stays in storage; the ledger returns afterwards. */
+  function startWarmUp(muscles: string[]) {
+    const r = generateRoutine({
+      muscles,
+      phase: 'pre',
+      minutes: suggestedMinutes(muscles, 'pre'),
+    })
+    if (!r) return
+    setMode(
+      startTimer(
+        'recovery',
+        routineSections(r),
+        `Warm-up · ${muscles.slice(0, 3).join(', ')}`,
+        { modality: 'mobility', resumeStrength: true },
+      ),
+    )
+  }
+
+  /** Most recent recovery session of a modality — QuickLog pre-fills from it. */
+  function lastRecoveryOf(m: Modality): Workout | undefined {
+    return workouts.find((w) => w.kind === 'recovery' && w.modality === m)
   }
 
   const toList = () => setMode({ m: 'list' })
@@ -1543,6 +1818,7 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
         onClose={toList}
         onDiscard={toList}
         onDelete={m.isNew ? undefined : remove}
+        onWarmUp={m.isNew ? startWarmUp : undefined}
       />
     )
   }
@@ -1819,13 +2095,21 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
           onClose={() => setDetail(null)}
           onEdit={() => {
             setDetail(null)
-            setMode({ m: 'strength', workout: detail, isNew: false })
+            setMode(
+              detail.kind === 'recovery'
+                ? { m: 'quicklog', workout: detail }
+                : { m: 'strength', workout: detail, isNew: false },
+            )
           }}
           onRepeat={async () => {
             setDetail(null)
-            // Through beginStrength: guards a live draft like every
-            // other session start.
+            // Guards a live draft like every other session start.
             if (!(await confirmReplaceLive())) return
+            if (detail.kind === 'recovery') {
+              // A recovery repeat re-runs the same routine in the timer.
+              setMode(startTimer('recovery', detail.intervals ?? [], detail.title))
+              return
+            }
             setMode(
               beginStrength({
                 ...detail,
@@ -1856,8 +2140,12 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
           key={mode.draft.startEpoch}
           initial={mode.draft}
           sessions={sessions}
-          onSave={finish}
-          onCancel={toList}
+          onSave={(w) =>
+            finish(w, { keepStrengthDraft: mode.draft.resumeStrength === true })
+          }
+          onCancel={() =>
+            mode.draft.resumeStrength === true ? reenterStrength() : toList()
+          }
           onMinimize={toList}
         />
       )}
@@ -1865,16 +2153,45 @@ export function Workouts({ api, tab }: { api: Api; tab: WorkoutsTab }) {
       {mode.m === 'feedback' && (
         <FeedbackModal
           muscles={feedbackMuscles(mode.workout, muscleLookup)}
-          onSubmit={(fb) => commitFinish({ ...mode.workout, feedback: fb })}
-          onSkip={() => commitFinish(mode.workout)}
+          onSubmit={(fb, sessionRpe) =>
+            commitFinish({ ...mode.workout, feedback: fb, sessionRpe }, { isNew: true })
+          }
+          onSkip={() => commitFinish(mode.workout, { isNew: true })}
+        />
+      )}
+
+      {mode.m === 'cooldown' && (
+        <CooldownOffer
+          muscles={mode.muscles}
+          onStart={(sections, title) => setMode(startTimer('recovery', sections, title))}
+          onSkip={toList}
+        />
+      )}
+
+      {mode.m === 'quicklog' && (
+        <QuickLog
+          key={mode.workout?.id ?? 'new'}
+          initial={mode.workout}
+          lastOf={lastRecoveryOf}
+          onSave={(w) =>
+            finish(
+              mode.workout && w.start !== mode.workout.start
+                ? { ...w, previousStart: mode.workout.start }
+                : w,
+            )
+          }
+          onCancel={toList}
+          onDelete={mode.workout ? remove : undefined}
         />
       )}
 
       {mode.m === 'pick' && (
         <StartPicker
           templates={templates}
+          initialKind={mode.kind ?? null}
           onStrength={startStrength}
           onTimer={startTimer}
+          onQuickLog={() => setMode({ m: 'quicklog' })}
           confirmStart={confirmReplaceLive}
           onEnter={setMode}
           onDeleteTemplate={removeTemplate}

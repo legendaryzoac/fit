@@ -6,6 +6,7 @@ import type {
   WorkoutFeedback,
 } from '../lib/workouts'
 import { Button } from './cadence/Button'
+import { ScaleRow } from './cadence/ScaleRow'
 import { Segment } from './shell/Segment'
 import { Sheet } from './shell/Sheet'
 import { useSheetDismiss } from './shell/useSheetDismiss'
@@ -35,13 +36,14 @@ export function FeedbackModal({
   onSkip,
 }: {
   muscles: string[]
-  onSubmit: (feedback: WorkoutFeedback) => void
+  onSubmit: (feedback: WorkoutFeedback, sessionRpe?: number) => void
   onSkip: () => void
 }) {
   const [ratings, setRatings] = useState<
     Record<string, Partial<MuscleFeedback>>
   >({})
   const [overall, setOverall] = useState<DifficultyRating | undefined>()
+  const [rpe, setRpe] = useState<number | undefined>()
 
   const patch = (muscle: string, part: Partial<MuscleFeedback>) =>
     setRatings((prev) => ({
@@ -98,6 +100,7 @@ export function FeedbackModal({
             onChange={setOverall}
             ariaLabel="Whole workout"
           />
+          <ScaleRow label="Effort" low="Rest" high="Max" value={rpe} onChange={setRpe} />
         </section>
       </div>
 
@@ -108,12 +111,15 @@ export function FeedbackModal({
           disabled={!complete}
           onClick={() =>
             dismiss(() =>
-              onSubmit({
-                overall,
-                muscles: Object.fromEntries(
-                  muscles.map((m) => [m, ratings[m] as MuscleFeedback]),
-                ),
-              }),
+              onSubmit(
+                {
+                  overall,
+                  muscles: Object.fromEntries(
+                    muscles.map((m) => [m, ratings[m] as MuscleFeedback]),
+                  ),
+                },
+                rpe,
+              ),
             )
           }
         >

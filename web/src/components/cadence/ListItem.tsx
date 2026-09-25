@@ -1,13 +1,15 @@
 import { Children, Fragment, isValidElement, type ReactNode } from 'react'
 import { IconChevronRight } from '../shell/icons'
 
-export type LeadTone = 'neutral' | 'brand' | 'effort' | 'rest'
+export type LeadTone = 'neutral' | 'brand' | 'effort' | 'rest' | 'calm'
 
 const LEAD: Record<LeadTone, string> = {
   neutral: 'bg-surface-2 text-ink-2',
   brand: 'bg-brand-soft text-brand-strong',
   effort: 'bg-ember-soft text-ember-strong',
   rest: 'bg-sky-soft text-sky-strong',
+  // Recovery: amber, the calm tone
+  calm: 'bg-amber-soft text-amber-strong',
 }
 
 const ROW =

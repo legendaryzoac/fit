@@ -14,6 +14,7 @@ import { Button } from './cadence/Button'
 import { List, ListItem } from './cadence/ListItem'
 import { StatusPill, type StatusTone } from './cadence/StatusPill'
 import { confirm } from '../lib/confirm'
+import { cToF, modalityLabel } from './QuickLog'
 import { Sheet } from './shell/Sheet'
 import { useSheetDismiss } from './shell/useSheetDismiss'
 
@@ -24,12 +25,14 @@ const KIND_LABEL: Record<WorkoutKind, string> = {
   strength: 'Strength',
   speed: 'Speed',
   cardio: 'Cardio',
+  recovery: 'Recovery',
 }
 
 const KIND_TONE: Record<WorkoutKind, StatusTone> = {
   strength: 'good',
   speed: 'effort',
   cardio: 'rest',
+  recovery: 'mid',
 }
 
 const FELT: Record<DifficultyRating, string> = {
@@ -50,8 +53,14 @@ function minutesOf(w: Workout): number | null {
   return ms > 0 ? Math.round(ms / 60_000) : null
 }
 
-/** "185 × 8" for a strength set, "40 yd 5.1 s" for a speed rep. */
+/** "185 × 8" for a strength set, "40 yd 5.1 s" for a speed rep, "45 s L"
+ * for a recovery hold. */
 function setSummary(kind: WorkoutKind, s: WorkoutSet): string {
+  if (kind === 'recovery') {
+    return s.durationSec != null
+      ? `${s.durationSec} s${s.side ? ` ${s.side}` : ''}`
+      : '—'
+  }
   if (kind === 'speed') {
     const parts: string[] = []
     if (s.distanceM != null) parts.push(`${Math.round(s.distanceM / YD)} yd`)
@@ -153,7 +162,7 @@ export function WorkoutDetail({
       trail: fmtSec(totalSec(w.intervals)),
     })
   }
-  if (w.durationMin != null) {
+  if (w.durationMin != null && w.kind !== 'recovery') {
     timerRows.push({ title: 'Duration', trail: `${w.durationMin} min` })
   }
   if (w.distanceM != null) {
@@ -161,6 +170,17 @@ export function WorkoutDetail({
       title: 'Distance',
       trail: `${Math.round((w.distanceM / MILE) * 100) / 100} mi`,
     })
+  }
+  if (w.kind === 'recovery') {
+    if (w.modality) {
+      timerRows.push({ title: 'Modality', trail: modalityLabel(w.modality) })
+    }
+    if (w.dose?.tempC != null) {
+      timerRows.push({ title: 'Temperature', trail: `${cToF(w.dose.tempC)}°F` })
+    }
+    if (w.dose?.rounds != null) {
+      timerRows.push({ title: 'Rounds', trail: String(w.dose.rounds) })
+    }
   }
 
   async function remove() {
@@ -185,18 +205,36 @@ export function WorkoutDetail({
           <StatusPill tone={KIND_TONE[w.kind]}>{KIND_LABEL[w.kind]}</StatusPill>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <Well
-            label="Volume"
-            value={volume > 0 ? Math.round(volume).toLocaleString() : '—'}
-            unit={volume > 0 ? w.weightUnit : undefined}
-          />
-          <Well label="Sets" value={sets > 0 ? String(sets) : '—'} />
-          <Well
-            label="Felt"
-            value={w.feedback?.overall ? FELT[w.feedback.overall] : '—'}
-          />
-        </div>
+        {w.kind === 'recovery' ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Well
+              label="Minutes"
+              value={w.durationMin != null ? String(w.durationMin) : '—'}
+            />
+            <Well label="Holds" value={sets > 0 ? String(sets) : '—'} />
+            <Well
+              label="Feel"
+              value={w.rating?.post != null ? `${w.rating.post}/5` : '—'}
+            />
+            <Well
+              label="Effort"
+              value={w.sessionRpe != null ? String(w.sessionRpe) : '—'}
+            />
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            <Well
+              label="Volume"
+              value={volume > 0 ? Math.round(volume).toLocaleString() : '—'}
+              unit={volume > 0 ? w.weightUnit : undefined}
+            />
+            <Well label="Sets" value={sets > 0 ? String(sets) : '—'} />
+            <Well
+              label="Felt"
+              value={w.feedback?.overall ? FELT[w.feedback.overall] : '—'}
+            />
+          </div>
+        )}
 
         {w.exercises.length > 0 && (
           <List>
@@ -211,7 +249,19 @@ export function WorkoutDetail({
                     : best,
                 undefined,
               )
-              const unit = w.kind === 'speed' ? 'reps' : 'sets'
+              const n = e.sets.length
+              const unit =
+                w.kind === 'speed'
+                  ? n === 1
+                    ? 'rep'
+                    : 'reps'
+                  : w.kind === 'recovery'
+                    ? n === 1
+                      ? 'hold'
+                      : 'holds'
+                    : n === 1
+                      ? 'set'
+                      : 'sets'
               return (
                 <ListItem
                   key={i}
@@ -253,7 +303,8 @@ export function WorkoutDetail({
           >
             Edit
           </Button>
-          {w.kind === 'strength' && (
+          {(w.kind === 'strength' ||
+            (w.kind === 'recovery' && (w.intervals?.length ?? 0) > 0)) && (
             <Button variant="ghost" onClick={() => dismiss(onRepeat)}>
               Repeat
             </Button>

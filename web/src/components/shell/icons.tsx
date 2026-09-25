@@ -194,3 +194,13 @@ export function IconGrip(p: IconProps) {
     </Icon>
   )
 }
+
+/** A leaf with one vein: the recovery kind. */
+export function IconRecover(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M6 19C5 12 8 6 19 5c1 8-3 14-13 14z" />
+      <path d="M7 18c2-5 5-9 10-11" />
+    </Icon>
+  )
+}
