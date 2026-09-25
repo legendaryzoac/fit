@@ -11,6 +11,7 @@ import { SPEED_DRILLS } from '../lib/exercises'
 import { lockScreenSupported, registerTimerControls } from '../lib/lockScreen'
 import { recoveryExercisesFromSections } from '../lib/routines'
 import { stretchByName } from '../lib/stretches'
+import { getUnitPref } from '../lib/units'
 import {
   fmtSec,
   holdBaseName,
@@ -440,7 +441,7 @@ export function IntervalSession({
       end: new Date(doneAt).toISOString(),
       kind: draft.kind,
       title: title || undefined,
-      weightUnit: 'lb',
+      weightUnit: getUnitPref(),
       // Recovery: per-stretch holds recovered from the executed sections so
       // history has structure; other kinds keep their hand-logged drills.
       exercises: recovery ? recoveryExercisesFromSections(reached) : drills,

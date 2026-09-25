@@ -44,6 +44,7 @@ import type { Modality, SessionRecord, Workout, WorkoutKind } from '../lib/worko
 import { Banner, type BannerTone } from './cadence/Banner'
 import { Button } from './cadence/Button'
 import { Card, CardHead } from './cadence/Card'
+import { EmptyState } from './cadence/EmptyState'
 import {
   Bars,
   ComboChart,
@@ -217,14 +218,6 @@ function Well({
       </p>
       {sub && <p className="text-caption text-ink-3">{sub}</p>}
     </div>
-  )
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-  return (
-    <Card>
-      <p className="text-body text-ink-2">{children}</p>
-    </Card>
   )
 }
 
@@ -991,7 +984,7 @@ export function Trends({
 
     let strapCards: React.ReactNode
     if (!settled) {
-      strapCards = <p className="py-8 text-center text-body text-ink-3">Loading</p>
+      strapCards = <p className="py-8 text-center text-caption text-ink-3">Loading</p>
     } else if (!hasRecovery) {
       strapCards = strapEmpty
       connectCard = false
@@ -1091,7 +1084,7 @@ export function Trends({
     )
   } else if (group === 'sleep') {
     if (!settled) {
-      cards = <p className="py-8 text-center text-body text-ink-3">Loading</p>
+      cards = <p className="py-8 text-center text-caption text-ink-3">Loading</p>
     } else if (!hasRecovery) {
       cards = strapEmpty
       connectCard = false
@@ -1154,7 +1147,12 @@ export function Trends({
     }
   } else if (group === 'strength') {
     if (exercises.length === 0) {
-      cards = <Empty>Log a session to see strength.</Empty>
+      cards = (
+        <EmptyState
+          title="No strength yet"
+          caption="Log a session to see it here."
+        />
+      )
     } else {
       cards = (
         <>
@@ -1270,7 +1268,7 @@ export function Trends({
     cards = (
       <>
         {drills.length === 0 && runs.length <= 1 && zones.length === 0 && (
-          <Empty>Log a run or intervals.</Empty>
+          <EmptyState title="No runs yet" caption="Log a run or intervals." />
         )}
         {drills.length > 0 && (
           <Card>
@@ -1338,7 +1336,12 @@ export function Trends({
     const load = weeklyLoad(workouts, 8)
     const ratedAny = load.some((w) => w.rated > 0)
     if (!ratedAny) {
-      cards = <Empty>Rate a session's effort to see load.</Empty>
+      cards = (
+        <EmptyState
+          title="No load yet"
+          caption="Rate a session's effort to see it here."
+        />
+      )
     } else {
       const thisWeek = load[load.length - 1]
       const lastWeek = load[load.length - 2]

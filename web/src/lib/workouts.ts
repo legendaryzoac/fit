@@ -1,5 +1,6 @@
 import type { Api } from './api'
 import { storageKey } from './storage'
+import { getUnitPref } from './units'
 
 export type WorkoutKind = 'strength' | 'speed' | 'cardio' | 'recovery'
 
@@ -159,7 +160,7 @@ export function newWorkout(kind: WorkoutKind): Workout {
     id: crypto.randomUUID(),
     start: new Date().toISOString(),
     kind,
-    weightUnit: 'lb',
+    weightUnit: getUnitPref(),
     exercises: [],
   }
 }

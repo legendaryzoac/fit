@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { getFreshToken, restoreSession, signOut } from './auth'
 import { AppShell } from './components/AppShell'
 import { LoginCard, NewPasswordCard, type AuthState } from './components/Auth'
-import { Shell } from './components/ui'
+import { Button } from './components/cadence/Button'
+import { Card } from './components/cadence/Card'
+import { BrandMark } from './components/shell/BrandMark'
 import { makeApi, type Api } from './lib/api'
 import { makeDemoApi } from './lib/demo'
 import { stopLockScreen } from './lib/lockScreen'
@@ -10,6 +12,25 @@ import { saveMesoCache } from './lib/mesocycle'
 import { setDemoStorage } from './lib/storage'
 
 type Phase = AuthState | { phase: 'demo'; api: Api }
+
+/** Sign-in layout: brand row, a hero card holding the form, then the demo
+ * escape hatch and a footer credit. */
+function SignInShell({ children }: { children?: React.ReactNode }) {
+  return (
+    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-canvas px-gutter text-ink">
+      <div className="flex items-center gap-3">
+        <BrandMark className="h-12 w-12" />
+        <h1 className="text-title-lg">FIT</h1>
+      </div>
+      {children && (
+        <Card hero className="w-full max-w-[22rem]">
+          {children}
+        </Card>
+      )}
+      <p className="mt-2 text-micro text-ink-3">a zackwithers.com project</p>
+    </main>
+  )
+}
 
 export default function App() {
   const [auth, setAuth] = useState<Phase>({ phase: 'loading' })
@@ -59,13 +80,17 @@ export default function App() {
     )
   }
 
+  if (auth.phase === 'loading') {
+    return <SignInShell />
+  }
+
   return (
-    <Shell>
-      {auth.phase === 'loading' && <p className="text-sm text-neutral-600">…</p>}
+    <SignInShell>
       {auth.phase === 'signed-out' && (
-        <>
+        <div className="flex flex-col gap-4">
           <LoginCard onResult={setAuth} />
-          <button
+          <Button
+            variant="ghost"
             onClick={() => {
               setDemoStorage(true)
               // The demo API regenerates from scratch — a meso cached by
@@ -73,11 +98,10 @@ export default function App() {
               saveMesoCache([])
               setAuth({ phase: 'demo', api: makeDemoApi() })
             }}
-            className="text-sm font-semibold text-accent-700 underline-offset-4 hover:text-accent-600 hover:underline"
           >
             No account? Try the demo
-          </button>
-        </>
+          </Button>
+        </div>
       )}
       {auth.phase === 'new-password' && (
         <NewPasswordCard
@@ -85,6 +109,6 @@ export default function App() {
           onSignedIn={(session) => setAuth({ phase: 'signed-in', session })}
         />
       )}
-    </Shell>
+    </SignInShell>
   )
 }

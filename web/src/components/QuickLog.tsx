@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import { confirm } from '../lib/confirm'
+import { getUnitPref } from '../lib/units'
 import type { Modality, Workout } from '../lib/workouts'
 import { Button } from './cadence/Button'
 import { Field, SELECT_WELL, TextArea, TextInput } from './cadence/Field'
@@ -140,7 +141,7 @@ export function QuickLog({
         kind: 'recovery',
         modality,
         title: title.trim() || (guided ? initial?.title : modalityLabel(modality)),
-        weightUnit: 'lb',
+        weightUnit: initial?.weightUnit ?? getUnitPref(),
         exercises: initial?.exercises ?? [],
         intervals: initial?.intervals,
         durationMin: Math.round(seed.minutes),

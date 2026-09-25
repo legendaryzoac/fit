@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type {
   CognitoUser,
   CognitoUserSession,
 } from 'amazon-cognito-identity-js'
 import { completeNewPassword, signIn } from '../auth'
-import { buttonClass, inputClass } from './ui'
+import { Banner } from './cadence/Banner'
+import { Button } from './cadence/Button'
+import { Field, TextInput } from './cadence/Field'
 
 export type AuthState =
   | { phase: 'loading' }
@@ -21,6 +23,8 @@ export function LoginCard({
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const emailId = useId()
+  const passwordId = useId()
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -40,32 +44,35 @@ export function LoginCard({
   }
 
   return (
-    <form onSubmit={submit} className="flex w-full max-w-xs flex-col gap-3">
-      <p className="text-center text-sm text-ink/70">Invite-only.</p>
-      <input
-        className={inputClass}
-        type="email"
-        placeholder="email"
-        autoComplete="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        required
-      />
-      <input
-        className={inputClass}
-        type="password"
-        placeholder="password"
-        autoComplete="current-password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
-      {error && <p className="text-sm font-semibold text-accent-700">{error}</p>}
-      <button className={`${buttonClass} w-full justify-between`} disabled={busy}>
-        {busy ? 'Signing in…' : 'Sign in'}
-        <span>→</span>
-      </button>
-    </form>
+    <div className="flex w-full flex-col gap-4">
+      <form onSubmit={submit} className="flex w-full flex-col gap-3">
+        <Field label="Email" htmlFor={emailId}>
+          <TextInput
+            id={emailId}
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Password" htmlFor={passwordId}>
+          <TextInput
+            id={passwordId}
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </Field>
+        {error && <Banner tone="error">{error}</Banner>}
+        <Button variant="primary" block type="submit" disabled={busy}>
+          {busy ? 'Signing in' : 'Sign in'}
+        </Button>
+      </form>
+      <p className="text-center text-caption text-ink-3">Invite only.</p>
+    </div>
   )
 }
 
@@ -79,6 +86,7 @@ export function NewPasswordCard({
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const passwordId = useId()
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -93,23 +101,26 @@ export function NewPasswordCard({
   }
 
   return (
-    <form onSubmit={submit} className="flex w-full max-w-xs flex-col gap-3">
-      <p className="text-center text-sm text-ink/70">Password, 12+ characters.</p>
-      <input
-        className={inputClass}
-        type="password"
-        placeholder="new password"
-        autoComplete="new-password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        minLength={12}
-        required
-      />
-      {error && <p className="text-sm font-semibold text-accent-700">{error}</p>}
-      <button className={`${buttonClass} w-full justify-between`} disabled={busy}>
-        {busy ? 'Saving…' : 'Set password'}
-        <span>→</span>
-      </button>
+    <form onSubmit={submit} className="flex w-full flex-col gap-3">
+      <Field
+        label="New password"
+        htmlFor={passwordId}
+        help="12 characters or more"
+      >
+        <TextInput
+          id={passwordId}
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          minLength={12}
+          required
+        />
+      </Field>
+      {error && <Banner tone="error">{error}</Banner>}
+      <Button variant="primary" block type="submit" disabled={busy}>
+        {busy ? 'Saving' : 'Set password'}
+      </Button>
     </form>
   )
 }

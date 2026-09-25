@@ -26,6 +26,7 @@ import type { Workout } from '../lib/workouts'
 import { Banner } from './cadence/Banner'
 import { Button } from './cadence/Button'
 import { Card, CardHead } from './cadence/Card'
+import { EmptyState } from './cadence/EmptyState'
 import { Field, TextInput } from './cadence/Field'
 import { IconButton } from './cadence/IconButton'
 import { List, ListItem } from './cadence/ListItem'
@@ -139,15 +140,15 @@ export function MesoCard({
 }) {
   if (!meso) {
     return (
-      <Card>
-        <p className="text-title-sm text-ink">No block</p>
-        <p className="mt-1 text-body text-ink-2">
-          Plan weeks of sessions with progression.
-        </p>
-        <Button variant="primary" className="mt-3.5" onClick={onPlan}>
-          New block
-        </Button>
-      </Card>
+      <EmptyState
+        title="No block"
+        caption="Plan weeks of sessions with progression."
+        action={
+          <Button variant="primary" onClick={onPlan}>
+            New block
+          </Button>
+        }
+      />
     )
   }
 

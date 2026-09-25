@@ -17,7 +17,6 @@ import {
   skipSection,
   timerSnapshot,
 } from '../lib/workouts'
-import { Banner } from './cadence/Banner'
 import {
   Dock,
   type DockLive,
@@ -83,10 +82,6 @@ export function AppShell({
       <TopBar demo={demo} onSettings={() => setSettingsOpen(true)} />
 
       <main className="mx-auto flex max-w-column flex-col gap-4 px-gutter pt-3 pb-[calc(88px+env(safe-area-inset-bottom))]">
-        {demo && (
-          <Banner tone="info">Demo. Changes stay in this browser.</Banner>
-        )}
-
         <div ref={contentRef} className="flex flex-col gap-4">
           {/* One Workouts instance stays mounted across all four tabs so
               drafts and caches survive tab hops. */}
@@ -114,6 +109,10 @@ export function AppShell({
         demo={demo}
         email={email}
         onSignOut={onSignOut}
+        onExercises={() => {
+          setSettingsOpen(false)
+          setTab('plan')
+        }}
         api={api}
       />
       <ConfirmDialog />

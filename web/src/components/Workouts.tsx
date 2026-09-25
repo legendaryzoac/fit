@@ -86,6 +86,7 @@ import { currentBodyWeight, loadWeightCache, saveWeightCache, type WeightEntry }
 import { Banner } from './cadence/Banner'
 import { Button } from './cadence/Button'
 import { Card } from './cadence/Card'
+import { EmptyState } from './cadence/EmptyState'
 import { Field, SELECT_WELL, TextArea, TextInput } from './cadence/Field'
 import { IconButton } from './cadence/IconButton'
 import { List, ListItem } from './cadence/ListItem'
@@ -2007,15 +2008,10 @@ export function Workouts({
         {error && <Banner tone="error">{error}</Banner>}
 
         {!captured && workouts.length === 0 && (
-          <Card>
-            <p className="text-title-sm text-ink">No workouts yet</p>
-            <p className="mt-1 text-body text-ink-2">Start one from Today.</p>
-          </Card>
+          <EmptyState title="No workouts yet" caption="Start one from Today." />
         )}
         {!captured && workouts.length > 0 && shown.length === 0 && (
-          <Card>
-            <p className="text-body text-ink-2">Nothing logged.</p>
-          </Card>
+          <EmptyState title="Nothing logged" />
         )}
 
         {!captured &&

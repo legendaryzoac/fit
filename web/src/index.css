@@ -174,40 +174,6 @@
 
   --shadow-lift: var(--shadow-lift);
   --shadow-float: var(--shadow-float);
-
-  /* Ledger compatibility: the old token names resolve to the nearest
-     Cadence value so unmigrated screens keep rendering. Delete this block
-     when the last Ledger component is gone. */
-  --color-paper: var(--canvas);
-  --color-accent: var(--brand);
-  --color-accent-100: var(--brand-soft);
-  --color-accent-200: var(--brand-soft);
-  --color-accent-300: var(--brand-soft);
-  --color-accent-400: var(--brand);
-  --color-accent-500: var(--brand);
-  --color-accent-600: var(--brand-strong);
-  --color-accent-700: var(--brand-strong);
-  --color-accent-800: var(--brand-strong);
-  --color-accent-900: var(--brand-strong);
-  --color-accent2-100: var(--sky-soft);
-  --color-accent2-500: var(--sky);
-  --color-accent2-700: var(--sky-strong);
-  --color-accent2-800: var(--sky-strong);
-  --color-neutral-100: var(--surface);
-  --color-neutral-200: var(--surface-2);
-  --color-neutral-300: var(--surface-3);
-  --color-neutral-400: var(--ink-4);
-  --color-neutral-500: var(--ink-3);
-  --color-neutral-600: var(--ink-3);
-  --color-neutral-700: var(--ink-2);
-  --color-neutral-800: var(--ink-2);
-  --color-neutral-900: var(--ink);
-  --color-orange-500: var(--ember);
-  --color-orange-600: var(--ember);
-  --color-orange-700: var(--ember-strong);
-  --color-gold-500: var(--amber);
-  --color-gold-600: var(--amber);
-  --color-gold-700: var(--amber-strong);
 }
 
 @theme {
@@ -358,19 +324,6 @@
   background: color-mix(in srgb, var(--surface) 85%, transparent);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-}
-
-@layer components {
-  /* Ledger leftovers, restyled as Cadence eyebrows until each screen is
-     rebuilt: sentence case, no tracking, secondary ink. */
-  .kicker,
-  .kicker-muted {
-    font-size: 12px;
-    line-height: 16px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    color: var(--ink-2);
-  }
 }
 
 /* Chip rows scroll sideways without a visible scrollbar */

@@ -1,4 +1,4 @@
-import { PulseMark } from '../ui'
+import { BrandMark } from './BrandMark'
 import { IconSettings } from './icons'
 
 function todayLabel(): string {
@@ -20,7 +20,7 @@ export function TopBar({
   return (
     <header className="backdrop-bar sticky top-0 z-40 flex h-topbar items-center justify-between px-4">
       <div className="flex items-center gap-2">
-        <PulseMark className="h-6 w-6" />
+        <BrandMark className="h-6 w-6" />
         <span className="text-[15px] font-semibold text-ink">FIT</span>
       </div>
       <span className="text-caption font-semibold text-ink-2">

@@ -6,6 +6,7 @@ import type { Workout } from '../lib/workouts'
 import { Banner } from './cadence/Banner'
 import { Button } from './cadence/Button'
 import { Card } from './cadence/Card'
+import { EmptyState } from './cadence/EmptyState'
 import { Field, SELECT_WELL, TextInput } from './cadence/Field'
 import { IconButton } from './cadence/IconButton'
 import { List, ListItem } from './cadence/ListItem'
@@ -182,9 +183,7 @@ export function Manage({
           </Button>
         </div>
         {templates.length === 0 ? (
-          <Card>
-            <p className="text-body text-ink-2">No templates yet.</p>
-          </Card>
+          <EmptyState title="No templates yet" />
         ) : (
           <List>
             {templates.map((t) => (

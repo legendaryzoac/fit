@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { Api } from '../../lib/api'
 import { confirm } from '../../lib/confirm'
+import { lockScreenSupported } from '../../lib/lockScreen'
 import {
   getThemePref,
   setThemePref,
   subscribeTheme,
   type ThemePref,
 } from '../../lib/theme'
+import { getUnitPref, setUnitPref, subscribeUnit, type WeightUnit } from '../../lib/units'
 import { Banner } from '../cadence/Banner'
 import { Button } from '../cadence/Button'
+import { ListItem } from '../cadence/ListItem'
 import { StatusPill } from '../cadence/StatusPill'
+import { LockScreenSwitch } from '../LockScreenSwitch'
 import { Segment } from './Segment'
 import { Sheet } from './Sheet'
 
@@ -17,6 +21,11 @@ const THEMES: Array<{ value: ThemePref; label: string }> = [
   { value: 'light', label: 'Dawn' },
   { value: 'dark', label: 'Dusk' },
   { value: 'auto', label: 'Auto' },
+]
+
+const UNITS: Array<{ value: WeightUnit; label: string }> = [
+  { value: 'lb', label: 'lb' },
+  { value: 'kg', label: 'kg' },
 ]
 
 type Me = {
@@ -144,6 +153,7 @@ export function SettingsSheet({
   demo,
   email,
   onSignOut,
+  onExercises,
   api,
 }: {
   open: boolean
@@ -151,15 +161,18 @@ export function SettingsSheet({
   demo: boolean
   email: string
   onSignOut: () => void
+  onExercises?: () => void
   api: Api
 }) {
   const pref = useSyncExternalStore(subscribeTheme, getThemePref, getThemePref)
+  const unit = useSyncExternalStore(subscribeUnit, getUnitPref, getUnitPref)
 
   return (
     <Sheet open={open} onClose={onClose} title="Settings">
       <p className="truncate text-caption text-ink-2">
         {demo ? 'Demo' : email}
       </p>
+      {demo && <p className="text-caption text-ink-3">Changes stay in this browser.</p>}
 
       <div className="mt-6 flex items-center justify-between gap-4">
         <span className="text-body font-medium text-ink">Theme</span>
@@ -173,7 +186,39 @@ export function SettingsSheet({
 
       <div className="mt-6 h-px bg-hairline" />
 
+      <div className="mt-6 flex items-center justify-between gap-4">
+        <span className="text-body font-medium text-ink">Units</span>
+        <Segment
+          options={UNITS}
+          value={unit}
+          onChange={setUnitPref}
+          ariaLabel="Units"
+        />
+      </div>
+
+      {lockScreenSupported() && (
+        <>
+          <div className="mt-6 h-px bg-hairline" />
+          <div className="mt-6">
+            <LockScreenSwitch />
+          </div>
+        </>
+      )}
+
+      <div className="mt-6 h-px bg-hairline" />
+
       <div className="mt-6 flex flex-col gap-3">{open && <StrapRow api={api} />}</div>
+
+      <div className="mt-6 h-px bg-hairline" />
+
+      <div className="mt-6 -mx-4">
+        <ListItem
+          title="Exercises"
+          sub="Custom exercises and templates"
+          chevron
+          onClick={onExercises}
+        />
+      </div>
 
       <div className="mt-6 h-px bg-hairline" />
 
