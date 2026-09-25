@@ -16,8 +16,8 @@
 // escape the background timer throttling that stalls setInterval), with the
 // interval kept as a fallback.
 
-import { cue, primeCue } from './cue'
-import { fmtSec } from './templates'
+import { cue, primeCue, warnCue } from './cue'
+import { fmtSec, isTransition } from './templates'
 import { storageKey } from './storage'
 import {
   backSection,
@@ -99,6 +99,7 @@ let ticker: ReturnType<typeof setInterval> | null = null
 let active = false
 let missingTicks = 0
 let lastIndex = -1
+let lastWarnIndex = -1
 let firedDone = false
 let lastMetaKey = ''
 let lastTickAt = 0
@@ -287,16 +288,34 @@ function tick(): void {
       if (timer.startEpoch !== timerSig) {
         timerSig = timer.startEpoch
         firedDone = false
+        lastWarnIndex = -1
         lastIndex = timerSnapshot(timer, Date.now()).index
       }
       const snap = timerSnapshot(timer, Date.now())
+      // Guided holds get a soft "three seconds left" tick so the next
+      // position can be set up before the change beep. Only while the
+      // screen is unmounted — mounted, IntervalSession cues for itself.
+      if (
+        timer.kind === 'recovery' &&
+        !delegate &&
+        !snap.finished &&
+        !snap.stopwatch &&
+        snap.section &&
+        !isTransition(snap.section.label) &&
+        snap.section.durationSec >= 15 &&
+        snap.remainingSec <= 3.2 &&
+        lastWarnIndex !== snap.index
+      ) {
+        lastWarnIndex = snap.index
+        warnCue()
+      }
       ensureSectionKeys(!snap.stopwatch)
       if (snap.finished) {
         if (!firedDone) {
           firedDone = true
           if (!delegate) cue(3)
         }
-        setMeta('Timer done', 'Open fit to save your session')
+        setMeta('Timer done', 'Save your session')
         setPosition(snap.totalSec, snap.totalSec, false)
         navigator.mediaSession.playbackState = 'playing'
         return
@@ -308,7 +327,8 @@ function tick(): void {
       // flicker. The OS animates the time itself from position state.
       if (snap.stopwatch) {
         setMeta(
-          timer.title ?? 'Cardio timer',
+          timer.title ??
+            (timer.kind === 'recovery' ? 'Free stretch' : 'Cardio timer'),
           `${Math.floor(snap.elapsedMs / 60_000)} min elapsed`,
         )
         setPosition(Infinity, snap.elapsedMs / 1000, !timer.paused)
@@ -404,6 +424,14 @@ async function doStart(): Promise<boolean> {
   // Synchronously, while any user gesture is still on the stack: unlock the
   // shared beep context, or the OS keeps it suspended and background cues mute.
   primeCue()
+  // Safari 17+: declare playback intent so the context survives the lock
+  // screen instead of being suspended as ambient audio. No-op elsewhere.
+  try {
+    const nav = navigator as Navigator & { audioSession?: { type: string } }
+    if (nav.audioSession) nav.audioSession.type = 'playback'
+  } catch {
+    /* not supported */
+  }
   if (!audio) {
     audioUrl = silentWavUrl()
     audio = new Audio(audioUrl)

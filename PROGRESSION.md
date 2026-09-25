@@ -282,3 +282,26 @@ W_target = W_anchor × (1 + c)^(RIR_anchor − RIR_target)
   same cohort (jhk.termedia.pl, article 209051): all groups began at 22
   weekly quad sets; 4S reached 42 and 6S reached 52 by week 12; strain
   followed 6S > 4S > fixed
+
+## 7. Recovery is outside this engine
+
+Recovery sessions (kind `recovery`: guided stretch and mobility routines,
+foam rolling, breathwork, and quick logs like sauna or a cold shower) are
+deliberately invisible to everything above. The stretch catalog in
+`web/src/lib/stretches.ts` is never registered in `makeMuscleLookup`, so
+no hold counts as a working set, enters a weekly volume landmark, or moves
+a prescription. Stretching does not build muscle at any practical dose
+(Arntz 2024) and does not reduce soreness (Cochrane 2011), so there is
+nothing for the engine to credit.
+
+What recovery does share with training is the load currency: every kind
+can carry a whole-session CR-10 (`sessionRpe`), and `web/src/lib/wellness.ts`
+computes Foster's weekly load, monotony and strain from effort × minutes
+across lifting and recovery alike. No acute:chronic workload ratio is
+computed anywhere; the literature has dismissed it (Impellizzeri 2020).
+
+The daily check-in (sleep, energy, soreness, stress on 1–5, higher is
+better, plus a 0–10 Perceived Recovery Status before a session) is a
+status indicator shown beside the load history. It does not yet feed the
+decision table in §3; if it ever does, the defensible rule is gentle
+(hold load or drop a set when PRS ≤ 3), not a volume change.

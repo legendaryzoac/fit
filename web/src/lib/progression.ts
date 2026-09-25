@@ -239,7 +239,7 @@ export function recommendations(
       setDelta,
       load,
       summary: deload
-        ? 'take a light week — trim sets and load'
+        ? 'take a light week, trim sets and load'
         : `${setText(setDelta)}, ${LOAD_TEXT[load]}`,
       reason: `${why} · ${wk} sets this week (guide ${marks.mev}–${marks.mrv})`,
       weeklySets: wk,

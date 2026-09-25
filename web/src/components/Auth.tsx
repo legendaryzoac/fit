@@ -41,9 +41,7 @@ export function LoginCard({
 
   return (
     <form onSubmit={submit} className="flex w-full max-w-xs flex-col gap-3">
-      <p className="text-center text-sm text-ink/70">
-        Training &amp; recovery, tracked properly. Accounts are invite-only.
-      </p>
+      <p className="text-center text-sm text-ink/70">Invite-only.</p>
       <input
         className={inputClass}
         type="email"
@@ -96,10 +94,7 @@ export function NewPasswordCard({
 
   return (
     <form onSubmit={submit} className="flex w-full max-w-xs flex-col gap-3">
-      <p className="text-center text-sm text-ink/70">
-        Welcome — choose a password to finish setting up your account
-        (12+ characters).
-      </p>
+      <p className="text-center text-sm text-ink/70">Password, 12+ characters.</p>
       <input
         className={inputClass}
         type="password"

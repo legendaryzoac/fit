@@ -9,6 +9,7 @@ import { buildAuthorizeUrl, exchangeCode, fetchWhoopProfile } from './client'
 import { getWhoopCredentials } from './config'
 import {
   consumeOauthState,
+  deleteConnection,
   getMappedUserId,
   putMapping,
   putOauthState,
@@ -52,6 +53,14 @@ export async function handleWhoopConnect(
       nonce,
     ),
   })
+}
+
+/** DELETE /api/whoop (JWT-authenticated) — disconnect and forget the strap. */
+export async function handleWhoopDisconnect(
+  userId: string,
+): Promise<LambdaFunctionURLResult> {
+  const removed = await deleteConnection(userId)
+  return json(200, { disconnected: removed })
 }
 
 /** GET /api/whoop/callback?code&state — browser redirect from WHOOP, no JWT. */

@@ -57,6 +57,29 @@ export async function saveConnection(
   )
 }
 
+/**
+ * Forget the strap: drops the connection row (tokens + sparse GSI attrs)
+ * and the WHOOP-id → user mapping so webhooks for that WHOOP account are
+ * 200-acked as unknown and the nightly sync skips the user. Ingested
+ * SLEEP#/RECOVERY#/CYCLE#/SESSION# history is deliberately kept.
+ */
+export async function deleteConnection(userId: string): Promise<boolean> {
+  const existing = await loadConnection(userId)
+  if (!existing) return false
+  await ddb.send(
+    new DeleteCommand({ TableName: TABLE_NAME, Key: connectionKey(userId) }),
+  )
+  if (existing.whoopUserId) {
+    await ddb.send(
+      new DeleteCommand({
+        TableName: TABLE_NAME,
+        Key: { pk: `WHOOP#${existing.whoopUserId}`, sk: 'MAPPING' },
+      }),
+    )
+  }
+  return true
+}
+
 export async function patchConnection(
   userId: string,
   patch: Record<string, unknown>,

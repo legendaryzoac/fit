@@ -1,7 +1,34 @@
 import type { Api } from './api'
 import { storageKey } from './storage'
 
-export type WorkoutKind = 'strength' | 'speed' | 'cardio'
+export type WorkoutKind = 'strength' | 'speed' | 'cardio' | 'recovery'
+
+/** Recovery sub-type. Guided ones run a routine in the timer; the rest are
+ * quick logs. Mirrors the server whitelist in api/src/workouts.ts. */
+export type Modality =
+  | 'stretch'
+  | 'mobility'
+  | 'foamroll'
+  | 'breath'
+  | 'cold'
+  | 'sauna'
+  | 'contrast'
+  | 'walk'
+  | 'massage'
+  | 'other'
+
+export interface RecoveryDose {
+  tempC?: number
+  rounds?: number
+  region?: string
+}
+
+/** How it felt before/after, 1 (stiff) … 5 (loose). Kept apart from
+ * WorkoutFeedback, whose enums the progression engine interprets. */
+export interface RecoveryRating {
+  pre?: number
+  post?: number
+}
 
 export interface WorkoutSet {
   weight?: number
@@ -9,6 +36,8 @@ export interface WorkoutSet {
   rpe?: number
   durationSec?: number
   distanceM?: number
+  /** Recovery holds: which side (absent = bilateral). */
+  side?: 'L' | 'R'
   /** Session-screen check-off state; stripped before the API sees it. */
   done?: boolean
 }
@@ -58,6 +87,12 @@ export interface Workout {
   mesoId?: string
   /** Which microcycle day this session was (index into the meso's days). */
   mesoDayIndex?: number
+  /** Recovery kind only. */
+  modality?: Modality
+  dose?: RecoveryDose
+  rating?: RecoveryRating
+  /** Whole-session CR-10 (0–10, half steps); load = rpe × minutes. */
+  sessionRpe?: number
   updatedAt?: string
   /** Set when an edit changes start: tells the API to move, not duplicate. */
   previousStart?: string
@@ -163,6 +198,11 @@ export interface TimerDraft {
    * workout carries these so the meso's day tracking sees it. */
   mesoId?: string
   mesoDayIndex?: number
+  /** Recovery timers: what kind of session this is (default 'stretch'). */
+  modality?: Modality
+  /** A warm-up started from inside a strength session: the strength draft
+   * stays put and the ledger comes back when this timer ends. */
+  resumeStrength?: boolean
 }
 
 /**

@@ -50,3 +50,28 @@ export function onResume(fn: () => void): () => void {
   resumeSubs.add(fn)
   return () => resumeSubs.delete(fn)
 }
+
+// Ask Workouts to open the start picker on a kind. Workouts is unmounted
+// while the Recovery tab is up, so a request made from there parks until
+// the next mount takes it.
+let pendingPick: string | null = null
+const pickSubs = new Set<(kind: string) => void>()
+
+export function requestPick(kind: string): void {
+  if (pickSubs.size === 0) {
+    pendingPick = kind
+    return
+  }
+  for (const fn of pickSubs) fn(kind)
+}
+
+export function onPick(fn: (kind: string) => void): () => void {
+  pickSubs.add(fn)
+  return () => pickSubs.delete(fn)
+}
+
+export function takePendingPick(): string | null {
+  const k = pendingPick
+  pendingPick = null
+  return k
+}

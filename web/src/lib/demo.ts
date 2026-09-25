@@ -3,9 +3,17 @@
  * seam the real backend serves. No network, no accounts, nothing to abuse.
  */
 import type { Api } from './api'
+import type { Checkin } from './checkins'
 import type { Mesocycle } from './mesocycle'
+import type { RomTest } from './romtests'
 import type { WeightEntry } from './weights'
 import type { Template } from './templates'
+import {
+  BUILTIN_ROUTINES,
+  recoveryExercisesFromSections,
+  routineSections,
+  type Routine,
+} from './routines'
 import type { SessionRecord, Workout } from './workouts'
 
 const DAY = 86_400_000
@@ -35,6 +43,8 @@ interface DemoStore {
   exercises: Array<{ name: string; muscle: string }>
   mesos: Mesocycle[]
   weights: WeightEntry[]
+  checkins: Checkin[]
+  romtests: RomTest[]
 }
 
 function generate(): DemoStore {
@@ -52,6 +62,8 @@ function generate(): DemoStore {
     exercises: [{ name: 'Sled drag', muscle: 'full body' }],
     mesos: [],
     weights: [],
+    checkins: [],
+    romtests: [],
   }
 
   const DAYS = 200
@@ -221,6 +233,8 @@ function generate(): DemoStore {
         kind: 'strength',
         title: upper ? 'Upper day' : 'Lower day',
         weightUnit: 'lb',
+        // Fixed, not random: a rand() here would shift the whole story
+        sessionRpe: upper ? 7 : 8,
         exercises: upper
           ? [
               { name: 'Bench press', sets: sets(bump(160, 1.1), 6, 4) },
@@ -246,6 +260,7 @@ function generate(): DemoStore {
         title: 'Sprint work',
         weightUnit: 'lb',
         durationMin: 34,
+        sessionRpe: 8,
         intervals: [
           { label: 'Warm up', durationSec: 480 },
           ...Array.from({ length: 6 }, () => [
@@ -274,6 +289,7 @@ function generate(): DemoStore {
         kind: 'cardio',
         title: 'Tempo run',
         weightUnit: 'lb',
+        sessionRpe: 6,
         exercises: [],
         durationMin: Math.round(
           (new Date(run.end!).getTime() - new Date(run.start).getTime()) / 60_000,
@@ -283,6 +299,102 @@ function generate(): DemoStore {
       })
     }
   }
+
+  // Recovery sessions on their OWN seed stream — a rand() added to the loop
+  // above would rewrite the entire training story. A cooldown after most
+  // lifts and the Sleep routine most nights, over the last two months.
+  const rrand = rng(20260924)
+  const sleep = BUILTIN_ROUTINES.find((r) => r.id === 'sleep')!
+  const lower = BUILTIN_ROUTINES.find((r) => r.id === 'post-lower')!
+  const upper = BUILTIN_ROUTINES.find((r) => r.id === 'post-upper')!
+  const recoveryWorkout = (
+    id: string,
+    startMs: number,
+    routine: Routine,
+  ): Workout => {
+    const sections = routineSections(routine)
+    const total = sections.reduce((s, x) => s + x.durationSec, 0)
+    return {
+      id,
+      start: new Date(startMs).toISOString(),
+      end: new Date(startMs + total * 1000).toISOString(),
+      kind: 'recovery',
+      modality: 'stretch',
+      title: routine.name,
+      weightUnit: 'lb',
+      exercises: recoveryExercisesFromSections(sections),
+      intervals: sections,
+      durationMin: Math.max(1, Math.round(total / 60)),
+      rating: { post: 3 + Math.floor(rrand() * 3) },
+      sessionRpe: 2,
+    }
+  }
+  for (let i = 60; i >= 1; i--) {
+    const dayStart = now - i * DAY
+    const dow = new Date(dayStart).getDay()
+    if ((dow === 1 || dow === 3 || dow === 5) && rrand() < 0.7) {
+      // Right after the lift (which ends at 24h into the day in the loop above)
+      store.workouts.push(
+        recoveryWorkout(
+          `demo-r${i}`,
+          dayStart + 24 * 3_600_000 + 5 * 60_000,
+          dow === 3 ? lower : upper,
+        ),
+      )
+    }
+    if (rrand() < 0.75) {
+      // Bedtime is a clock time, not an offset from "now" like the rest of
+      // the story: 21:45 local on that calendar day.
+      const bedtime = new Date(dayStart)
+      bedtime.setHours(21, 45, 0, 0)
+      store.workouts.push(recoveryWorkout(`demo-z${i}`, bedtime.getTime(), sleep))
+    }
+  }
+
+  // Daily check-ins (own seed stream). Higher is better on every item;
+  // sleep dips after the weekend's late nights, energy and soreness dip
+  // the morning after a lower-body day, and about one day in seven goes
+  // unlogged so the gaps render honestly.
+  const crand = rng(20260925)
+  const cnoise = (scale: number) => (crand() - 0.5) * 2 * scale
+  const clamp5 = (v: number) => Math.min(5, Math.max(1, Math.round(v)))
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+  for (let i = 75; i >= 0; i--) {
+    const d = new Date(now - i * DAY)
+    const dow = d.getDay()
+    if (crand() < 0.14 && i !== 0) continue
+    const afterLegs = dow === 4 // Wednesday is the lower day
+    const afterLateNight = dow === 0 || dow === 6
+    const sleep = clamp5(4.1 + cnoise(0.9) - (afterLateNight ? 1 : 0))
+    const fatigue = clamp5(3.9 + cnoise(0.8) - (afterLegs ? 1 : 0) + (sleep - 4) * 0.4)
+    const soreness = clamp5(4.2 + cnoise(0.7) - (afterLegs ? 1.4 : dow === 2 || dow === 6 ? 0.6 : 0))
+    const stress = clamp5(3.8 + cnoise(1.0))
+    store.checkins.push({
+      date: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+      sleep,
+      fatigue,
+      soreness,
+      stress,
+      ...(soreness <= 2 && { soreRegions: afterLegs ? ['quads', 'glutes'] : ['back'] }),
+      ...((dow === 1 || dow === 3 || dow === 5) && {
+        prs: Math.min(10, Math.max(0, Math.round(5 + (fatigue - 3) * 1.2 + (soreness - 3) * 0.8 + cnoise(0.8)))),
+      }),
+    })
+  }
+  store.checkins.sort((a, b) => b.date.localeCompare(a.date))
+
+  // Mobility tests every three weeks: hamstrings and ankles slowly better,
+  // one shoulder change that stays inside its noise band.
+  const romDay = (ago: number) => {
+    const d = new Date(now - ago * DAY)
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+  }
+  store.romtests = [
+    { date: romDay(66), toeTouchCm: 9, kneeToWallLCm: 8.5, kneeToWallRCm: 7.5, handBehindBackLCm: 12, handBehindBackRCm: 15 },
+    { date: romDay(45), toeTouchCm: 7, kneeToWallLCm: 9, kneeToWallRCm: 8, handBehindBackLCm: 11.5, handBehindBackRCm: 14 },
+    { date: romDay(24), toeTouchCm: 4, kneeToWallLCm: 10.5, kneeToWallRCm: 9, handBehindBackLCm: 11, handBehindBackRCm: 14.5 },
+    { date: romDay(3), toeTouchCm: 3, kneeToWallLCm: 11, kneeToWallRCm: 10, handBehindBackLCm: 10, handBehindBackRCm: 13.5 },
+  ].sort((a, b) => b.date.localeCompare(a.date))
 
   store.workouts.sort((a, b) => b.start.localeCompare(a.start))
   store.templates = [
@@ -388,6 +500,14 @@ export function makeDemoApi(): Api {
     if (pathname === '/api/exercises') return respond({ exercises: store.exercises })
     if (pathname === '/api/mesos') return respond({ mesos: store.mesos })
     if (pathname === '/api/weights') return respond({ weights: store.weights })
+    if (pathname === '/api/checkins') {
+      const from = since(daysParam(path, 90)).slice(0, 10)
+      return respond({
+        days: daysParam(path, 90),
+        checkins: store.checkins.filter((c) => c.date >= from),
+      })
+    }
+    if (pathname === '/api/romtests') return respond({ tests: store.romtests })
     return respond({ error: 'not found in demo' })
   }
 
@@ -436,6 +556,32 @@ export function makeDemoApi(): Api {
       const e = body as WeightEntry
       store.weights = [...store.weights.filter((x) => x.date !== e.date), e]
       return respond({ saved: e.date })
+    }
+    if (path.startsWith('/api/checkins')) {
+      if (method === 'POST') {
+        const c = body as Checkin
+        store.checkins = [
+          c,
+          ...store.checkins.filter((x) => x.date !== c.date),
+        ].sort((a, b) => b.date.localeCompare(a.date))
+        return respond({ saved: c.date })
+      }
+      const date = new URL(path, 'http://demo').searchParams.get('date')
+      store.checkins = store.checkins.filter((c) => c.date !== date)
+      return respond({ deleted: date })
+    }
+    if (path.startsWith('/api/romtests')) {
+      if (method === 'POST') {
+        const t = body as RomTest
+        store.romtests = [
+          t,
+          ...store.romtests.filter((x) => x.date !== t.date),
+        ].sort((a, b) => b.date.localeCompare(a.date))
+        return respond({ saved: t.date })
+      }
+      const date = new URL(path, 'http://demo').searchParams.get('date')
+      store.romtests = store.romtests.filter((t) => t.date !== date)
+      return respond({ deleted: date })
     }
     if (path.startsWith('/api/exercises')) {
       if (method === 'POST') {
