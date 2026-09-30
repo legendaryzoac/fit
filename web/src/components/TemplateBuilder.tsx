@@ -1,11 +1,14 @@
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Api } from '../lib/api'
 import {
+  EQUIPMENT,
   EXERCISES,
   MUSCLE_GROUPS,
   SPEED_DRILLS,
+  inferEquipment,
   makeMuscleLookup,
   type CustomExercise,
+  type Equipment,
 } from '../lib/exercises'
 import { BUILTIN_ROUTINES, STRETCH_NAMES } from '../lib/routines'
 import { stretchByName } from '../lib/stretches'
@@ -137,6 +140,7 @@ export function TemplateBuilder({
   api,
   customs,
   initial,
+  initialKind,
   onSaveCustom,
   onSaved,
   onDelete,
@@ -145,7 +149,9 @@ export function TemplateBuilder({
   api: Api
   customs: CustomExercise[]
   initial?: Template
-  onSaveCustom: (name: string, muscle: string) => void
+  /** Kind for a new template (ignored when editing an `initial` one). */
+  initialKind?: WorkoutKind
+  onSaveCustom: (name: string, muscle: string, equipment?: Equipment) => void
   /** Runs once the sheet has dropped. */
   onSaved: (t: Template) => void
   /** Resolves true once the template is gone; the sheet then drops. */
@@ -153,13 +159,17 @@ export function TemplateBuilder({
   /** Runs once the sheet has dropped. */
   onCancel: () => void
 }) {
-  const [kind, setKind] = useState<WorkoutKind>(initial?.kind ?? 'strength')
+  const [kind, setKind] = useState<WorkoutKind>(
+    initial?.kind ?? initialKind ?? 'strength',
+  )
   const [name, setName] = useState(initial?.name ?? '')
   const [exercises, setExercises] = useState<TemplateExercise[]>(
     initial?.exercises ?? [],
   )
   const [exName, setExName] = useState('')
   const [newMuscle, setNewMuscle] = useState<string>('other')
+  // null until the user picks one; the select then follows the typed name
+  const [pickedEquipment, setPickedEquipment] = useState<Equipment | null>(null)
   const [slotMuscle, setSlotMuscle] = useState<string>('quads')
   const [plan, setPlan] = useState<QuickIntervalPlan>(
     initial?.sections ? planFromSections(initial.sections) : DEFAULT_PLAN,
@@ -176,6 +186,7 @@ export function TemplateBuilder({
   const nameId = useId()
   const exId = useId()
   const muscleId = useId()
+  const equipmentId = useId()
   const slotId = useId()
   const startFromId = useId()
   const stretchId = useId()
@@ -206,14 +217,19 @@ export function TemplateBuilder({
 
   const typedUnknown =
     exName.trim().length > 0 && lookup(exName) === undefined
+  const newEquipment: Equipment =
+    pickedEquipment ?? inferEquipment(exName) ?? 'other'
 
   function addExercise() {
     const trimmed = exName.trim()
     if (!trimmed) return
-    if (lookup(trimmed) === undefined) onSaveCustom(trimmed, newMuscle)
+    if (lookup(trimmed) === undefined) {
+      onSaveCustom(trimmed, newMuscle, newEquipment)
+    }
     setExercises([...exercises, { name: trimmed, setCount: 3 }])
     setExName('')
     setNewMuscle('other')
+    setPickedEquipment(null)
   }
 
   /** Generic slot — the concrete exercise gets picked at workout start. */
@@ -548,6 +564,24 @@ export function TemplateBuilder({
                   {MUSCLE_GROUPS.map((m) => (
                     <option key={m} value={m}>
                       {m}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            {typedUnknown && (
+              <Field label="Equipment" htmlFor={equipmentId}>
+                <select
+                  id={equipmentId}
+                  className={SELECT_WELL}
+                  value={newEquipment}
+                  onChange={(e) =>
+                    setPickedEquipment(e.target.value as Equipment)
+                  }
+                >
+                  {EQUIPMENT.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
                     </option>
                   ))}
                 </select>

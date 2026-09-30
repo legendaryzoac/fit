@@ -1,6 +1,15 @@
 import { useId, useState } from 'react'
 import type { Api } from '../lib/api'
-import { MUSCLE_GROUPS, type CustomExercise } from '../lib/exercises'
+import {
+  EQUIPMENT,
+  EXERCISES,
+  MUSCLE_GROUPS,
+  SPEED_DRILLS,
+  equipmentLabel,
+  inferEquipment,
+  type CustomExercise,
+  type Equipment,
+} from '../lib/exercises'
 import type { Template } from '../lib/templates'
 import type { Workout } from '../lib/workouts'
 import { Banner } from './cadence/Banner'
@@ -12,6 +21,10 @@ import { IconButton } from './cadence/IconButton'
 import { List, ListItem } from './cadence/ListItem'
 import { IconX } from './shell/icons'
 import { KIND_LEAD, templateMeta } from './TemplateBuilder'
+
+const BUILTIN_BY_NAME = new Map(
+  [...EXERCISES, ...SPEED_DRILLS].map((e) => [e.name.toLowerCase(), e]),
+)
 
 /**
  * The Plan tab's library: the templates (edited in the builder sheet) and
@@ -43,10 +56,16 @@ export function Manage({
   const [editing, setEditing] = useState<CustomExercise | null>(null)
   const [editName, setEditName] = useState('')
   const [editMuscle, setEditMuscle] = useState('other')
+  const [editEquipment, setEditEquipment] = useState<Equipment>('other')
+  // Once the user picks a value, typing the name stops overwriting it
+  const [muscleTouched, setMuscleTouched] = useState(false)
+  const [equipmentTouched, setEquipmentTouched] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const nameId = useId()
   const muscleId = useId()
+  const equipmentId = useId()
+  const libraryId = useId()
 
   const matches = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
@@ -61,6 +80,11 @@ export function Manage({
     setEditing(exercise)
     setEditName(exercise.name)
     setEditMuscle(exercise.muscle)
+    setEditEquipment(
+      exercise.equipment ?? inferEquipment(exercise.name) ?? 'other',
+    )
+    setMuscleTouched(true)
+    setEquipmentTouched(true)
     setError(null)
   }
 
@@ -68,7 +92,26 @@ export function Manage({
     setEditing(null)
     setEditName('')
     setEditMuscle('other')
+    setEditEquipment('other')
+    setMuscleTouched(false)
+    setEquipmentTouched(false)
     setError(null)
+  }
+
+  // Adding: a name we already know pre-fills its muscle and equipment, so
+  // saving a built-in creates the custom entry that overrides it.
+  function changeName(name: string) {
+    setEditName(name)
+    if (editing) return
+    const typed = name.trim()
+    const existing = customs.find((c) => matches(c.name, typed))
+    const known = existing ?? BUILTIN_BY_NAME.get(typed.toLowerCase())
+    if (known && !muscleTouched) setEditMuscle(known.muscle)
+    if (!equipmentTouched) {
+      setEditEquipment(
+        existing?.equipment ?? inferEquipment(typed) ?? 'other',
+      )
+    }
   }
 
   async function saveExercise() {
@@ -77,7 +120,11 @@ export function Manage({
       setError('Exercise needs a name.')
       return
     }
-    const next: CustomExercise = { name: nextName, muscle: editMuscle }
+    const next: CustomExercise = {
+      name: nextName,
+      muscle: editMuscle,
+      equipment: editEquipment,
+    }
     setBusy(true)
     setError(null)
     try {
@@ -173,6 +220,16 @@ export function Manage({
     editMuscle,
   ].sort()
 
+  // Built-ins and customs together, so a built-in can be given equipment
+  const libraryNames = [
+    ...new Map(
+      [...EXERCISES, ...SPEED_DRILLS, ...customs].map((e) => [
+        e.name.toLowerCase(),
+        e.name,
+      ]),
+    ).values(),
+  ].sort((a, b) => a.localeCompare(b))
+
   return (
     <>
       <section className="flex flex-col gap-2">
@@ -208,6 +265,9 @@ export function Manage({
             New
           </Button>
         </div>
+        <p className="px-1 text-caption text-ink-3">
+          Built-in names can be added here to set their equipment.
+        </p>
         {error && <Banner tone="error">{error}</Banner>}
         {sortedCustoms.length > 0 && (
           <List>
@@ -215,7 +275,11 @@ export function Manage({
               <ListItem
                 key={c.name}
                 title={c.name}
-                sub={c.muscle}
+                sub={
+                  c.equipment
+                    ? `${c.muscle} · ${equipmentLabel(c.equipment)}`
+                    : c.muscle
+                }
                 onClick={() => startEdit(c)}
                 action={
                   <IconButton
@@ -235,21 +299,47 @@ export function Manage({
             <Field label="Name" htmlFor={nameId}>
               <TextInput
                 id={nameId}
+                list={libraryId}
                 value={editName}
-                onChange={(e) => setEditName(e.target.value)}
+                onChange={(e) => changeName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && saveExercise()}
               />
+              <datalist id={libraryId}>
+                {libraryNames.map((n) => (
+                  <option key={n} value={n} />
+                ))}
+              </datalist>
             </Field>
             <Field label="Muscle group" htmlFor={muscleId}>
               <select
                 id={muscleId}
                 className={SELECT_WELL}
                 value={editMuscle}
-                onChange={(e) => setEditMuscle(e.target.value)}
+                onChange={(e) => {
+                  setEditMuscle(e.target.value)
+                  setMuscleTouched(true)
+                }}
               >
                 {muscleOptions.map((m) => (
                   <option key={m} value={m}>
                     {m}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Equipment" htmlFor={equipmentId}>
+              <select
+                id={equipmentId}
+                className={SELECT_WELL}
+                value={editEquipment}
+                onChange={(e) => {
+                  setEditEquipment(e.target.value as Equipment)
+                  setEquipmentTouched(true)
+                }}
+              >
+                {EQUIPMENT.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
                   </option>
                 ))}
               </select>

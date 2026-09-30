@@ -51,6 +51,19 @@ export function onResume(fn: () => void): () => void {
   return () => resumeSubs.delete(fn)
 }
 
+// The dock stays reachable over a live session sheet; tapping a tab asks
+// the mounted Workouts to minimise (park) the session before switching.
+const minimiseSubs = new Set<() => void>()
+
+export function requestMinimise(): void {
+  for (const fn of minimiseSubs) fn()
+}
+
+export function onMinimise(fn: () => void): () => void {
+  minimiseSubs.add(fn)
+  return () => minimiseSubs.delete(fn)
+}
+
 // Ask Workouts to open the start picker on a kind. Workouts is unmounted
 // while the Recovery tab is up, so a request made from there parks until
 // the next mount takes it.

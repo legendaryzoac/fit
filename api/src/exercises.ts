@@ -11,6 +11,22 @@ const str = (v: unknown, max: number): string | undefined =>
     ? v.trim()
     : undefined
 
+const EQUIPMENT = new Set([
+  'barbell',
+  'dumbbell',
+  'kettlebell',
+  'machine',
+  'cable',
+  'band',
+  'bodyweight',
+  'weighted',
+  'other',
+])
+
+/** Optional equipment tag; anything outside the known set is dropped. */
+const equipmentOf = (v: unknown): string | undefined =>
+  typeof v === 'string' && EQUIPMENT.has(v) ? v : undefined
+
 /** Custom exercises a user typed in by hand, keyed by normalized name. */
 export async function handleListExercises(
   userId: string,
@@ -26,10 +42,14 @@ export async function handleListExercises(
     }),
   )
   return json(200, {
-    exercises: (res.Items ?? []).map((i) => ({
-      name: i.name,
-      muscle: i.muscle,
-    })),
+    exercises: (res.Items ?? []).map((i) => {
+      const equipment = equipmentOf(i.equipment)
+      return {
+        name: i.name,
+        muscle: i.muscle,
+        ...(equipment && { equipment }),
+      }
+    }),
   })
 }
 
@@ -50,6 +70,7 @@ export async function handleSaveExercise(
   const r = raw as Record<string, unknown>
   const name = str(r?.name, 80)
   const muscle = str(r?.muscle, 30) ?? 'other'
+  const equipment = equipmentOf(r?.equipment)
   if (!name) return json(400, { error: 'name required' })
 
   await ddb.send(
@@ -61,6 +82,7 @@ export async function handleSaveExercise(
         type: 'exercise',
         name,
         muscle,
+        ...(equipment && { equipment }),
         updatedAt: new Date().toISOString(),
       },
     }),

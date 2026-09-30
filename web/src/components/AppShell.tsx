@@ -5,6 +5,7 @@ import { maybeResumeLockScreen } from '../lib/lockScreen'
 import {
   isInSession,
   isOverlay,
+  requestMinimise,
   requestResume,
   subscribeInSession,
   subscribeOverlay,
@@ -249,10 +250,18 @@ function ShellDock({
   const mode: DockMode =
     timer && !inSession ? 'timer' : live && !inSession ? 'live' : 'tabs'
 
+  // Over a live session sheet the dock is raised above it; a tab tap parks
+  // the session (it becomes the live bar) and then switches tab.
+  const handleTab = (t: Tab) => {
+    if (inSession) requestMinimise()
+    onTab(t)
+  }
+
   return (
     <Dock
       tab={tab}
-      onTab={onTab}
+      onTab={handleTab}
+      raised={inSession}
       mode={mode}
       live={live ? { ...live, onOpen } : undefined}
       timer={

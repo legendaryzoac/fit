@@ -63,12 +63,15 @@ export function Dock({
   mode,
   live,
   timer,
+  raised,
 }: {
   tab: DockTab
   onTab: (t: DockTab) => void
   mode: DockMode
   live?: DockLive
   timer?: DockTimer
+  /** Lift above session sheets (z-50) so the tabs stay reachable. */
+  raised?: boolean
 }) {
   const activeIndex = Math.max(
     0,
@@ -76,7 +79,11 @@ export function Dock({
   )
 
   return (
-    <div className="fixed inset-x-3 bottom-[calc(12px+env(safe-area-inset-bottom))] z-30">
+    <div
+      className={`fixed inset-x-3 bottom-[calc(12px+env(safe-area-inset-bottom))] ${
+        raised ? 'z-[60]' : 'z-30'
+      }`}
+    >
       <div className="relative mx-auto h-dock max-w-column overflow-hidden rounded-xl bg-surface/90 shadow-float backdrop-blur-xl">
         {/* Tabs */}
         <nav

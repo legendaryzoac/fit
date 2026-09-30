@@ -98,11 +98,91 @@ export const BODYWEIGHT_EXERCISES = new Set([
   'Plank',
 ])
 
-export function isBodyweight(name: string): boolean {
+export type Equipment =
+  | 'barbell'
+  | 'dumbbell'
+  | 'kettlebell'
+  | 'machine'
+  | 'cable'
+  | 'band'
+  | 'bodyweight'
+  | 'weighted'
+  | 'other'
+
+export const EQUIPMENT: Array<{ value: Equipment; label: string }> = [
+  { value: 'barbell', label: 'Barbell' },
+  { value: 'dumbbell', label: 'Dumbbell' },
+  { value: 'kettlebell', label: 'Kettlebell' },
+  { value: 'machine', label: 'Machine' },
+  { value: 'cable', label: 'Cable' },
+  { value: 'band', label: 'Band' },
+  { value: 'bodyweight', label: 'Bodyweight' },
+  { value: 'weighted', label: 'Weighted bodyweight' },
+  { value: 'other', label: 'Other' },
+]
+
+export function equipmentLabel(eq: Equipment): string {
+  return EQUIPMENT.find((o) => o.value === eq)?.label ?? eq
+}
+
+/** True when `v` is one of the nine equipment values. */
+export function isEquipment(v: unknown): v is Equipment {
+  return EQUIPMENT.some((o) => o.value === v)
+}
+
+function inBodyweightSet(name: string): boolean {
+  const lower = name.trim().toLowerCase()
   for (const n of BODYWEIGHT_EXERCISES) {
-    if (n.toLowerCase() === name.trim().toLowerCase()) return true
+    if (n.toLowerCase() === lower) return true
   }
   return false
+}
+
+const EQUIPMENT_KEYWORDS: Array<[string, Equipment]> = [
+  ['dumbbell', 'dumbbell'],
+  ['barbell', 'barbell'],
+  ['kettlebell', 'kettlebell'],
+  ['cable', 'cable'],
+  ['machine', 'machine'],
+  ['band', 'band'],
+]
+
+/** Best guess at equipment from the name alone; undefined when unclear. */
+export function inferEquipment(name: string): Equipment | undefined {
+  if (inBodyweightSet(name)) return 'bodyweight'
+  const lower = name.trim().toLowerCase()
+  for (const [kw, eq] of EQUIPMENT_KEYWORDS) {
+    if (lower.includes(kw)) return eq
+  }
+  return undefined
+}
+
+/** The user's own equipment choices, keyed by lowercase exercise name. Kept
+ * at module level so lib code (prescriptions) sees them without threading. */
+let equipmentOverrides = new Map<string, Equipment>()
+
+export function registerEquipmentOverrides(customs: CustomExercise[]): void {
+  const next = new Map<string, Equipment>()
+  for (const c of customs) {
+    if (c.equipment && isEquipment(c.equipment)) {
+      next.set(c.name.trim().toLowerCase(), c.equipment)
+    }
+  }
+  equipmentOverrides = next
+}
+
+export function equipmentOf(name: string): Equipment | undefined {
+  return (
+    equipmentOverrides.get(name.trim().toLowerCase()) ?? inferEquipment(name)
+  )
+}
+
+/** Bodyweight moves default the weight field to body mass. An explicit
+ * equipment choice wins over the built-in name list. */
+export function isBodyweight(name: string): boolean {
+  const override = equipmentOverrides.get(name.trim().toLowerCase())
+  if (override) return override === 'bodyweight'
+  return inBodyweightSet(name)
 }
 
 /** Options offered when the user names an exercise we don't know. */
@@ -124,6 +204,7 @@ export const MUSCLE_GROUPS = [
 export interface CustomExercise {
   name: string
   muscle: string
+  equipment?: Equipment
 }
 
 const CUSTOM_KEY = 'fit.customExercises'

@@ -12,14 +12,20 @@ import type { ComponentProps } from 'react'
 import type { Api } from '../lib/api'
 import { todayCheckin, type Checkin } from '../lib/checkins'
 import {
+  EQUIPMENT,
   EXERCISES,
   MUSCLE_GROUPS,
   SPEED_DRILLS,
+  equipmentLabel,
+  equipmentOf,
+  inferEquipment,
   isBodyweight,
   loadCustomExercises,
   makeMuscleLookup,
+  registerEquipmentOverrides,
   saveCustomExercises,
   type CustomExercise,
+  type Equipment,
 } from '../lib/exercises'
 import {
   buildIntervals,
@@ -81,7 +87,7 @@ import {
   recommendations,
   type Recommendation,
 } from '../lib/progression'
-import { onResume, setInSession } from '../lib/sessionBus'
+import { onMinimise, onResume, setInSession } from '../lib/sessionBus'
 import { currentBodyWeight, loadWeightCache, saveWeightCache, type WeightEntry } from '../lib/weights'
 import { Banner } from './cadence/Banner'
 import { Button } from './cadence/Button'
@@ -280,7 +286,7 @@ function SessionEditor({
   ) => Record<string, Prescription>
   /** How many sets a lift added mid-block should start with. */
   mesoSetCount?: (name: string, usedByMuscle: number) => number
-  onSaveCustom: (name: string, muscle: string) => void
+  onSaveCustom: (name: string, muscle: string, equipment?: Equipment) => void
   /** Finish (live) or Save (editing); runs once the sheet has dropped. */
   onFinish: (w: Workout) => void
   /** Minimise (live) or Back (editing); runs once the sheet has dropped. */
@@ -301,10 +307,12 @@ function SessionEditor({
   const [w, setW] = useState<Workout>(initial)
   const [exerciseName, setExerciseName] = useState('')
   const [newMuscle, setNewMuscle] = useState<string>('other')
+  const [newEquipment, setNewEquipment] = useState<Equipment | null>(null)
   const [now, setNow] = useState(Date.now())
   const [coachHidden, setCoachHidden] = useState(false)
   const exerciseId = useId()
   const muscleId = useId()
+  const equipmentId = useId()
   const titleId = useId()
   const startId = useId()
   const notesId = useId()
@@ -417,7 +425,9 @@ function SessionEditor({
     const name = exerciseName.trim()
     if (!name) return
     // First time we see this name: remember it (and its muscle) per-user
-    if (lookup(name) === undefined) onSaveCustom(name, newMuscle)
+    if (lookup(name) === undefined) {
+      onSaveCustom(name, newMuscle, newEquipment ?? inferEquipment(name) ?? 'other')
+    }
     const prev = prevSetsFor(name)
     // Inside a block the block sizes the lift: a swap onto a focus muscle
     // picks up this week's ramp, everything else repeats what it did last
@@ -440,6 +450,7 @@ function SessionEditor({
     })
     setExerciseName('')
     setNewMuscle('other')
+    setNewEquipment(null)
   }
 
   function patchSet(ei: number, si: number, patch: Partial<WorkoutSet>) {
@@ -650,6 +661,7 @@ function SessionEditor({
       onClose={() => dismiss(onClose)}
       onExited={onExited}
       ariaLabel={isNew ? 'Live session' : 'Edit workout'}
+      dockClearance={isNew}
       header={
         <SessionBar
           left={
@@ -703,12 +715,6 @@ function SessionEditor({
             </StatusPill>
           )}
         </div>
-
-        {isNew && lockScreenSupported() && (
-          <Card>
-            <LockScreenSwitch />
-          </Card>
-        )}
 
         {coach.length > 0 && !coachHidden && (
           <Card tone="brand">
@@ -805,6 +811,7 @@ function SessionEditor({
           const prev = prevSetsFor(e.name)
           const muscle = lookup(e.name)
           const bw = w.kind !== 'speed' && isBodyweight(e.name)
+          const eq = w.kind !== 'speed' ? equipmentOf(e.name) : undefined
           const presc = prescriptions?.[e.name]
           return (
             <div
@@ -818,14 +825,14 @@ function SessionEditor({
                 <div className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-title-sm text-ink">{e.name}</p>
-                    {(muscle || bw) && (
+                    {(muscle || eq) && (
                       <div className="mt-0.5 flex items-center gap-2">
                         {muscle && (
                           <span className="text-caption text-ink-2">
                             {muscle}
                           </span>
                         )}
-                        {bw && <StatusPill>Bodyweight</StatusPill>}
+                        {eq && <StatusPill>{equipmentLabel(eq)}</StatusPill>}
                       </div>
                     )}
                   </div>
@@ -988,6 +995,22 @@ function SessionEditor({
                   </select>
                 </Field>
               )}
+              {typedUnknown && w.kind !== 'speed' && (
+                <Field label="Equipment" htmlFor={equipmentId}>
+                  <select
+                    id={equipmentId}
+                    className={SELECT_WELL}
+                    value={newEquipment ?? inferEquipment(exerciseName) ?? 'other'}
+                    onChange={(e) => setNewEquipment(e.target.value as Equipment)}
+                  >
+                    {EQUIPMENT.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               <Button variant="quiet" block onClick={addExercise}>
                 {w.kind === 'speed' ? 'Add drill' : 'Add exercise'}
               </Button>
@@ -1029,6 +1052,12 @@ function SessionEditor({
           </div>
         </Card>
 
+        {isNew && lockScreenSupported() && (
+          <Card>
+            <LockScreenSwitch />
+          </Card>
+        )}
+
         {isNew ? (
           <Button variant="ghost-danger" block onClick={discard}>
             Discard
@@ -1062,6 +1091,7 @@ function StartPicker({
   onStrength,
   onTimer,
   onQuickLog,
+  onNewRoutine,
   confirmStart,
   onEnter,
   onDeleteTemplate,
@@ -1076,6 +1106,8 @@ function StartPicker({
   onTimer: (kind: WorkoutKind, sections: IntervalSection[], title?: string) => Mode
   /** Runs once the sheet has dropped. */
   onQuickLog: () => void
+  /** Runs once the sheet has dropped. */
+  onNewRoutine: () => void
   /** False when a live draft exists and the lifter keeps it. */
   confirmStart: () => Promise<boolean>
   onEnter: (m: Mode) => void
@@ -1239,6 +1271,14 @@ function StartPicker({
               sub="Sauna, cold, walk"
               onClick={() => dismiss(onQuickLog)}
             />
+            <ListItem
+              key="new-routine"
+              lead={<IconPlus />}
+              leadTone="calm"
+              title="New routine"
+              sub="Your own stretches"
+              onClick={() => dismiss(onNewRoutine)}
+            />
           </List>
         )}
       </div>
@@ -1351,7 +1391,7 @@ function CooldownOffer({
 type Mode =
   | { m: 'list' }
   | { m: 'pick'; kind?: WorkoutKind }
-  | { m: 'build'; initial?: Template }
+  | { m: 'build'; initial?: Template; kind?: WorkoutKind; returnTo?: 'recover' }
   | { m: 'strength'; workout: Workout; isNew: boolean }
   | { m: 'timer'; draft: TimerDraft }
   | { m: 'slots'; template: Template }
@@ -1387,6 +1427,10 @@ export function Workouts({
   const [mesos, setMesos] = useState<Mesocycle[]>(loadMesoCache)
   const [customs, setCustoms] = useState<CustomExercise[]>(loadCustomExercises)
   const muscleLookup = useMemo(() => makeMuscleLookup(customs), [customs])
+  // Registered during render, not in an effect: the editor and prescriptions
+  // below read equipment through the module registry, so it must already be
+  // current on the very render that adds or edits an exercise.
+  useMemo(() => registerEquipmentOverrides(customs), [customs])
   const [pendingCount, setPendingCount] = useState(() => loadPending().length)
   const [whoopWeightLb, setWhoopWeightLb] = useState<number | undefined>(undefined)
   const [weights, setWeights] = useState<WeightEntry[]>(loadWeightCache)
@@ -1507,6 +1551,18 @@ export function Workouts({
     })
   }, [])
 
+  // A dock tab tap over a live session sheet parks it (drafts stay in
+  // storage, the dock shows the live bar) before the tab switches.
+  useEffect(
+    () =>
+      onMinimise(() => {
+        if (modeRef.current.m === 'strength' || modeRef.current.m === 'timer') {
+          setMode({ m: 'list' })
+        }
+      }),
+    [],
+  )
+
   interface FinishOptions {
     isNew?: boolean
     /** A warm-up timer saving from inside a strength session: leave the
@@ -1601,18 +1657,25 @@ export function Workouts({
     }
   }
 
-  function saveCustomExercise(name: string, muscle: string) {
+  function saveCustomExercise(
+    name: string,
+    muscle: string,
+    equipment?: Equipment,
+  ) {
     // Optimistic: usable immediately, server write is fire-and-forget (the
     // exercise also lives inside the workout record either way)
+    const custom: CustomExercise = equipment
+      ? { name, muscle, equipment }
+      : { name, muscle }
     setCustoms((prev) => {
       const next = [
         ...prev.filter((c) => c.name.toLowerCase() !== name.toLowerCase()),
-        { name, muscle },
+        custom,
       ]
       saveCustomExercises(next)
       return next
     })
-    void api.send('POST', '/api/exercises', { name, muscle }).catch(() => {})
+    void api.send('POST', '/api/exercises', custom).catch(() => {})
   }
 
   /** Delete a template; resolves true once it is gone. */
@@ -2229,6 +2292,9 @@ export function Workouts({
           onStrength={startStrength}
           onTimer={startTimer}
           onQuickLog={() => setMode({ m: 'quicklog' })}
+          onNewRoutine={() =>
+            setMode({ m: 'build', kind: 'recovery', returnTo: 'recover' })
+          }
           confirmStart={confirmReplaceLive}
           onEnter={setMode}
           onDeleteTemplate={removeTemplate}
@@ -2298,6 +2364,7 @@ export function Workouts({
           api={api}
           customs={customs}
           initial={mode.initial}
+          initialKind={mode.kind}
           onSaveCustom={saveCustomExercise}
           onSaved={(t) => {
             setTemplates((prev) => {
@@ -2305,10 +2372,20 @@ export function Workouts({
               saveTemplateCache(next)
               return next
             })
-            setMode({ m: 'list' })
+            setMode(
+              mode.returnTo === 'recover'
+                ? { m: 'pick', kind: 'recovery' }
+                : { m: 'list' },
+            )
           }}
           onDelete={removeTemplate}
-          onCancel={toList}
+          onCancel={() =>
+            setMode(
+              mode.returnTo === 'recover'
+                ? { m: 'pick', kind: 'recovery' }
+                : { m: 'list' },
+            )
+          }
         />
       )}
     </>

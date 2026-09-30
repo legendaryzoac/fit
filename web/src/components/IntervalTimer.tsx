@@ -661,24 +661,6 @@ export function IntervalSession({
           onSkip={stopwatch ? undefined : skip}
           stopwatch={stopwatch}
         />
-        {(lockScreenSupported() || (recovery && speakSupported())) && (
-          <Card>
-            <div className="flex flex-col gap-3">
-              <LockScreenSwitch />
-              {recovery && speakSupported() && (
-                <Switch
-                  checked={speakOn}
-                  onChange={(on) => {
-                    setSpeakPref(on)
-                    setSpeakOn(on)
-                    if (on) speak('Spoken cues on')
-                  }}
-                  label="Spoken cues"
-                />
-              )}
-            </div>
-          </Card>
-        )}
         {!stopwatch && (
           <List>
             {sections
@@ -710,6 +692,24 @@ export function IntervalSession({
               })}
           </List>
         )}
+        {(lockScreenSupported() || (recovery && speakSupported())) && (
+          <Card>
+            <div className="flex flex-col gap-3">
+              <LockScreenSwitch />
+              {recovery && speakSupported() && (
+                <Switch
+                  checked={speakOn}
+                  onChange={(on) => {
+                    setSpeakPref(on)
+                    setSpeakOn(on)
+                    if (on) speak('Spoken cues on')
+                  }}
+                  label="Spoken cues"
+                />
+              )}
+            </div>
+          </Card>
+        )}
       </>
     )
   }
@@ -720,6 +720,7 @@ export function IntervalSession({
       onClose={close}
       onExited={onExited}
       ariaLabel="Timer"
+      dockClearance
       header={
         <SessionBar
           left={

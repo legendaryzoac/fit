@@ -4,6 +4,7 @@
  */
 import type { Api } from './api'
 import type { Checkin } from './checkins'
+import type { CustomExercise } from './exercises'
 import type { Mesocycle } from './mesocycle'
 import type { RomTest } from './romtests'
 import type { WeightEntry } from './weights'
@@ -40,7 +41,7 @@ interface DemoStore {
   sessions: SessionRecord[]
   workouts: Workout[]
   templates: Template[]
-  exercises: Array<{ name: string; muscle: string }>
+  exercises: CustomExercise[]
   mesos: Mesocycle[]
   weights: WeightEntry[]
   checkins: Checkin[]
@@ -595,7 +596,7 @@ export function makeDemoApi(): Api {
     }
     if (path.startsWith('/api/exercises')) {
       if (method === 'POST') {
-        const e = body as { name: string; muscle: string }
+        const e = body as CustomExercise
         store.exercises = [
           ...store.exercises.filter(
             (x) => x.name.toLowerCase() !== e.name.toLowerCase(),

@@ -35,6 +35,7 @@ export function Sheet({
   title,
   header,
   ariaLabel,
+  dockClearance,
   children,
 }: {
   open: boolean
@@ -46,6 +47,8 @@ export function Sheet({
   header?: ReactNode
   /** Used when there is no title to label the dialog. */
   ariaLabel?: string
+  /** Leave room under the body for the floating dock (live sessions). */
+  dockClearance?: boolean
   children: ReactNode
 }) {
   const titleId = useId()
@@ -197,7 +200,13 @@ export function Sheet({
           )}
           {header}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-[calc(24px+env(safe-area-inset-bottom))]">
+        <div
+          className={`min-h-0 flex-1 overflow-y-auto px-6 ${
+            dockClearance
+              ? 'pb-[calc(100px+env(safe-area-inset-bottom))]'
+              : 'pb-[calc(24px+env(safe-area-inset-bottom))]'
+          }`}
+        >
           {children}
         </div>
       </div>
