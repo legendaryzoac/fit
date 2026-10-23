@@ -32,8 +32,14 @@ export function resolveTheme(pref: ThemePref = getThemePref()): Theme {
 function apply(): void {
   const theme = resolveTheme()
   document.documentElement.dataset.theme = theme
-  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-  if (meta) meta.content = CANVAS[theme]
+  // index.html carries one theme-color per colour scheme so the system
+  // bars are right before this runs; afterwards every tag follows the
+  // resolved theme, so an explicit Dawn or Dusk choice beats the OS scheme.
+  for (const meta of document.querySelectorAll<HTMLMetaElement>(
+    'meta[name="theme-color"]',
+  )) {
+    meta.content = CANVAS[theme]
+  }
   for (const fn of listeners) fn()
 }
 

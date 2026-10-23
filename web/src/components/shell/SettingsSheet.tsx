@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { Api } from '../../lib/api'
 import { confirm } from '../../lib/confirm'
 import { lockScreenSupported } from '../../lib/lockScreen'
+import { refreshMe, useMe } from '../../lib/me'
 import {
   getThemePref,
   setThemePref,
@@ -28,17 +29,6 @@ const UNITS: Array<{ value: WeightUnit; label: string }> = [
   { value: 'kg', label: 'kg' },
 ]
 
-type Me = {
-  createdAt: string
-  whoop: {
-    connected: boolean
-    status?: 'active' | 'error'
-    lastSyncAt?: string | null
-    backfillDone?: boolean
-    bodyWeightLb?: number
-  }
-}
-
 function fmtDay(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
     month: 'short',
@@ -48,24 +38,19 @@ function fmtDay(iso: string): string {
 
 /** Connect / status / disconnect for the strap, as a Settings row. */
 function StrapRow({ api }: { api: Api }) {
-  const [me, setMe] = useState<Me | null>(null)
+  // The shared profile: a disconnect here hides the strap cards on Today
+  // and Trends the moment the refetch lands.
+  const me = useMe()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const refetch = useCallback(async () => {
-    try {
-      const res = await api.get('/api/me')
-      if (!res.ok) return
-      setMe((await res.json()) as Me)
-    } catch {
-      // Ignored — the row just keeps showing its last known state.
-    }
+    await refreshMe(api)
   }, [api])
 
   useEffect(() => {
-    setMe(null)
     setError(null)
-    refetch()
+    void refetch()
   }, [refetch])
 
   async function connect() {

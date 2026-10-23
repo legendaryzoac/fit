@@ -9,7 +9,8 @@ function todayLabel(): string {
   })
 }
 
-/** Sticky brand bar: mark and wordmark, today's date, settings. */
+/** Sticky brand bar: mark and wordmark, today's date, settings. Opaque,
+ * in the canvas colour, so scrolled content never shows through it. */
 export function TopBar({
   demo,
   onSettings,
@@ -18,7 +19,7 @@ export function TopBar({
   onSettings: () => void
 }) {
   return (
-    <header className="backdrop-bar sticky top-0 z-40 flex h-topbar items-center justify-between px-4">
+    <header className="sticky top-0 z-40 flex h-topbar items-center justify-between bg-canvas px-4">
       <div className="flex items-center gap-2">
         <BrandMark className="h-6 w-6" />
         <span className="text-[15px] font-semibold text-ink">FIT</span>

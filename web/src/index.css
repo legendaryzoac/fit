@@ -320,12 +320,6 @@
     transform: scale(0.98);
   }
 }
-@utility backdrop-bar {
-  background: color-mix(in srgb, var(--surface) 85%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-}
-
 /* Chip rows scroll sideways without a visible scrollbar */
 .scroll-thin {
   scrollbar-width: none;

@@ -205,6 +205,89 @@ export interface CustomExercise {
   name: string
   muscle: string
   equipment?: Equipment
+  /** Set when this entry is the user's edit of a built-in: the built-in's
+   * name. The built-in leaves this user's lists and this entry stands in
+   * for it — for them alone; the shared list is untouched. */
+  builtin?: string
+}
+
+/** Every built-in lift and drill. A function: SPEED_DRILLS is declared below. */
+function builtins(): Array<{ name: string; muscle: string }> {
+  return [...EXERCISES, ...SPEED_DRILLS]
+}
+
+/** The built-in with this name, if there is one. */
+export function builtinExercise(
+  name: string,
+): { name: string; muscle: string } | undefined {
+  const lower = name.trim().toLowerCase()
+  return builtins().find((e) => e.name.toLowerCase() === lower)
+}
+
+/** Lowercase names of the built-ins this user has edited: by `builtin`,
+ * or the older way, a custom saved under a built-in's own name. */
+export function overriddenBuiltins(customs: CustomExercise[]): Set<string> {
+  const out = new Set<string>()
+  for (const c of customs) {
+    if (c.builtin) out.add(c.builtin.trim().toLowerCase())
+    if (builtinExercise(c.name)) out.add(c.name.trim().toLowerCase())
+  }
+  return out
+}
+
+/** The user's edit of a built-in, if they made one. */
+export function overrideFor(
+  builtin: string,
+  customs: CustomExercise[],
+): CustomExercise | undefined {
+  const lower = builtin.trim().toLowerCase()
+  return (
+    customs.find((c) => c.builtin?.trim().toLowerCase() === lower) ??
+    customs.find((c) => c.name.trim().toLowerCase() === lower)
+  )
+}
+
+export interface CatalogExercise {
+  name: string
+  muscle: string
+  equipment?: Equipment
+}
+
+/**
+ * What a picker lists: the built-ins of the kind (lifts, drills, or both
+ * when no kind is given), minus the ones this user edited away, then the
+ * user's own entries — edits of built-ins included, under their names.
+ */
+export function exerciseCatalog(
+  customs: CustomExercise[],
+  kind?: 'strength' | 'speed',
+): CatalogExercise[] {
+  const base =
+    kind === 'speed'
+      ? SPEED_DRILLS
+      : kind === 'strength'
+        ? EXERCISES
+        : builtins()
+  const gone = overriddenBuiltins(customs)
+  const seen = new Set<string>()
+  const out: CatalogExercise[] = []
+  for (const e of base) {
+    const key = e.name.toLowerCase()
+    if (gone.has(key) || seen.has(key)) continue
+    seen.add(key)
+    out.push({ name: e.name, muscle: e.muscle })
+  }
+  for (const c of customs) {
+    const key = c.name.trim().toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(
+      c.equipment
+        ? { name: c.name, muscle: c.muscle, equipment: c.equipment }
+        : { name: c.name, muscle: c.muscle },
+    )
+  }
+  return out
 }
 
 const CUSTOM_KEY = 'fit.customExercises'

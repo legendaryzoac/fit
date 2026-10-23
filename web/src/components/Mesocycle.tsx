@@ -1,6 +1,6 @@
 import { Fragment, useId, useMemo, useState, type ReactNode } from 'react'
 import {
-  EXERCISES,
+  exerciseCatalog,
   MUSCLE_GROUPS,
   type CustomExercise,
 } from '../lib/exercises'
@@ -469,8 +469,9 @@ export function MesoSetup({
   )
 
   const knownNames = useMemo(() => {
-    const names = new Set(EXERCISES.map((e) => e.name))
-    for (const c of customs) names.add(c.name)
+    const names = new Set(
+      exerciseCatalog(customs, 'strength').map((e) => e.name),
+    )
     for (const w of history) {
       if (w.kind !== 'strength') continue
       for (const e of w.exercises) names.add(e.name)

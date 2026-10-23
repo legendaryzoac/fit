@@ -2,9 +2,8 @@ import { useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Api } from '../lib/api'
 import {
   EQUIPMENT,
-  EXERCISES,
   MUSCLE_GROUPS,
-  SPEED_DRILLS,
+  exerciseCatalog,
   inferEquipment,
   makeMuscleLookup,
   type CustomExercise,
@@ -208,12 +207,13 @@ export function TemplateBuilder({
 
   const lookup = useMemo(() => makeMuscleLookup(customs), [customs])
 
-  const names = useMemo(() => {
-    const base = (kind === 'speed' ? SPEED_DRILLS : EXERCISES).map(
-      (e) => e.name,
-    )
-    return [...new Set([...base, ...customs.map((c) => c.name)])].sort()
-  }, [kind, customs])
+  const names = useMemo(
+    () =>
+      exerciseCatalog(customs, kind === 'speed' ? 'speed' : 'strength')
+        .map((e) => e.name)
+        .sort(),
+    [kind, customs],
+  )
 
   const typedUnknown =
     exName.trim().length > 0 && lookup(exName) === undefined
@@ -408,6 +408,8 @@ export function TemplateBuilder({
               kind,
               sections: buildIntervals(plan),
             }
+    // An edit of a built-in routine keeps pointing at the one it replaces
+    if (initial?.builtin) template.builtin = initial.builtin
     try {
       const res = await api.send('POST', '/api/templates', template)
       const body = await res.json()
@@ -423,9 +425,17 @@ export function TemplateBuilder({
 
   async function remove() {
     if (!initial || !onDelete) return
-    if (!(await confirm({ title: 'Delete this template?', action: 'Delete' }))) {
-      return
-    }
+    // Deleting an edit of a built-in brings the built-in back
+    const ok = await confirm(
+      initial.builtin
+        ? {
+            title: 'Reset this routine?',
+            body: 'The built-in comes back.',
+            action: 'Reset',
+          }
+        : { title: 'Delete this template?', action: 'Delete' },
+    )
+    if (!ok) return
     setBusy(true)
     void onDelete(initial).then((ok) => {
       if (ok) dismiss(onCancel)
@@ -457,13 +467,20 @@ export function TemplateBuilder({
           />
         </Field>
 
-        <Segment
-          block
-          options={KIND_OPTIONS}
-          value={kind}
-          onChange={setKind}
-          ariaLabel="Kind"
-        />
+        {initial?.builtin ? (
+          <p className="text-caption text-ink-3">
+            Your edit of a built-in routine. It replaces the built-in for you
+            only; Reset brings it back.
+          </p>
+        ) : (
+          <Segment
+            block
+            options={KIND_OPTIONS}
+            value={kind}
+            onChange={setKind}
+            ariaLabel="Kind"
+          />
+        )}
 
         {kind === 'strength' ? (
           <>
@@ -786,7 +803,7 @@ export function TemplateBuilder({
         </Button>
         {initial && onDelete && (
           <Button variant="ghost-danger" block disabled={busy} onClick={remove}>
-            Delete
+            {initial.builtin ? 'Reset to built-in' : 'Delete'}
           </Button>
         )}
         <Button variant="ghost" block onClick={() => dismiss(onCancel)}>

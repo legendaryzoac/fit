@@ -16,12 +16,12 @@ import {
   type Mesocycle,
 } from '../lib/mesocycle'
 import {
-  routineById,
+  resolveRoutine,
   routineMinutes,
   SLEEP_ROUTINE_ID,
   type Routine,
 } from '../lib/routines'
-import { fmtSec, totalSec } from '../lib/templates'
+import { fmtSec, totalSec, type Template } from '../lib/templates'
 import { localToday } from '../lib/weights'
 import { consistencyPct, durationMinutes, localDay } from '../lib/wellness'
 import type { Workout } from '../lib/workouts'
@@ -115,12 +115,18 @@ export function Today({
   onRecover,
   onQuickLog,
   onStartRoutine,
+  strapLinked,
+  templates,
 }: {
   api: Api
   workouts: Workout[]
   meso?: Mesocycle
   lookup: (name: string) => string | undefined
   bodyWeightLb?: number
+  /** A wearable is linked; the readiness ring and vitals are its alone. */
+  strapLinked: boolean
+  /** The user's templates — a built-in routine may be edited among them. */
+  templates: Template[]
   checkins: Checkin[]
   onSaveCheckin: (patch: Partial<Checkin>) => void
   onStartMesoDay: (dayIndex: number) => void
@@ -136,6 +142,13 @@ export function Today({
   const [sleeps, setSleeps] = useState<SleepPoint[]>([])
 
   useEffect(() => {
+    // Without a strap there is nothing to ask for and nothing to show: the
+    // server keeps old scores after a disconnect, so the gate sits here.
+    if (!strapLinked) {
+      setRecoveries([])
+      setSleeps([])
+      return
+    }
     let alive = true
     api
       .get('/api/metrics?days=30')
@@ -150,7 +163,7 @@ export function Today({
     return () => {
       alive = false
     }
-  }, [api])
+  }, [api, strapLinked])
 
   // An unscored most-recent day (strap synced but not yet scored) must
   // not blank the section — fall back to the last SCORED entry.
@@ -328,7 +341,7 @@ export function Today({
   const pr = useMemo(() => lastPr(workouts), [workouts])
 
   // Evening nudge for the bedtime routine, gone once it's been done today.
-  const sleepRoutine = routineById(SLEEP_ROUTINE_ID)
+  const sleepRoutine = resolveRoutine(SLEEP_ROUTINE_ID, templates)
   const sleepDoneToday =
     sleepRoutine != null &&
     workouts.some(

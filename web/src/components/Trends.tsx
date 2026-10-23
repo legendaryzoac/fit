@@ -16,6 +16,7 @@ import {
 import type { Api } from '../lib/api'
 import { CHECKIN_ITEMS, type Checkin } from '../lib/checkins'
 import { confirm } from '../lib/confirm'
+import { useMe } from '../lib/me'
 import {
   localDate,
   mean,
@@ -39,6 +40,7 @@ import {
   weeklyLoad,
   weeklyMinutesByModality,
 } from '../lib/wellness'
+import { fromLb, toLb, useUnitPref, type WeightUnit } from '../lib/units'
 import { localToday, sortWeights, type WeightEntry } from '../lib/weights'
 import type { Modality, SessionRecord, Workout, WorkoutKind } from '../lib/workouts'
 import { Banner, type BannerTone } from './cadence/Banner'
@@ -120,17 +122,6 @@ const RANGES: Array<{ value: Range; label: string }> = [
   { value: '90', label: '90 d' },
   { value: '180', label: '180 d' },
 ]
-
-type Me = {
-  createdAt: string
-  whoop: {
-    connected: boolean
-    status?: 'active' | 'error'
-    lastSyncAt?: string | null
-    backfillDone?: boolean
-    bodyWeightLb?: number
-  }
-}
 
 interface SleepPoint {
   date: string
@@ -222,19 +213,22 @@ function Well({
 }
 
 /**
- * Manual body-weight log. A typed entry always outranks the strap's
- * measurement, which keeps bodyweight lifts honest once a strap goes away.
+ * Manual body-weight log, in the preferred unit. A typed entry always
+ * outranks the strap's measurement, which keeps bodyweight lifts honest
+ * once a strap goes away. Saves go through the shared weight queue, like
+ * the morning weigh-in.
  */
 function BodyCard({
-  api,
   entries,
-  onChange,
+  onLog,
   whoopLb,
+  unit,
 }: {
-  api: Api
   entries: WeightEntry[]
-  onChange: (entries: WeightEntry[]) => void
+  /** Stored pounds, already validated. */
+  onLog: (lb: number) => void
   whoopLb?: number
+  unit: WeightUnit
 }) {
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -243,34 +237,32 @@ function BodyCard({
   const sorted = useMemo(() => sortWeights(entries), [entries])
   /** Oldest-first for the trend chart. */
   const trend = useMemo(
-    () => [...sorted].reverse().map((e) => ({ date: e.date, value: e.lb })),
-    [sorted],
+    () =>
+      [...sorted]
+        .reverse()
+        .map((e) => ({ date: e.date, value: fromLb(e.lb, unit) })),
+    [sorted, unit],
   )
   const newest = sorted[0]
   const prior = sorted.find((e) => e.date !== newest?.date)
   const delta =
-    newest && prior ? Math.round((newest.lb - prior.lb) * 10) / 10 : null
+    newest && prior
+      ? Math.round((fromLb(newest.lb, unit) - fromLb(prior.lb, unit)) * 10) / 10
+      : null
 
   function save() {
-    const lb = Number(draft)
+    const typed = Number(draft)
+    const lb =
+      draft.trim() !== '' && Number.isFinite(typed) ? toLb(typed, unit) : NaN
     if (!Number.isFinite(lb) || lb < 40 || lb > 1200) {
-      setError('Enter a weight between 40 and 1200 lb.')
+      setError(
+        `Enter a weight between ${fromLb(40, unit)} and ${fromLb(1200, unit)} ${unit}.`,
+      )
       return
     }
-    const entry: WeightEntry = {
-      date: localToday(),
-      lb: Math.round(lb * 10) / 10,
-    }
-    // Optimistic — one entry per day, today's overwrites
-    onChange([...entries.filter((e) => e.date !== entry.date), entry])
+    onLog(lb)
     setDraft('')
     setError(null)
-    void api
-      .send('POST', '/api/weights', entry)
-      .then((res) => {
-        if (!res.ok) throw new Error(String(res.status))
-      })
-      .catch(() => setError('Saved locally. Syncs when online.'))
   }
 
   const field = (
@@ -281,7 +273,7 @@ function BodyCard({
           type="number"
           inputMode="decimal"
           step="0.1"
-          placeholder={newest ? String(newest.lb) : 'lb'}
+          placeholder={newest ? String(fromLb(newest.lb, unit)) : unit}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && save()}
@@ -300,8 +292,10 @@ function BodyCard({
         {whoopLb != null && (
           <>
             <p className="mt-3 flex items-baseline gap-1.5">
-              <span className="text-display-lg text-ink">{whoopLb}</span>
-              <span className="text-title-sm text-ink-2">lb</span>
+              <span className="text-display-lg text-ink">
+                {fromLb(whoopLb, unit)}
+              </span>
+              <span className="text-title-sm text-ink-2">{unit}</span>
             </p>
             <p className="text-caption text-ink-3">From strap</p>
           </>
@@ -315,8 +309,8 @@ function BodyCard({
     <Card>
       <CardHead title="Body weight" />
       <p className="mt-3 flex items-baseline gap-1.5">
-        <span className="text-display-lg text-ink">{newest.lb}</span>
-        <span className="text-title-sm text-ink-2">lb</span>
+        <span className="text-display-lg text-ink">{fromLb(newest.lb, unit)}</span>
+        <span className="text-title-sm text-ink-2">{unit}</span>
       </p>
       <p className="text-caption text-ink-3">
         {shortDate(newest.date)}
@@ -333,7 +327,7 @@ function BodyCard({
           <TrendChart
             data={trend}
             tone="brand"
-            unit="lb"
+            unit={unit}
             height={160}
             animate={false}
           />
@@ -347,7 +341,7 @@ function BodyCard({
               <ListItem
                 key={e.date}
                 title={shortDate(e.date)}
-                trail={`${e.lb} lb`}
+                trail={`${fromLb(e.lb, unit)} ${unit}`}
               />
             ))}
           </List>
@@ -584,24 +578,31 @@ export function Trends({
   sessions,
   lookup,
   weights,
-  onWeightsChange,
+  onLogWeight,
   checkins,
+  strapLinked,
 }: {
   api: Api
   workouts: Workout[]
+  /** Captured sessions; already empty when no strap is linked. */
   sessions: SessionRecord[]
   lookup: (name: string) => string | undefined
   weights: WeightEntry[]
-  onWeightsChange: (entries: WeightEntry[]) => void
+  /** A weigh-in in stored pounds; the hub queues it for the server. */
+  onLogWeight: (lb: number) => void
   checkins: Checkin[]
+  /** A wearable is linked. Without one the Sleep group, the recovery,
+   * HRV and resting-HR cards and the strain overlay are not shown;
+   * connecting lives in Settings. */
+  strapLinked: boolean
 }) {
   const [landing] = useState(whoopLanding)
   const [picked, setPicked] = useState<Group | null>(landing.group)
-  const [me, setMe] = useState<Me | null>(null)
+  const me = useMe()
+  const unit = useUnitPref()
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [days, setDays] = useState<Range>('90')
   const [apiError, setApiError] = useState<string | null>(null)
-  const [connecting, setConnecting] = useState(false)
   const [exercise, setExercise] = useState<string | null>(null)
   const [drill, setDrill] = useState<string | null>(null)
 
@@ -610,17 +611,14 @@ export function Trends({
   }, [landing])
 
   useEffect(() => {
-    api
-      .get('/api/me')
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`API responded ${res.status}`)
-        setMe(await res.json())
-      })
-      .catch((err: Error) => setApiError(err.message))
-  }, [api])
-
-  useEffect(() => {
     setMetrics(null)
+    if (!strapLinked) {
+      // Nothing to fetch: the strap groups are hidden, and the log-based
+      // cards settle without a round trip. (Old scores outlive a
+      // disconnect on the server, so the gate sits here, not there.)
+      setMetrics({ days: Number(days), recoveries: [], sleeps: [], cycles: [] })
+      return
+    }
     api
       .get(`/api/metrics?days=${days}`)
       .then(async (res) => {
@@ -628,20 +626,7 @@ export function Trends({
         setMetrics(await res.json())
       })
       .catch((err: Error) => setApiError(err.message))
-  }, [api, days])
-
-  async function connect() {
-    setConnecting(true)
-    try {
-      const res = await api.get('/api/whoop/connect')
-      const body = await res.json()
-      if (!res.ok) throw new Error(body.error ?? `API responded ${res.status}`)
-      window.location.assign(body.url)
-    } catch (err) {
-      setApiError(err instanceof Error ? err.message : 'Could not start connect')
-      setConnecting(false)
-    }
-  }
+  }, [api, days, strapLinked])
 
   // ---- recovery and sleep, from the strap ----
 
@@ -829,46 +814,36 @@ export function Trends({
   // ---- which group ----
 
   const settled = metrics != null || apiError != null
-  const hasRecovery = recoverySeries.length > 0
+  const hasRecovery = strapLinked && recoverySeries.length > 0
   const hasCheckin = checkins.length > 0
   const hasRecoveryWorkout = workouts.some((w) => w.kind === 'recovery')
   // Recovery leads whenever there is a wearable-free or strap signal at all;
   // an account with none of those opens on Strength instead.
-  const group: Group =
-    picked ??
-    (settled && !hasRecovery && !hasCheckin && !hasRecoveryWorkout
+  const fallback: Group =
+    settled && !hasRecovery && !hasCheckin && !hasRecoveryWorkout
       ? 'strength'
-      : 'recovery')
+      : 'recovery'
+  // Sleep is the strap's alone: without one the chip goes, and a pick
+  // left on it reads as Recovery.
+  const groups = strapLinked
+    ? GROUPS
+    : GROUPS.filter((g) => g.value !== 'sleep')
+  const chosen = picked ?? fallback
+  const group: Group = chosen === 'sleep' && !strapLinked ? 'recovery' : chosen
   const connected = me?.whoop.connected === true
-  const showConnect = me != null && !connected
 
   const range = (
     <Segment options={RANGES} value={days} onChange={setDays} ariaLabel="Range" />
   )
 
-  const connectButton = me && (
-    <Button
-      variant="tonal"
-      onClick={connect}
-      disabled={connecting}
-      className="self-start"
-    >
-      {me.whoop.status === 'error' ? 'Reconnect' : 'Connect'}
-    </Button>
-  )
-
+  // Linked but silent so far — the backfill is still on its way
   const strapEmpty = (
     <Card>
-      <p className="text-body text-ink-2">
-        {connected ? 'No strap data yet.' : 'Connect a strap to see recovery.'}
-      </p>
-      {showConnect && <div className="mt-4 flex">{connectButton}</div>}
+      <p className="text-body text-ink-2">No strap data yet.</p>
     </Card>
   )
 
   let cards: React.ReactNode
-  // The strap groups carry their own connect button in the empty state.
-  let connectCard = showConnect
 
   if (group === 'recovery') {
     const readinessCard = hasReadiness && (
@@ -982,12 +957,14 @@ export function Trends({
       </Card>
     )
 
-    let strapCards: React.ReactNode
-    if (!settled) {
+    // The strap's cards follow the log's; with no strap they are not there.
+    let strapCards: React.ReactNode = null
+    if (!strapLinked) {
+      strapCards = null
+    } else if (!settled) {
       strapCards = <p className="py-8 text-center text-caption text-ink-3">Loading</p>
     } else if (!hasRecovery) {
       strapCards = strapEmpty
-      connectCard = false
     } else {
       strapCards = (
         <>
@@ -1087,7 +1064,6 @@ export function Trends({
       cards = <p className="py-8 text-center text-caption text-ink-3">Loading</p>
     } else if (!hasRecovery) {
       cards = strapEmpty
-      connectCard = false
     } else {
       cards = (
         <>
@@ -1393,7 +1369,7 @@ export function Trends({
               {thisWeek.rated} of {thisWeek.sessions} rated this week
             </p>
           </Card>
-          {overlay.length > 0 && (
+          {strapLinked && overlay.length > 0 && (
             <Card>
               <CardHead title="Load and recovery" action={range} />
               <div className="mt-4">
@@ -1429,10 +1405,10 @@ export function Trends({
     cards = (
       <>
         <BodyCard
-          api={api}
           entries={weights}
-          onChange={onWeightsChange}
-          whoopLb={me?.whoop.bodyWeightLb}
+          onLog={onLogWeight}
+          whoopLb={strapLinked ? me?.whoop.bodyWeightLb : undefined}
+          unit={unit}
         />
         <MobilityCard api={api} />
       </>
@@ -1442,7 +1418,7 @@ export function Trends({
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-title-lg text-ink">Trends</h1>
-      <Chips options={GROUPS} value={group} onChange={setPicked} ariaLabel="Trends" />
+      <Chips options={groups} value={group} onChange={setPicked} ariaLabel="Trends" />
 
       {landing.banner && (
         <Banner tone={landing.banner.tone}>{landing.banner.text}</Banner>
@@ -1455,14 +1431,6 @@ export function Trends({
       )}
 
       {cards}
-
-      {connectCard && (
-        <Card>
-          <p className="text-title-sm text-ink">Connect a strap</p>
-          <p className="mt-1 text-caption text-ink-2">Optional.</p>
-          <div className="mt-4 flex">{connectButton}</div>
-        </Card>
-      )}
 
       {group === 'running' && <LiveHR />}
     </div>

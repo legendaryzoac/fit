@@ -33,6 +33,8 @@ interface Template {
   items?: RoutineItem[]
   /** Recovery routines: seconds between items (next-up preview). */
   transitionSec?: number
+  /** The built-in routine this template edits, for this user only. */
+  builtin?: string
 }
 
 const num = (v: unknown): number | undefined =>
@@ -117,7 +119,18 @@ function parseTemplate(raw: unknown): Template | null {
       ? Math.round(transitionRaw)
       : undefined
 
-  return { id, name, kind: r.kind, exercises, sections, items, transitionSec }
+  const builtin = str(r.builtin, 64)
+
+  return {
+    id,
+    name,
+    kind: r.kind,
+    exercises,
+    sections,
+    items,
+    transitionSec,
+    ...(builtin !== undefined && { builtin }),
+  }
 }
 
 export async function handleListTemplates(

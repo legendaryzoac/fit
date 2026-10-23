@@ -5,11 +5,15 @@ import {
   EXERCISES,
   MUSCLE_GROUPS,
   SPEED_DRILLS,
+  builtinExercise,
   equipmentLabel,
+  exerciseCatalog,
   inferEquipment,
+  overrideFor,
   type CustomExercise,
   type Equipment,
 } from '../lib/exercises'
+import { effectiveRoutines, routineMinutes, type Routine } from '../lib/routines'
 import type { Template } from '../lib/templates'
 import type { Workout } from '../lib/workouts'
 import { Banner } from './cadence/Banner'
@@ -19,18 +23,63 @@ import { EmptyState } from './cadence/EmptyState'
 import { Field, SELECT_WELL, TextInput } from './cadence/Field'
 import { IconButton } from './cadence/IconButton'
 import { List, ListItem } from './cadence/ListItem'
-import { IconX } from './shell/icons'
+import {
+  IconChevronDown,
+  IconChevronRight,
+  IconRecover,
+  IconX,
+} from './shell/icons'
 import { KIND_LEAD, templateMeta } from './TemplateBuilder'
 
-const BUILTIN_BY_NAME = new Map(
-  [...EXERCISES, ...SPEED_DRILLS].map((e) => [e.name.toLowerCase(), e]),
+/** Every built-in lift and drill, A to Z. */
+const BUILTINS = [...EXERCISES, ...SPEED_DRILLS].sort((a, b) =>
+  a.name.localeCompare(b.name),
 )
+
+/** A section head that folds its list away: the built-ins sit behind one
+ * so the user's own things come first. */
+function Disclosure({
+  title,
+  count,
+  open,
+  onToggle,
+}: {
+  title: string
+  count: number
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={onToggle}
+      className="pressable flex min-h-11 w-full items-center justify-between gap-3 rounded-md px-1 text-left hover:bg-surface-2"
+    >
+      <span className="text-title-sm text-ink">{title}</span>
+      <span className="flex items-center gap-1 text-caption text-ink-3">
+        {count}
+        {open ? (
+          <IconChevronDown className="h-5 w-5 text-ink-4" />
+        ) : (
+          <IconChevronRight className="h-5 w-5 text-ink-4" />
+        )}
+      </span>
+    </button>
+  )
+}
 
 /**
  * The Plan tab's library: the templates (edited in the builder sheet) and
- * the custom exercises, with one form that adds a new one or renames an
- * existing one — a rename propagates through logged history so ghosts,
- * PRs and e1RM trends stay on one line.
+ * the exercises, with one form that adds a new one or renames an existing
+ * one — a rename propagates through logged history so ghosts, PRs and
+ * e1RM trends stay on one line.
+ *
+ * Built-ins live behind their own folds. Editing one saves a copy that
+ * replaces it for this user alone: an exercise edit is a custom entry
+ * carrying the built-in's name in `builtin`, a routine edit a recovery
+ * template carrying the routine's id. Deleting the copy brings the
+ * built-in back.
  */
 export function Manage({
   api,
@@ -39,6 +88,7 @@ export function Manage({
   workouts,
   onNewTemplate,
   onEditTemplate,
+  onEditBuiltinRoutine,
   onCustomsChange,
   onTemplatesChange,
   onWorkoutsChange,
@@ -49,6 +99,9 @@ export function Manage({
   workouts: Workout[]
   onNewTemplate: () => void
   onEditTemplate: (t: Template) => void
+  /** Opens the builder on a copy of a built-in routine that becomes this
+   * user's edit of it once saved. */
+  onEditBuiltinRoutine: (r: Routine) => void
   onCustomsChange: (next: CustomExercise[]) => void
   onTemplatesChange: (next: Template[]) => void
   onWorkoutsChange: (next: Workout[]) => void
@@ -62,12 +115,20 @@ export function Manage({
   const [equipmentTouched, setEquipmentTouched] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [routinesOpen, setRoutinesOpen] = useState(false)
+  const [builtinsOpen, setBuiltinsOpen] = useState(false)
+  const [find, setFind] = useState('')
   const nameId = useId()
   const muscleId = useId()
   const equipmentId = useId()
   const libraryId = useId()
+  const findId = useId()
 
   const matches = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+
+  /** An entry that stands in for a built-in: marked, or saved under its name. */
+  const isOverride = (c: CustomExercise) =>
+    c.builtin != null || builtinExercise(c.name) != null
 
   const affectedCount =
     editing && editName.trim() && !matches(editName, editing.name)
@@ -88,6 +149,11 @@ export function Manage({
     setError(null)
   }
 
+  /** A built-in as the entry about to replace it; saving creates the copy. */
+  function startBuiltin(b: { name: string; muscle: string }) {
+    startEdit({ name: b.name, muscle: b.muscle, builtin: b.name })
+  }
+
   function cancelEdit() {
     setEditing(null)
     setEditName('')
@@ -99,13 +165,13 @@ export function Manage({
   }
 
   // Adding: a name we already know pre-fills its muscle and equipment, so
-  // saving a built-in creates the custom entry that overrides it.
+  // saving a built-in's name creates the entry that replaces it.
   function changeName(name: string) {
     setEditName(name)
     if (editing) return
     const typed = name.trim()
     const existing = customs.find((c) => matches(c.name, typed))
-    const known = existing ?? BUILTIN_BY_NAME.get(typed.toLowerCase())
+    const known = existing ?? builtinExercise(typed)
     if (known && !muscleTouched) setEditMuscle(known.muscle)
     if (!equipmentTouched) {
       setEditEquipment(
@@ -120,10 +186,14 @@ export function Manage({
       setError('Exercise needs a name.')
       return
     }
+    // The built-in this entry replaces: the one being edited, or the one
+    // whose name was typed. A plain custom carries none.
+    const builtin = editing?.builtin ?? builtinExercise(nextName)?.name
     const next: CustomExercise = {
       name: nextName,
       muscle: editMuscle,
       equipment: editEquipment,
+      ...(builtin !== undefined && { builtin }),
     }
     setBusy(true)
     setError(null)
@@ -133,10 +203,14 @@ export function Manage({
 
       const renamed = editing != null && !matches(nextName, editing.name)
       if (editing && renamed) {
-        await api.send(
-          'DELETE',
-          `/api/exercises?name=${encodeURIComponent(editing.name)}`,
-        )
+        // The old row goes only if there was one: a built-in being edited
+        // for the first time has no row of its own yet.
+        if (customs.some((c) => matches(c.name, editing.name))) {
+          await api.send(
+            'DELETE',
+            `/api/exercises?name=${encodeURIComponent(editing.name)}`,
+          )
+        }
 
         // Propagate the rename through logged history so ghosts, PRs, and
         // e1RM trends stay on one line instead of splitting on the typo.
@@ -195,6 +269,7 @@ export function Manage({
     }
   }
 
+  /** Removes an entry; for an edit of a built-in, the built-in comes back. */
   async function deleteExercise(exercise: CustomExercise) {
     setError(null)
     try {
@@ -210,9 +285,23 @@ export function Manage({
     }
   }
 
-  const sortedCustoms = customs
-    .slice()
+  // The user's own exercises; edits of built-ins show under the built-ins
+  const own = customs
+    .filter((c) => !isOverride(c))
     .sort((a, b) => a.name.localeCompare(b.name))
+
+  const ownTemplates = templates.filter((t) => !t.builtin)
+  const routines = effectiveRoutines(templates)
+
+  const needle = find.trim().toLowerCase()
+  const shownBuiltins = needle
+    ? BUILTINS.filter(
+        (b) =>
+          b.name.toLowerCase().includes(needle) ||
+          b.muscle.toLowerCase().includes(needle) ||
+          overrideFor(b.name, customs)?.name.toLowerCase().includes(needle),
+      )
+    : BUILTINS
 
   // The muscle list always holds the current value, even a legacy one
   const muscleOptions = [
@@ -220,15 +309,10 @@ export function Manage({
     editMuscle,
   ].sort()
 
-  // Built-ins and customs together, so a built-in can be given equipment
-  const libraryNames = [
-    ...new Map(
-      [...EXERCISES, ...SPEED_DRILLS, ...customs].map((e) => [
-        e.name.toLowerCase(),
-        e.name,
-      ]),
-    ).values(),
-  ].sort((a, b) => a.localeCompare(b))
+  // Every name a picker offers, so a built-in's name can be typed to edit it
+  const libraryNames = exerciseCatalog(customs)
+    .map((e) => e.name)
+    .sort((a, b) => a.localeCompare(b))
 
   return (
     <>
@@ -239,11 +323,11 @@ export function Manage({
             New
           </Button>
         </div>
-        {templates.length === 0 ? (
+        {ownTemplates.length === 0 ? (
           <EmptyState title="No templates yet" />
         ) : (
           <List>
-            {templates.map((t) => (
+            {ownTemplates.map((t) => (
               <ListItem
                 key={t.id}
                 lead={KIND_LEAD[t.kind].icon}
@@ -259,19 +343,51 @@ export function Manage({
       </section>
 
       <section className="flex flex-col gap-2">
+        <Disclosure
+          title="Built-in routines"
+          count={routines.length}
+          open={routinesOpen}
+          onToggle={() => setRoutinesOpen((v) => !v)}
+        />
+        {routinesOpen && (
+          <>
+            <p className="px-1 text-caption text-ink-3">
+              Edits replace the built-in for you only.
+            </p>
+            <List>
+              {routines.map(({ routine: r, override }) => (
+                <ListItem
+                  key={r.id}
+                  lead={<IconRecover />}
+                  leadTone="calm"
+                  title={r.name}
+                  sub={
+                    override
+                      ? `${templateMeta(override)} · edited`
+                      : `${routineMinutes(r)} min · ${r.blurb}`
+                  }
+                  chevron
+                  onClick={() =>
+                    override ? onEditTemplate(override) : onEditBuiltinRoutine(r)
+                  }
+                />
+              ))}
+            </List>
+          </>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3 px-1">
           <h2 className="text-title-sm text-ink">Exercises</h2>
           <Button variant="ghost" size="sm" onClick={cancelEdit}>
             New
           </Button>
         </div>
-        <p className="px-1 text-caption text-ink-3">
-          Built-in names can be added here to set their equipment.
-        </p>
         {error && <Banner tone="error">{error}</Banner>}
-        {sortedCustoms.length > 0 && (
+        {own.length > 0 && (
           <List>
-            {sortedCustoms.map((c) => (
+            {own.map((c) => (
               <ListItem
                 key={c.name}
                 title={c.name}
@@ -296,6 +412,14 @@ export function Manage({
         )}
         <Card>
           <div className="flex flex-col gap-3">
+            {editing?.builtin && (
+              <Banner tone="info">
+                <span>
+                  <b>Built-in.</b> Your version replaces {editing.builtin} for
+                  you only.
+                </span>
+              </Banner>
+            )}
             <Field label="Name" htmlFor={nameId}>
               <TextInput
                 id={nameId}
@@ -365,6 +489,71 @@ export function Manage({
             )}
           </div>
         </Card>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <Disclosure
+          title="Built-in exercises"
+          count={BUILTINS.length}
+          open={builtinsOpen}
+          onToggle={() => setBuiltinsOpen((v) => !v)}
+        />
+        {builtinsOpen && (
+          <>
+            <p className="px-1 text-caption text-ink-3">
+              Tap one to rename it or set its muscle group and equipment.
+              Edits replace the built-in for you only; the X resets one.
+            </p>
+            <TextInput
+              id={findId}
+              aria-label="Find a built-in exercise"
+              placeholder="Find"
+              value={find}
+              onChange={(e) => setFind(e.target.value)}
+            />
+            {shownBuiltins.length === 0 ? (
+              <p className="px-1 text-caption text-ink-3">Nothing matches.</p>
+            ) : (
+              <List>
+                {shownBuiltins.map((b) => {
+                  const edit = overrideFor(b.name, customs)
+                  if (edit) {
+                    return (
+                      <ListItem
+                        key={b.name}
+                        title={edit.name}
+                        sub={`${edit.muscle}${
+                          edit.equipment ? ` · ${equipmentLabel(edit.equipment)}` : ''
+                        } · edited`}
+                        chevron
+                        onClick={() => startEdit(edit)}
+                        action={
+                          <IconButton
+                            size="sm"
+                            label={`Reset ${b.name}`}
+                            onClick={() => deleteExercise(edit)}
+                          >
+                            <IconX className="h-4 w-4" />
+                          </IconButton>
+                        }
+                      />
+                    )
+                  }
+                  const eq = inferEquipment(b.name)
+                  return (
+                    <ListItem
+                      key={b.name}
+                      title={b.name}
+                      sub={eq ? `${b.muscle} · ${equipmentLabel(eq)}` : b.muscle}
+                      chevron
+                      onClick={() => startBuiltin(b)}
+                    />
+                  )
+                })}
+              </List>
+            )}
+          </>
+        )}
       </section>
     </>
   )

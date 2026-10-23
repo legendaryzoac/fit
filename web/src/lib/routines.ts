@@ -6,12 +6,14 @@
 
 import { STRETCHES, stretchByName } from './stretches'
 import {
+  DEFAULT_TRANSITION_SEC,
   holdBaseName,
   holdSide,
   isTransition,
   routineHoldSec,
   routineToSections,
   type RoutineItem,
+  type Template,
 } from './templates'
 import type { IntervalSection, WorkoutExercise } from './workouts'
 
@@ -230,6 +232,68 @@ export const BUILTIN_ROUTINES: Routine[] = [
 
 export function routineById(id: string): Routine | undefined {
   return BUILTIN_ROUTINES.find((r) => r.id === id)
+}
+
+// ---- the user's edits of built-ins ----
+// A built-in is a constant, so editing one saves an ordinary recovery
+// template carrying the routine's id in `builtin`. That template then
+// stands in for the built-in everywhere this user sees it; deleting it
+// brings the built-in back. Nobody else's copy changes.
+
+/** A built-in as the template that will edit it: a fresh id, its own id in `builtin`. */
+export function routineAsTemplate(r: Routine): Template {
+  return {
+    id: crypto.randomUUID(),
+    name: r.name,
+    kind: 'recovery',
+    items: r.items.map((it) => ({ ...it })),
+    transitionSec: r.transitionSec,
+    builtin: r.id,
+  }
+}
+
+/** A saved edit in routine shape, so the player and the lists treat it
+ * like the built-in it replaces. */
+export function templateAsRoutine(t: Template, base: Routine): Routine {
+  return {
+    id: base.id,
+    name: t.name,
+    blurb: base.blurb,
+    tags: base.tags,
+    transitionSec: t.transitionSec ?? DEFAULT_TRANSITION_SEC,
+    items: t.items ?? [],
+  }
+}
+
+/** The user's edit of a built-in, if they made one. */
+export function routineOverride(
+  id: string,
+  templates: Template[],
+): Template | undefined {
+  return templates.find((t) => t.kind === 'recovery' && t.builtin === id)
+}
+
+/** The built-in as this user sees it: their edit when there is one. */
+export function resolveRoutine(
+  id: string,
+  templates: Template[],
+): Routine | undefined {
+  const base = routineById(id)
+  if (!base) return undefined
+  const edit = routineOverride(id, templates)
+  return edit ? templateAsRoutine(edit, base) : base
+}
+
+/** Every built-in in order, each replaced by the user's edit where one exists. */
+export function effectiveRoutines(
+  templates: Template[],
+): Array<{ routine: Routine; override?: Template }> {
+  return BUILTIN_ROUTINES.map((base) => {
+    const override = routineOverride(base.id, templates)
+    return override
+      ? { routine: templateAsRoutine(override, base), override }
+      : { routine: base }
+  })
 }
 
 export function routineSections(r: Routine): IntervalSection[] {

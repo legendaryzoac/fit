@@ -44,10 +44,12 @@ export async function handleListExercises(
   return json(200, {
     exercises: (res.Items ?? []).map((i) => {
       const equipment = equipmentOf(i.equipment)
+      const builtin = str(i.builtin, 80)
       return {
         name: i.name,
         muscle: i.muscle,
         ...(equipment && { equipment }),
+        ...(builtin && { builtin }),
       }
     }),
   })
@@ -71,6 +73,8 @@ export async function handleSaveExercise(
   const name = str(r?.name, 80)
   const muscle = str(r?.muscle, 30) ?? 'other'
   const equipment = equipmentOf(r?.equipment)
+  // The built-in this entry edits, for this user alone
+  const builtin = str(r?.builtin, 80)
   if (!name) return json(400, { error: 'name required' })
 
   await ddb.send(
@@ -83,6 +87,7 @@ export async function handleSaveExercise(
         name,
         muscle,
         ...(equipment && { equipment }),
+        ...(builtin && { builtin }),
         updatedAt: new Date().toISOString(),
       },
     }),

@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from 'react'
-import { EXERCISES, type CustomExercise } from '../lib/exercises'
+import { exerciseCatalog, type CustomExercise } from '../lib/exercises'
 import type { Template } from '../lib/templates'
 import type { Workout } from '../lib/workouts'
 import { Button } from './cadence/Button'
@@ -49,8 +49,7 @@ export function SlotFill({
       if (!set) byMuscle.set(muscle, (set = new Set()))
       set.add(name)
     }
-    for (const e of EXERCISES) add(e.muscle, e.name)
-    for (const c of customs) add(c.muscle, c.name)
+    for (const e of exerciseCatalog(customs, 'strength')) add(e.muscle, e.name)
     for (const w of history) {
       if (w.kind !== 'strength') continue
       for (const e of w.exercises) add(lookup(e.name), e.name)

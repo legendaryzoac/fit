@@ -29,6 +29,10 @@ export interface Template {
   items?: RoutineItem[]
   /** Recovery routines: seconds of lead-in before each item. */
   transitionSec?: number
+  /** Set when this is the user's edit of a built-in routine: its id. The
+   * built-in steps aside for this user and this template plays in its
+   * place; deleting the template brings the built-in back. */
+  builtin?: string
   updatedAt?: string
 }
 

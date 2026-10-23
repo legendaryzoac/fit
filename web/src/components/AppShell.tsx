@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Api } from '../lib/api'
 import { useCheckins } from '../lib/checkins'
+import { strapLinked, useMe } from '../lib/me'
 import { maybeResumeLockScreen } from '../lib/lockScreen'
 import {
   isInSession,
@@ -60,6 +61,9 @@ export function AppShell({
   // Owned by the shell so Today, the ledger and (eventually) the Recovery
   // tab all see the same check-ins.
   const { checkins, save: saveCheckin } = useCheckins(api)
+  // Fetched once here; Today, the Log, Trends and Settings read the same
+  // copy, so the strap-only parts of the app hide and show together.
+  const linked = strapLinked(useMe(api))
 
   // Tab switches crossfade the content in; reduced motion skips it.
   const contentRef = useRef<HTMLDivElement>(null)
@@ -91,6 +95,7 @@ export function AppShell({
             tab={WORKOUTS_TAB[tab]}
             checkins={checkins}
             onSaveCheckin={saveCheckin}
+            strapLinked={linked}
           />
         </div>
       </main>

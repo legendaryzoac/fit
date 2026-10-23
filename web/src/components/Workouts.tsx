@@ -13,11 +13,10 @@ import type { Api } from '../lib/api'
 import { todayCheckin, type Checkin } from '../lib/checkins'
 import {
   EQUIPMENT,
-  EXERCISES,
   MUSCLE_GROUPS,
-  SPEED_DRILLS,
   equipmentLabel,
   equipmentOf,
+  exerciseCatalog,
   inferEquipment,
   isBodyweight,
   loadCustomExercises,
@@ -39,7 +38,12 @@ import {
   type QuickIntervalPlan,
   type Template,
 } from '../lib/templates'
-import { BUILTIN_ROUTINES, routineMinutes, routineSections } from '../lib/routines'
+import {
+  effectiveRoutines,
+  routineAsTemplate,
+  routineMinutes,
+  routineSections,
+} from '../lib/routines'
 import { generateRoutine, suggestedMinutes } from '../lib/generate'
 import {
   enqueue,
@@ -87,8 +91,25 @@ import {
   recommendations,
   type Recommendation,
 } from '../lib/progression'
+import { refreshMe, useMe } from '../lib/me'
 import { onMinimise, onResume, setInSession } from '../lib/sessionBus'
-import { currentBodyWeight, loadWeightCache, saveWeightCache, type WeightEntry } from '../lib/weights'
+import { useUnitPref } from '../lib/units'
+import {
+  currentBodyWeight,
+  dismissWeighIn,
+  enqueueWeight,
+  flushWeights,
+  loadPendingWeights,
+  loadWeightCache,
+  localToday,
+  mergeWeights,
+  saveWeightCache,
+  sortWeights,
+  upsertWeight,
+  weighInDismissedOn,
+  weighInDue,
+  type WeightEntry,
+} from '../lib/weights'
 import { Banner } from './cadence/Banner'
 import { Button } from './cadence/Button'
 import { Card } from './cadence/Card'
@@ -124,6 +145,7 @@ import { useSheetDismiss } from './shell/useSheetDismiss'
 import { SlotFill } from './SlotFill'
 import { KIND_LEAD, PlanFields, TemplateBuilder, templateMeta } from './TemplateBuilder'
 import { Today } from './Today'
+import { WeighIn } from './WeighIn'
 import { WorkoutDetail } from './WorkoutDetail'
 
 // Trends carries the recharts dependency — split it out of the logger path
@@ -386,9 +408,11 @@ function SessionEditor({
   }, [isNew])
 
   const knownNames = useMemo(() => {
-    const base = w.kind === 'speed' ? SPEED_DRILLS : EXERCISES
-    const names = new Set(base.map((e) => e.name))
-    for (const c of customs) names.add(c.name)
+    const names = new Set(
+      exerciseCatalog(customs, w.kind === 'speed' ? 'speed' : 'strength').map(
+        (e) => e.name,
+      ),
+    )
     for (const past of history) {
       if (past.kind !== w.kind) continue
       for (const e of past.exercises) names.add(e.name)
@@ -1230,7 +1254,7 @@ function StartPicker({
         {pane === 'recover' && (
           <List>
             {templates
-              .filter((t) => t.kind === 'recovery')
+              .filter((t) => t.kind === 'recovery' && !t.builtin)
               .map((t) => (
                 <ListItem
                   key={t.id}
@@ -1241,7 +1265,8 @@ function StartPicker({
                   onClick={() => startRoutine(t)}
                 />
               ))}
-            {BUILTIN_ROUTINES.map((r) => (
+            {/* The built-ins, each standing aside for the user's own edit */}
+            {effectiveRoutines(templates).map(({ routine: r }) => (
               <ListItem
                 key={r.id}
                 lead={<IconRecover />}
@@ -1391,7 +1416,15 @@ function CooldownOffer({
 type Mode =
   | { m: 'list' }
   | { m: 'pick'; kind?: WorkoutKind }
-  | { m: 'build'; initial?: Template; kind?: WorkoutKind; returnTo?: 'recover' }
+  | {
+      m: 'build'
+      initial?: Template
+      kind?: WorkoutKind
+      returnTo?: 'recover'
+      /** `initial` is a seed (a built-in routine about to be edited), not
+       * a saved template — so there is nothing to delete yet. */
+      fresh?: boolean
+    }
   | { m: 'strength'; workout: Workout; isNew: boolean }
   | { m: 'timer'; draft: TimerDraft }
   | { m: 'slots'; template: Template }
@@ -1412,11 +1445,15 @@ export function Workouts({
   tab,
   checkins,
   onSaveCheckin,
+  strapLinked,
 }: {
   api: Api
   tab: WorkoutsTab
   checkins: Checkin[]
   onSaveCheckin: (patch: Partial<Checkin>) => void
+  /** A wearable is connected (or waiting on a re-auth). Without one, every
+   * strap-only surface — captured sessions, readiness, sleep — stays hidden. */
+  strapLinked: boolean
 }) {
   const [logFilter, setLogFilter] = useState<LogFilter>('all')
   /** The workout open in the Log's detail sheet. */
@@ -1432,13 +1469,23 @@ export function Workouts({
   // current on the very render that adds or edits an exercise.
   useMemo(() => registerEquipmentOverrides(customs), [customs])
   const [pendingCount, setPendingCount] = useState(() => loadPending().length)
-  const [whoopWeightLb, setWhoopWeightLb] = useState<number | undefined>(undefined)
+  const me = useMe()
+  // The strap's measurement only counts while a strap is linked
+  const whoopWeightLb = strapLinked ? me?.whoop.bodyWeightLb : undefined
   const [weights, setWeights] = useState<WeightEntry[]>(loadWeightCache)
+  const unit = useUnitPref()
+  // The local date the morning weigh-in was waved off on
+  const [weighInDismissed, setWeighInDismissed] = useState<string | null>(
+    weighInDismissedOn,
+  )
   // A number the lifter typed always outranks the strap's measurement
   const bodyWeightLb = currentBodyWeight(weights, whoopWeightLb)
   const [offline, setOffline] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE)
+  // Captured sessions are the strap's; the server keeps old ones after a
+  // disconnect, so the gate is here rather than on the fetch.
+  const strapSessions = strapLinked ? sessions : []
   const [mode, setMode] = useState<Mode>(() => {
     const timer = loadTimerDraft()
     if (timer) return { m: 'timer', draft: timer }
@@ -1449,14 +1496,16 @@ export function Workouts({
 
   async function refresh() {
     try {
-      const [wRes, sRes, tRes, eRes, meRes, mRes, wtRes] = await Promise.all([
+      const [wRes, sRes, tRes, eRes, mRes, wtRes] = await Promise.all([
         api.get('/api/workouts?days=365'),
         api.get('/api/sessions?days=365'),
         api.get('/api/templates'),
         api.get('/api/exercises'),
-        api.get('/api/me'),
         api.get('/api/mesos'),
         api.get('/api/weights'),
+        // The shared profile (strap state, its body weight) rides along;
+        // it never throws, so an offline run still lands in the catch below
+        refreshMe(api),
       ])
       if (wRes.ok) {
         const body = await wRes.json()
@@ -1483,15 +1532,13 @@ export function Workouts({
         setCustoms(body.exercises)
         saveCustomExercises(body.exercises)
       }
-      if (meRes.ok) {
-        const body = await meRes.json()
-        setWhoopWeightLb(body?.whoop?.bodyWeightLb)
-      }
       if (wtRes.ok) {
         const body = await wtRes.json()
         if (Array.isArray(body.weights)) {
-          setWeights(body.weights)
-          saveWeightCache(body.weights)
+          // A weigh-in mid-flush stays until the server list carries it
+          const merged = mergeWeights(body.weights, loadPendingWeights())
+          setWeights(merged)
+          saveWeightCache(merged)
         }
       }
       if (mRes.ok) {
@@ -1510,7 +1557,23 @@ export function Workouts({
   async function sync() {
     const result = await flushQueue(api)
     setPendingCount(result.remaining)
+    await flushWeights(api)
     await refresh()
+  }
+
+  /** A weigh-in: local first, one entry per day, queued for the server. */
+  function logWeight(lb: number) {
+    const entry: WeightEntry = {
+      date: localToday(),
+      lb: Math.round(lb * 10) / 10,
+    }
+    setWeights((prev) => {
+      const next = upsertWeight(prev, entry)
+      saveWeightCache(next)
+      return next
+    })
+    enqueueWeight(entry)
+    void flushWeights(api)
   }
 
   useEffect(() => {
@@ -1924,7 +1987,23 @@ export function Workouts({
 
   let content: ReactNode
   if (tab === 'today') {
-    content = (
+    const today = localToday()
+    const lastWeight = sortWeights(weights)[0]
+    // Before noon, with nothing logged yet, Today opens on the scale.
+    content = weighInDue(weights, weighInDismissed) ? (
+      <WeighIn
+        // The cache can be empty until the server list lands; remounting
+        // on the newest entry keeps the prefill in step with it
+        key={lastWeight?.date ?? 'first'}
+        last={lastWeight}
+        unit={unit}
+        onSave={logWeight}
+        onDismiss={() => {
+          dismissWeighIn(today)
+          setWeighInDismissed(today)
+        }}
+      />
+    ) : (
       <Today
         api={api}
         workouts={workouts}
@@ -1933,6 +2012,8 @@ export function Workouts({
         bodyWeightLb={bodyWeightLb}
         checkins={checkins}
         onSaveCheckin={onSaveCheckin}
+        strapLinked={strapLinked}
+        templates={templates}
         onStartMesoDay={(i) => {
           const m = activeMeso(mesos)
           if (m) startMesoDay(m, i)
@@ -1960,14 +2041,12 @@ export function Workouts({
         <Trends
           api={api}
           workouts={workouts}
-          sessions={sessions}
+          sessions={strapSessions}
           lookup={muscleLookup}
           weights={weights}
           checkins={checkins}
-          onWeightsChange={(next) => {
-            setWeights(next)
-            saveWeightCache(next)
-          }}
+          onLogWeight={logWeight}
+          strapLinked={strapLinked}
         />
       </Suspense>
     )
@@ -2000,6 +2079,9 @@ export function Workouts({
           workouts={workouts}
           onNewTemplate={() => setMode({ m: 'build' })}
           onEditTemplate={(t) => setMode({ m: 'build', initial: t })}
+          onEditBuiltinRoutine={(r) =>
+            setMode({ m: 'build', initial: routineAsTemplate(r), fresh: true })
+          }
           onCustomsChange={(next) => {
             setCustoms(next)
             saveCustomExercises(next)
@@ -2017,11 +2099,18 @@ export function Workouts({
     )
   } else {
     // tab === 'history'
-    const captured = logFilter === 'captured'
+    // Captured sessions come from the strap: without one the chip goes,
+    // and a filter left on it reads as All.
+    const filter: LogFilter =
+      logFilter === 'captured' && !strapLinked ? 'all' : logFilter
+    const chips = strapLinked
+      ? LOG_CHIPS
+      : LOG_CHIPS.filter((c) => c.value !== 'captured')
+    const captured = filter === 'captured'
     const shown =
-      logFilter === 'all' || captured
+      filter === 'all' || captured
         ? workouts
-        : workouts.filter((w) => w.kind === logFilter)
+        : workouts.filter((w) => w.kind === filter)
     const visible = shown.slice(0, visibleCount)
 
     // Calendar weeks, Monday first, newest week on top.
@@ -2036,7 +2125,7 @@ export function Workouts({
     }
 
     const sortedSessions = captured
-      ? sessions.slice().sort((a, b) => b.start.localeCompare(a.start))
+      ? strapSessions.slice().sort((a, b) => b.start.localeCompare(a.start))
       : []
     const visibleSessions = sortedSessions.slice(0, visibleCount)
 
@@ -2052,8 +2141,8 @@ export function Workouts({
           </IconButton>
         </div>
         <Chips
-          options={LOG_CHIPS}
-          value={logFilter}
+          options={chips}
+          value={filter}
           onChange={setLogFilter}
           ariaLabel="Log"
         />
@@ -2135,7 +2224,7 @@ export function Workouts({
           </Button>
         )}
 
-        {captured && sessions.length === 0 && (
+        {captured && strapSessions.length === 0 && (
           <p className="text-caption text-ink-3">Nothing captured yet.</p>
         )}
         {captured && visibleSessions.length > 0 && (
@@ -2239,7 +2328,7 @@ export function Workouts({
         <IntervalSession
           key={mode.draft.startEpoch}
           initial={mode.draft}
-          sessions={sessions}
+          sessions={strapSessions}
           onSave={(w) =>
             finish(w, { keepStrengthDraft: mode.draft.resumeStrength === true })
           }
@@ -2378,7 +2467,7 @@ export function Workouts({
                 : { m: 'list' },
             )
           }}
-          onDelete={removeTemplate}
+          onDelete={mode.fresh ? undefined : removeTemplate}
           onCancel={() =>
             setMode(
               mode.returnTo === 'recover'
