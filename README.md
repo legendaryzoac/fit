@@ -101,8 +101,8 @@ what you said      ─┘   {messages}        prompt, tools, budget ◀─ text 
   cent.
 - **Guard rails on the server.** The Lambda owns the model id, the system
   prompt, the tool list and the output cap, rebuilds the conversation block
-  by block before forwarding it, and counts calls per account per day
-  (`AGENT_DAILY_CALLS`, default 150) in DynamoDB.
+  by block before forwarding it, and holds each account to a daily budget
+  of calls and input tokens, counted in DynamoDB.
 - **Works without the model.** The demo, offline use, and a stack with no
   API key all run a rules-only coach built into the app that speaks the same
   tool format, so the cards and the engine checks are identical.
@@ -116,8 +116,8 @@ aws ssm put-parameter --type SecureString \
 
 Until that parameter exists `/api/agent` answers 503 and the app uses the
 built-in coach. Optional Lambda environment: `AGENT_MODEL`
-(`claude-haiku-5-5`), `AGENT_EFFORT` (`medium`), `AGENT_DAILY_CALLS`,
-`AGENT_STRICT_TOOLS`.
+(`claude-haiku-5-5`), `AGENT_EFFORT` (`medium`), `AGENT_DAILY_CALLS` (150),
+`AGENT_DAILY_INPUT_TOKENS` (2,000,000), `AGENT_STRICT_TOOLS`.
 
 ## Cost
 
