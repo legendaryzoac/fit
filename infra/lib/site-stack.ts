@@ -137,16 +137,31 @@ export class SiteStack extends Stack {
     const apiFn = new NodejsFunction(this, 'ApiFn', {
       entry: path.join(__dirname, '../../api/src/handler.ts'),
       runtime: lambda.Runtime.NODEJS_22_X,
-      memorySize: 256,
-      timeout: Duration.seconds(10),
+      memorySize: 512,
+      // Every other route answers in milliseconds; the coach route waits on
+      // a model call (25 s per attempt, one retry — see api/src/agent).
+      timeout: Duration.seconds(60),
       logRetention: logs.RetentionDays.ONE_MONTH,
       environment: {
         TABLE_NAME: table.tableName,
         USER_POOL_ID: userPool.userPoolId,
         CLIENT_ID: webClient.userPoolClientId,
+        AGENT_SSM_PREFIX: '/fit/agent',
       },
     })
     table.grantReadWriteData(apiFn)
+
+    // The coach's Anthropic API key is a hand-written SSM SecureString
+    // (/fit/agent/anthropic-api-key), never in code. Until it exists the
+    // route answers 503 and the app uses its built-in coach.
+    apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [
+          `arn:aws:ssm:${this.region}:${this.account}:parameter/fit/agent/*`,
+        ],
+      }),
+    )
 
     // Same-origin API: CloudFront routes /api/* to the function URL (OAC-signed),
     // so the browser never talks to the Lambda URL directly and CORS never exists.
@@ -155,7 +170,11 @@ export class SiteStack extends Stack {
     })
     distribution.addBehavior(
       'api/*',
-      origins.FunctionUrlOrigin.withOriginAccessControl(fnUrl),
+      // CloudFront gives an origin 30 s by default; a coach reply can take
+      // longer, so wait as long as the function may run.
+      origins.FunctionUrlOrigin.withOriginAccessControl(fnUrl, {
+        readTimeout: Duration.seconds(60),
+      }),
       {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,

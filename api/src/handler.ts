@@ -4,6 +4,7 @@ import type {
   LambdaFunctionURLEvent,
   LambdaFunctionURLResult,
 } from 'aws-lambda'
+import { handleAgent, handleAgentStatus } from './agent/handler'
 import {
   handleDeleteCheckin,
   handleListCheckins,
@@ -136,6 +137,8 @@ export async function handler(
   if (route === 'GET /api/exercises') return handleListExercises(userId)
   if (route === 'POST /api/exercises') return handleSaveExercise(userId, event)
   if (route === 'DELETE /api/exercises') return handleDeleteExercise(userId, event)
+  if (route === 'GET /api/agent') return handleAgentStatus(userId)
+  if (route === 'POST /api/agent') return handleAgent(userId, event)
   if (route === 'GET /api/whoop/connect') return handleWhoopConnect(userId)
   if (route === 'DELETE /api/whoop') return handleWhoopDisconnect(userId)
 
