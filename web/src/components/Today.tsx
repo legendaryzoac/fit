@@ -497,7 +497,7 @@ export function Today({
         chips={coachChips}
         busy={coachBusy}
         onOpen={() => onCoach()}
-        onChip={(say) => onCoach(say)}
+        onChip={(say) => onCoach(say || undefined)}
       />
 
       {staleBanner && (

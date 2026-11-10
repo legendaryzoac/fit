@@ -1536,6 +1536,8 @@ export function Workouts({
   })
 
   // ---- the coach ----
+  // The lift logged most often: the one worth a "how is it going" chip
+  const topLift = useMemo(() => exercisesByFrequency(workouts)[0], [workouts])
   // Fetched here rather than in Today so the coach reads the same strap
   // numbers the home screen draws, whichever tab it is opened from.
   const strap = useStrapMetrics(api, strapLinked)
@@ -2024,10 +2026,11 @@ export function Workouts({
   /** What the athlete can tap instead of typing, for where they are now. */
   function coachChips(): CoachChip[] {
     const meso = activeMeso(mesos)
-    const lift = exercisesByFrequency(workouts)[0]
+    const lift = topLift
     return [
+      // With a plan in place the first chip just opens the conversation
       dayPlan
-        ? { label: 'Change the plan', say: 'I want to change today\u2019s plan.' }
+        ? { label: 'Change the plan', say: '' }
         : { label: 'Plan my day', say: 'Plan my day.' },
       { label: 'Short on time', say: 'I only have 30 minutes today.' },
       { label: 'Feeling beat up', say: 'I am beat up today. Go easy.' },

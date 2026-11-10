@@ -97,7 +97,8 @@ what you said      ─┘   {messages}        prompt, tools, budget ◀─ text 
   snapshot the engine computed (today's session with targets, weekly sets per
   muscle with zones, readiness, flags), so most turns are one model call.
   Between turns the conversation is plain text, so nothing on the device
-  depends on the prompt or model version. A turn costs a fraction of a cent.
+  depends on the prompt or model version. A turn costs about a tenth of a
+  cent.
 - **Guard rails on the server.** The Lambda owns the model id, the system
   prompt, the tool list and the output cap, rebuilds the conversation block
   by block before forwarding it, and counts calls per account per day
@@ -123,9 +124,10 @@ built-in coach. Optional Lambda environment: `AGENT_MODEL`
 CloudFront (1 TB/mo free) + Lambda (1M req/mo free) + DynamoDB (pennies
 pay-per-request) + Cognito (free under 10k MAU) + EventBridge + S3: rounding
 error per month at friends-and-family scale. The coach is the one metered
-part: Claude Haiku 5.5 at $0.10 / $0.50 per million tokens in / out puts a
-typical turn well under a tenth of a cent, and the daily per-account cap
-bounds the worst case.
+part: Claude Haiku 5.5 at $0.10 / $0.50 per million tokens in / out. A turn
+is roughly 4k cached prefix tokens, 1.5k of fresh state and under 1k out:
+about a tenth of a cent, and the daily per-account cap bounds the worst
+case at pennies.
 
 ## Monorepo
 

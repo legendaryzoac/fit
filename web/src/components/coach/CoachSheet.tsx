@@ -218,16 +218,18 @@ export function CoachSheet({
             Every plan is checked against your training before you see it.
           </p>
           <div className="flex flex-wrap gap-2">
-            {chips.map((c) => (
-              <button
-                key={c.label}
-                type="button"
-                onClick={() => send(c.say)}
-                className="pressable h-9 rounded-pill bg-surface-2 px-3.5 text-[14px] font-medium text-ink-2"
-              >
-                {c.label}
-              </button>
-            ))}
+            {chips
+              .filter((c) => c.say)
+              .map((c) => (
+                <button
+                  key={c.label}
+                  type="button"
+                  onClick={() => send(c.say)}
+                  className="pressable h-9 rounded-pill bg-surface-2 px-3.5 text-[14px] font-medium text-ink-2"
+                >
+                  {c.label}
+                </button>
+              ))}
           </div>
         </div>
       ) : (

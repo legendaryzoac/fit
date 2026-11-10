@@ -161,7 +161,14 @@ export async function runTurn(args: {
     if (!again) break
 
     messages.push(
-      { role: 'assistant', content: reply.content },
+      // Sent back as it came (thinking blocks included), minus any empty
+      // text block: the API rejects those on the way in.
+      {
+        role: 'assistant',
+        content: reply.content.filter(
+          (b) => b.type !== 'text' || (b as { text: string }).text.trim() !== '',
+        ),
+      },
       { role: 'user', content: results },
     )
   }

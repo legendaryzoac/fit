@@ -2,7 +2,8 @@ import { IconArrowUp } from '../shell/icons'
 
 export interface CoachChip {
   label: string
-  /** What is sent to the coach when the chip is tapped. */
+  /** What is sent to the coach when the chip is tapped. Empty opens the
+   * conversation without sending anything. */
   say: string
 }
 
