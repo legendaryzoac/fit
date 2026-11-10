@@ -137,6 +137,20 @@ describe('POST /api/agent', () => {
     const res = await post({ messages })
     expect(res.statusCode).toBe(429)
     expect(create).not.toHaveBeenCalled()
+    // Both ceilings are in the one conditional write: calls and tokens
+    const update = send.mock.calls[0][0].input
+    expect(update.ConditionExpression).toContain('#calls < :max')
+    expect(update.ConditionExpression).toContain('inputTokens < :maxIn')
+    expect(update.ExpressionAttributeValues[':max']).toBe(150)
+    expect(update.ExpressionAttributeValues[':maxIn']).toBe(2_000_000)
+  })
+
+  it('makes one bounded attempt, leaving retries to the browser', async () => {
+    create.mockResolvedValue(reply({ content: [] }))
+    await post({ messages })
+    const client = create.mock.contexts[0] as unknown as { _client: Anthropic }
+    expect(client._client.maxRetries).toBe(0)
+    expect(client._client.timeout).toBe(50_000)
   })
 
   it('answers 503 until a key exists, so the app can use its built-in coach', async () => {
@@ -162,8 +176,18 @@ describe('POST /api/agent', () => {
   it('maps upstream failures to statuses the browser acts on', async () => {
     const err = (status: number) =>
       Anthropic.APIError.generate(status, { type: 'error', error: { type: 'x', message: 'x' } }, 'x', new Headers())
+    // A 400 on a plain-text conversation is this deployment's fault: the
+    // browser should fall back, not tell the athlete to reword
     create.mockRejectedValueOnce(err(400))
-    expect((await post({ messages })).statusCode).toBe(409)
+    expect((await post({ messages })).statusCode).toBe(503)
+    // …but mid tool loop it may be the replayed blocks: stop the loop
+    const loop = [
+      ...messages,
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'remember', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: '{}' }] },
+    ]
+    create.mockRejectedValueOnce(err(400))
+    expect((await post({ messages: loop })).statusCode).toBe(409)
     create.mockRejectedValueOnce(err(401))
     expect((await post({ messages })).statusCode).toBe(503)
     create.mockRejectedValueOnce(err(429))

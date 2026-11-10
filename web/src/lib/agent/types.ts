@@ -218,6 +218,9 @@ export interface ThreadEntry {
   source?: CoachSource
   /** A turn that failed; shown with a retry, never sent back as history. */
   error?: string
+  /** The model declined this exchange. It and the message it answered are
+   * left out of later requests, so one decline cannot poison the rest. */
+  refused?: boolean
 }
 
 // ---- tool execution ----

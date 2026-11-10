@@ -1,14 +1,17 @@
 // The browser sends the conversation; this rebuilds it block by block so
 // only the shapes the coach needs ever reach the model. Nothing a client
 // adds (cache markers, images, documents, server-tool blocks, extra keys)
-// survives, and the size caps keep one request from becoming a large bill.
+// survives. The size caps sit a little above the largest request the app
+// itself builds (a state block, a dozen short turns, one long lookup) and
+// keep a padded request under the 100K-token mark where the model's rate
+// card steps up; the per-day token budget in the handler bounds the rest.
 
 import type Anthropic from '@anthropic-ai/sdk'
 
 const MAX_MESSAGES = 40
 const MAX_BLOCKS = 40
-const MAX_TEXT = 60_000
-const MAX_TOTAL = 160_000
+const MAX_TEXT = 40_000
+const MAX_TOTAL = 80_000
 
 export type Sanitized =
   | { ok: true; messages: Anthropic.MessageParam[] }

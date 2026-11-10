@@ -135,6 +135,46 @@ describe('runTurn with the live coach', () => {
     expect(effects.plans[0].items.map((i) => i.kind)).toEqual(['warmup', 'block', 'cooldown', 'routine'])
   })
 
+  it('keeps what a turn already did when a later call fails', async () => {
+    // Round 1 saves a plan the engine adjusts (so a second look is due);
+    // round 2 hits the daily limit.
+    const api = scripted([
+      [
+        { type: 'text', text: 'Chest day.' },
+        use('set_day_plan', {
+          headline: 'Chest',
+          rationale: 'Asked for it.',
+          items: [{ option_id: 'custom', note: '', trim: NO_TRIM }],
+          custom_session: {
+            title: 'Chest',
+            exercises: [
+              { name: 'Bench press', sets: 5 },
+              { name: 'Incline bench press', sets: 5 },
+            ],
+          },
+        }),
+      ],
+      429,
+    ])
+    const effects = recorder()
+    const out = await runTurn({ api, history: [], text: 'Chest today', ctx: makeCtx(), effects })
+    expect(effects.plans).toHaveLength(1)
+    expect(out.cards.map((c) => c.type)).toEqual(['day-plan'])
+    expect(out.text).toMatch(/^Chest day\./)
+    expect(out.text).toMatch(/cut off/)
+  })
+
+  it('flags a declined message so it is not replayed', async () => {
+    const api: Api = {
+      get: async () => new Response('{}', { status: 404 }),
+      send: async () =>
+        new Response(JSON.stringify({ content: [], stopReason: 'refusal' }), { status: 200 }),
+    }
+    const out = await runTurn({ api, history: [], text: 'something odd', ctx: makeCtx(), effects: recorder() })
+    expect(out.refused).toBe(true)
+    expect(out.text).toMatch(/outside what I can help with/)
+  })
+
   it('surfaces the daily limit instead of quietly switching coaches', async () => {
     const api = scripted([429])
     await expect(
@@ -163,6 +203,18 @@ describe('history', () => {
     expect(msgs).toEqual([
       { role: 'user', content: 'Plan my day' },
       { role: 'assistant', content: 'Done.' },
+    ])
+  })
+  it('leaves a declined exchange out, both halves', () => {
+    const msgs = historyMessages([
+      entry('user', 'Plan my day'),
+      entry('coach', 'Upper A today.'),
+      entry('user', 'something odd'),
+      entry('coach', 'That is outside what I can help with here.', { refused: true }),
+    ])
+    expect(msgs).toEqual([
+      { role: 'user', content: 'Plan my day' },
+      { role: 'assistant', content: 'Upper A today.' },
     ])
   })
 })

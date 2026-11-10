@@ -24,6 +24,16 @@ export const AGENT_DAILY_CALLS = (() => {
   return Number.isInteger(n) && n > 0 ? n : 150
 })()
 
+/**
+ * Uncached input tokens one account may send per UTC day. Calls alone do
+ * not bound cost: a request can be padded up to the size cap, so the
+ * tokens are capped too. Ordinary use is a few percent of this.
+ */
+export const AGENT_DAILY_INPUT_TOKENS = (() => {
+  const n = Number(process.env.AGENT_DAILY_INPUT_TOKENS)
+  return Number.isInteger(n) && n > 0 ? n : 2_000_000
+})()
+
 /** Escape hatch: set AGENT_STRICT_TOOLS=0 if strict schemas ever get in the
  * way. The browser validates every tool call either way. */
 export const AGENT_STRICT_TOOLS = process.env.AGENT_STRICT_TOOLS !== '0'
@@ -57,4 +67,10 @@ export async function getAnthropicKey(): Promise<string | null> {
   }
   missingUntil = Date.now() + 60_000
   return null
+}
+
+/** The API rejected the key: read it again next time, so a rotated or
+ * corrected parameter takes effect without waiting for a cold start. */
+export function forgetAnthropicKey(): void {
+  cachedKey = null
 }

@@ -12,7 +12,7 @@ import type { AgentContext, AgentEffects, ThreadEntry } from './types'
 
 const FAILURES: Record<string, string> = {
   limit: 'That is the coach’s limit for today. It resets at midnight UTC.',
-  rejected: 'That message did not go through. Try wording it differently.',
+  rejected: 'That did not go through. Start over (top right) and try again.',
   auth: 'Your session expired. Sign in again to keep going.',
   failed: 'The coach did not answer. Check your connection and try again.',
 }
@@ -96,6 +96,7 @@ export function useCoach(
             entry('coach', out.text, {
               source: out.source,
               ...(out.cards.length > 0 && { cards: out.cards }),
+              ...(out.refused && { refused: true }),
             }),
           ])
         })

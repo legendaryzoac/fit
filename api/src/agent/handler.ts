@@ -16,9 +16,11 @@ import { TABLE_NAME, ddb } from '../db'
 import { json } from '../http'
 import {
   AGENT_DAILY_CALLS,
+  AGENT_DAILY_INPUT_TOKENS,
   AGENT_EFFORT,
   AGENT_MODEL,
   AGENT_STRICT_TOOLS,
+  forgetAnthropicKey,
   getAnthropicKey,
 } from './config'
 import { sanitizeMessages } from './messages'
@@ -45,8 +47,11 @@ let clientKey = ''
 
 function clientFor(apiKey: string): Anthropic {
   if (!client || clientKey !== apiKey) {
-    // 25 s per attempt and one retry stays inside the function's 60 s.
-    client = new Anthropic({ apiKey, timeout: 25_000, maxRetries: 1 })
+    // One attempt, bounded under the function's 60 s. The SDK's own retry
+    // would sleep for whatever retry-after the API names, with no ceiling,
+    // and a slow reply would be regenerated from scratch; the browser
+    // retries once or falls back to its built-in coach instead.
+    client = new Anthropic({ apiKey, timeout: 50_000, maxRetries: 0 })
     clientKey = apiKey
   }
   return client
@@ -68,7 +73,9 @@ async function spendCall(userId: string): Promise<boolean> {
         Key: usageKey(userId, today()),
         UpdateExpression:
           'ADD #calls :one SET #type = if_not_exists(#type, :type), #ttl = if_not_exists(#ttl, :ttl)',
-        ConditionExpression: 'attribute_not_exists(#calls) OR #calls < :max',
+        ConditionExpression:
+          '(attribute_not_exists(#calls) OR #calls < :max) AND ' +
+          '(attribute_not_exists(inputTokens) OR inputTokens < :maxIn)',
         // Placeholders throughout: type and ttl are reserved words, and
         // nothing is lost by not betting on calls staying off that list
         ExpressionAttributeNames: {
@@ -79,6 +86,7 @@ async function spendCall(userId: string): Promise<boolean> {
         ExpressionAttributeValues: {
           ':one': 1,
           ':max': AGENT_DAILY_CALLS,
+          ':maxIn': AGENT_DAILY_INPUT_TOKENS,
           ':type': 'agentUsage',
           // The table expires rows by this attribute; keep a month of history
           ':ttl': Math.floor(Date.now() / 1000) + 35 * 86_400,
@@ -185,16 +193,25 @@ export async function handleAgent(
     })
   } catch (err) {
     if (err instanceof Anthropic.BadRequestError) {
-      // Our request shape, not the athlete's fault: usually a conversation
-      // the API will not accept as sent. The browser restarts the turn.
       console.error('agent bad request', PROMPT_VERSION, err.message)
-      return json(409, { error: 'conversation rejected' })
+      // Mid tool loop the browser replays the model's own blocks, and a
+      // 400 can mean the API will not take them back: 409 tells it to stop
+      // the loop. A plain-text conversation cannot be at fault, so a 400
+      // there is this deployment's request (a schema, a model override):
+      // answer like any other outage and let the built-in coach take over.
+      const replayed = clean.messages.some(
+        (m) => m.role === 'assistant' && Array.isArray(m.content),
+      )
+      return replayed
+        ? json(409, { error: 'conversation rejected' })
+        : json(503, { error: 'coach misconfigured' })
     }
     if (
       err instanceof Anthropic.AuthenticationError ||
       err instanceof Anthropic.PermissionDeniedError
     ) {
       console.error('agent credentials rejected', err.status)
+      forgetAnthropicKey()
       return json(503, { error: 'coach not configured' })
     }
     if (err instanceof Anthropic.RateLimitError) {

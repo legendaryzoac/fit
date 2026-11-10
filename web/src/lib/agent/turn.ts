@@ -41,6 +41,8 @@ export interface TurnResult {
   cards: CoachCard[]
   source: CoachSource
   rounds: number
+  /** The model declined; the exchange should not be replayed as history. */
+  refused?: boolean
 }
 
 /** What a past coach entry said, for entries that were only a card. */
@@ -56,7 +58,11 @@ function coachLine(e: ThreadEntry): string {
 
 /** Earlier entries as plain alternating turns, starting with the athlete. */
 export function historyMessages(history: ThreadEntry[]): WireMessage[] {
-  const usable = history.filter((e) => !e.error).slice(-HISTORY_ENTRIES)
+  const usable = history
+    // A declined exchange goes entirely: the reply and what prompted it
+    .filter((e, i) => !e.refused && !history[i + 1]?.refused)
+    .filter((e) => !e.error)
+    .slice(-HISTORY_ENTRIES)
   while (usable.length > 0 && usable[0].role !== 'user') usable.shift()
   return usable.map((e) =>
     e.role === 'user'
@@ -115,14 +121,26 @@ export async function runTurn(args: {
   const cards: CoachCard[] = []
   let source: CoachSource = 'live'
   let rounds = 0
+  let refused = false
 
   while (rounds < MAX_ROUNDS) {
-    const reply = await callCoach(args.api, messages)
+    let reply
+    try {
+      reply = await callCoach(args.api, messages)
+    } catch (err) {
+      // Nothing has happened yet: let the caller show the failure and
+      // offer a retry. After the first round the tools have already run
+      // (a plan saved, a note kept), so the turn keeps what it has.
+      if (rounds === 0) throw err
+      said.push('I was cut off before I could finish. What is shown here is saved.')
+      break
+    }
     rounds++
     source = reply.source
 
     if (reply.stopReason === 'refusal') {
       said.push('That is outside what I can help with here.')
+      refused = rounds === 1
       break
     }
     const spoken = textOf(reply.content)
@@ -185,5 +203,5 @@ export async function runTurn(args: {
             ? ''
             : 'I did not get that. Say it another way?'
   }
-  return { text, cards, source, rounds }
+  return { text, cards, source, rounds, ...(refused && { refused }) }
 }

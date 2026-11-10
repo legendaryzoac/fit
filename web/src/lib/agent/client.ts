@@ -62,10 +62,11 @@ export async function callCoach(
     if (res.status === 429) throw new CoachError('limit')
     if (res.status === 409 || res.status === 400) throw new CoachError('rejected')
     if (res.status === 401) throw new CoachError('auth')
-    // 502 and 504 are worth one more try; anything else means the live
-    // coach is not available here (404 before deploy, 503 before a key)
-    const transient = res.status === 502 || res.status === 504
-    if (!transient) break
+    // A 502 is worth one more try. A 504 already used the server's whole
+    // time budget, and anything else means the live coach is not available
+    // here (404 before deploy, 503 before a key or when it is busy): the
+    // built-in coach answers instead.
+    if (res.status !== 502) break
     if (attempt === 0) await wait(700)
   }
   return builtinReply(messages)
