@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
-import type { Api } from '../lib/api'
+import { Fragment, useMemo } from 'react'
+import type { DayPlan, DayPlanItem } from '../lib/agent/types'
 import type { Checkin } from '../lib/checkins'
 import {
   dayKind,
@@ -21,6 +21,7 @@ import {
   SLEEP_ROUTINE_ID,
   type Routine,
 } from '../lib/routines'
+import type { StrapMetrics } from '../lib/strap'
 import { fmtSec, totalSec, type Template } from '../lib/templates'
 import { localToday } from '../lib/weights'
 import { consistencyPct, durationMinutes, localDay } from '../lib/wellness'
@@ -34,20 +35,9 @@ import { RecoveryRing } from './cadence/RecoveryRing'
 import { StatusPill } from './cadence/StatusPill'
 import { WeekStrip } from './cadence/WeekStrip'
 import { CheckinCard } from './Checkin'
+import { CoachHero, type CoachChip } from './coach/CoachHero'
+import { DayPlanCard } from './coach/DayPlanCard'
 import { IconRecover } from './shell/icons'
-
-interface RecoveryPoint {
-  date: string
-  recoveryScore?: number | null
-  hrvMs?: number | null
-  rhr?: number | null
-}
-interface SleepPoint {
-  end?: string
-  nap?: boolean
-  inBedMin?: number
-  performancePct?: number
-}
 
 const mean = (xs: number[]) =>
   xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
@@ -64,12 +54,6 @@ function fmtSleepWords(min: number): string {
 function fmtSleepClock(min: number): string {
   const m = Math.round(min)
   return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`
-}
-
-function greeting(hour: number): string {
-  if (hour < 12) return 'Good morning'
-  if (hour < 18) return 'Good afternoon'
-  return 'Good evening'
 }
 
 /** 'FRI' becomes 'Fri' for the eyebrow. */
@@ -101,7 +85,12 @@ function lastPr(
 }
 
 export function Today({
-  api,
+  strap,
+  dayPlan,
+  coachChips,
+  coachBusy,
+  onCoach,
+  onStartPlanItem,
   workouts,
   meso,
   lookup,
@@ -118,7 +107,15 @@ export function Today({
   strapLinked,
   templates,
 }: {
-  api: Api
+  /** The wearable's last 30 days; fetched by the shell, shared with the coach. */
+  strap: StrapMetrics
+  /** The coach's plan for today, once there is one. */
+  dayPlan: DayPlan | null
+  coachChips: CoachChip[]
+  coachBusy: boolean
+  /** Opens the coach; a seed is sent as it opens. */
+  onCoach: (seed?: string) => void
+  onStartPlanItem: (item: DayPlanItem) => void
   workouts: Workout[]
   meso?: Mesocycle
   lookup: (name: string) => string | undefined
@@ -138,32 +135,10 @@ export function Today({
   onQuickLog: () => void
   onStartRoutine: (r: Routine) => void
 }) {
-  const [recoveries, setRecoveries] = useState<RecoveryPoint[] | null>(null)
-  const [sleeps, setSleeps] = useState<SleepPoint[]>([])
-
-  useEffect(() => {
-    // Without a strap there is nothing to ask for and nothing to show: the
-    // server keeps old scores after a disconnect, so the gate sits here.
-    if (!strapLinked) {
-      setRecoveries([])
-      setSleeps([])
-      return
-    }
-    let alive = true
-    api
-      .get('/api/metrics?days=30')
-      .then(async (res) => {
-        if (!res.ok || !alive) return
-        const body = await res.json()
-        if (!alive) return
-        setRecoveries(Array.isArray(body.recoveries) ? body.recoveries : [])
-        setSleeps(Array.isArray(body.sleeps) ? body.sleeps : [])
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [api, strapLinked])
+  // Without a strap the shell hands over empty lists, so every strap-only
+  // part of this screen hides on its own.
+  const recoveries = strapLinked ? strap.recoveries : []
+  const sleeps = strapLinked ? strap.sleeps : []
 
   // An unscored most-recent day (strap synced but not yet scored) must
   // not blank the section — fall back to the last SCORED entry.
@@ -398,8 +373,11 @@ export function Today({
           variant="tonal"
           block
           className="mt-2"
-          onClick={onStartWorkout}
+          onClick={() => onCoach('Build me my next training block.')}
         >
+          Build the next block with coach
+        </Button>
+        <Button variant="ghost" block className="mt-1" onClick={onStartWorkout}>
           Start an open workout
         </Button>
       </>
@@ -466,6 +444,14 @@ export function Today({
           )
         })}
         <Button
+          variant="tonal"
+          block
+          className="mt-2"
+          onClick={() => onCoach('Plan my day.')}
+        >
+          Plan today with coach
+        </Button>
+        <Button
           variant="ghost"
           block
           className="mt-1"
@@ -486,25 +472,33 @@ export function Today({
         >
           Start workout
         </Button>
-        <Button variant="tonal" block className="mt-2" onClick={onPlan}>
-          Plan a mesocycle
+        <Button
+          variant="tonal"
+          block
+          className="mt-2"
+          onClick={() => onCoach('Build me a training block.')}
+        >
+          Build a block with coach
+        </Button>
+        <Button variant="ghost" block className="mt-1" onClick={onPlan}>
+          Lay one out yourself
         </Button>
       </>
     )
 
   return (
     <div className="flex flex-col gap-3">
-      <div>
-        <h1 className="text-title-lg text-ink">
-          {greeting(new Date().getHours())}
-        </h1>
-        {meso && (
-          <p className="text-caption text-ink-2">
-            Week {week + 1} of {meso.weeks} · {sessionsDone} of{' '}
-            {sessionsPlanned} sessions done
-          </p>
-        )}
-      </div>
+      <CoachHero
+        context={
+          meso
+            ? `${meso.name} · week ${week + 1} of ${meso.weeks} · ${sessionsDone} of ${sessionsPlanned} sessions done`
+            : undefined
+        }
+        chips={coachChips}
+        busy={coachBusy}
+        onOpen={() => onCoach()}
+        onChip={(say) => onCoach(say)}
+      />
 
       {staleBanner && (
         <Banner tone="caution">No strap data for {latestAgeDays} days.</Banner>
@@ -530,7 +524,16 @@ export function Today({
             <div className="my-4 h-px bg-hairline" />
           </>
         )}
-        {sessionBlock}
+        {dayPlan ? (
+          <DayPlanCard
+            plan={dayPlan}
+            workouts={workouts}
+            onStart={onStartPlanItem}
+            onAdjust={() => onCoach()}
+          />
+        ) : (
+          sessionBlock
+        )}
       </Card>
 
       {showTonight && sleepRoutine && (
@@ -619,7 +622,7 @@ export function Today({
         <CardHead
           title="Recover"
           action={
-            <StatusPill tone="mid" dot={false}>
+            <StatusPill tone="neutral" dot={false}>
               {consistencyPct(workouts, localToday())}% of 28 d
             </StatusPill>
           }

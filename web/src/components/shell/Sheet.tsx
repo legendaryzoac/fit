@@ -36,6 +36,8 @@ export function Sheet({
   header,
   ariaLabel,
   dockClearance,
+  footer,
+  tall,
   children,
 }: {
   open: boolean
@@ -49,6 +51,11 @@ export function Sheet({
   ariaLabel?: string
   /** Leave room under the body for the floating dock (live sessions). */
   dockClearance?: boolean
+  /** Stays put under the body while it scrolls, e.g. a message composer. */
+  footer?: ReactNode
+  /** Hold the full height whatever the content, so a growing thread does
+   * not make the sheet jump. */
+  tall?: boolean
   children: ReactNode
 }) {
   const titleId = useId()
@@ -119,6 +126,28 @@ export function Sheet({
     if (open && mounted) panelRef.current?.focus()
   }, [open, mounted])
 
+  // A sheet with a footer usually has a text field in it. Where the
+  // on-screen keyboard covers the page instead of resizing it (iOS), lift
+  // the sheet by the covered height so the field stays in view.
+  const hasFooter = footer != null
+  const [keyboard, setKeyboard] = useState(0)
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!open || !hasFooter || !vv) return
+    const update = () =>
+      setKeyboard(
+        Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)),
+      )
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+      setKeyboard(0)
+    }
+  }, [open, hasFooter])
+
   if (!mounted) return null
 
   // A small Tab loop keeps keyboard focus inside the panel.
@@ -175,7 +204,18 @@ export function Sheet({
         aria-label={title ? undefined : ariaLabel}
         tabIndex={-1}
         onKeyDown={onPanelKeyDown}
-        className={`fixed inset-x-0 bottom-0 mx-auto flex max-h-[92dvh] w-full max-w-column flex-col rounded-t-xl bg-surface shadow-float transition-transform ${
+        style={
+          keyboard > 0
+            ? {
+                bottom: keyboard,
+                // Whatever is left above the keyboard, less a sliver of page
+                maxHeight: `calc(100dvh - ${keyboard}px - 12px)`,
+              }
+            : undefined
+        }
+        className={`fixed inset-x-0 bottom-0 mx-auto flex w-full max-w-column flex-col rounded-t-xl bg-surface shadow-float transition-transform ${
+          tall ? 'h-[92dvh]' : 'max-h-[92dvh]'
+        } ${
           shown && open
             ? 'translate-y-0 duration-[400ms] ease-out'
             : 'translate-y-full duration-[240ms] ease-in'
@@ -204,11 +244,18 @@ export function Sheet({
           className={`min-h-0 flex-1 overflow-y-auto px-6 ${
             dockClearance
               ? 'pb-[calc(100px+env(safe-area-inset-bottom))]'
-              : 'pb-[calc(24px+env(safe-area-inset-bottom))]'
+              : footer
+                ? 'pb-4'
+                : 'pb-[calc(24px+env(safe-area-inset-bottom))]'
           }`}
         >
           {children}
         </div>
+        {footer && (
+          <div className="shrink-0 px-4 pt-2 pb-[calc(12px+env(safe-area-inset-bottom))]">
+            {footer}
+          </div>
+        )}
       </div>
     </div>,
     document.body,

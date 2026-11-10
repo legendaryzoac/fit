@@ -9,6 +9,24 @@ import {
   type ReactNode,
 } from 'react'
 import type { ComponentProps } from 'react'
+import { mesoFromProposal } from '../lib/agent/block'
+import { generatedTitle } from '../lib/agent/dayplan'
+import { applyTrim, generatedRoutine } from '../lib/agent/options'
+import {
+  addNote,
+  getDayPlan,
+  getNotes,
+  setDayPlan,
+  useDayPlan,
+} from '../lib/agent/store'
+import type {
+  AgentContext,
+  BlockProposal,
+  DayPlanItem,
+  Trim,
+} from '../lib/agent/types'
+import { useCoach } from '../lib/agent/useCoach'
+import { exercisesByFrequency } from '../lib/analytics'
 import type { Api } from '../lib/api'
 import { todayCheckin, type Checkin } from '../lib/checkins'
 import {
@@ -40,10 +58,12 @@ import {
 } from '../lib/templates'
 import {
   effectiveRoutines,
+  resolveRoutine,
   routineAsTemplate,
   routineMinutes,
   routineSections,
 } from '../lib/routines'
+import { strapSummary, useStrapMetrics } from '../lib/strap'
 import { generateRoutine, suggestedMinutes } from '../lib/generate'
 import {
   enqueue,
@@ -75,7 +95,9 @@ import {
 import {
   activeMeso,
   dayKind,
+  isDeloadWeek,
   loadMesoCache,
+  mesoOverdue,
   mesoWeek,
   plannedSets,
   plannedSetsForExercise,
@@ -84,6 +106,8 @@ import {
   type Mesocycle,
   type Prescription,
 } from '../lib/mesocycle'
+import type { CoachChip } from './coach/CoachHero'
+import { CoachSheet } from './coach/CoachSheet'
 import { MesoCard, MesoSetup } from './Mesocycle'
 import {
   applyRecommendations,
@@ -350,10 +374,11 @@ function SessionEditor({
   // coaching, and the two would contradict each other.
   const recs = useMemo(
     () =>
-      isNew && !initial.mesoId
+      // …and neither do sessions the coach's day plan already shaped
+      isNew && !initial.mesoId && !initial.coach
         ? recommendations(history, lookup)
         : ({} as Record<string, Recommendation>),
-    [isNew, initial.mesoId, history, lookup],
+    [isNew, initial.mesoId, initial.coach, history, lookup],
   )
 
   // Targets follow the exercise list: swap a lift or add one mid-session
@@ -739,6 +764,15 @@ function SessionEditor({
             </StatusPill>
           )}
         </div>
+
+        {isNew && initial.coach?.holdLoad && (
+          <Banner>
+            <span>
+              <b>Coach</b> Hold today. Repeat last time&rsquo;s weights and
+              reps.
+            </span>
+          </Banner>
+        )}
 
         {coach.length > 0 && !coachHidden && (
           <Card tone="brand">
@@ -1433,7 +1467,11 @@ type Mode =
   | { m: 'cooldown'; muscles: string[] }
   /** Untimed recovery log, or editing any recovery session. */
   | { m: 'quicklog'; workout?: Workout }
-  | { m: 'meso-setup'; initial?: Mesocycle }
+  /** `draft`: `initial` is a coach proposal that was never saved, and
+   * `cardId` is the card in the conversation it came from. */
+  | { m: 'meso-setup'; initial?: Mesocycle; draft?: boolean; cardId?: string }
+  /** The coach conversation; `seed` is sent as it opens. */
+  | { m: 'coach'; seed?: string }
 
 /** Which bottom-nav tab this instance is rendering (Recovery lives in its
  * own component). One Workouts instance persists across all four so live
@@ -1446,11 +1484,14 @@ export function Workouts({
   checkins,
   onSaveCheckin,
   strapLinked,
+  demo = false,
 }: {
   api: Api
   tab: WorkoutsTab
   checkins: Checkin[]
   onSaveCheckin: (patch: Partial<Checkin>) => void
+  /** The public demo: its coach is the one built into the app. */
+  demo?: boolean
   /** A wearable is connected (or waiting on a re-auth). Without one, every
    * strap-only surface — captured sessions, readiness, sleep — stays hidden. */
   strapLinked: boolean
@@ -1493,6 +1534,31 @@ export function Workouts({
     if (draft) return { m: 'strength', workout: draft, isNew: true }
     return { m: 'list' }
   })
+
+  // ---- the coach ----
+  // Fetched here rather than in Today so the coach reads the same strap
+  // numbers the home screen draws, whichever tab it is opened from.
+  const strap = useStrapMetrics(api, strapLinked)
+  const dayPlan = useDayPlan()
+  const coach = useCoach(
+    api,
+    // Built when a turn starts, so the snapshot is as fresh as the tap
+    (): AgentContext => ({
+      now: Date.now(),
+      workouts,
+      mesos,
+      templates,
+      customs,
+      lookup: muscleLookup,
+      checkins,
+      bodyWeightLb,
+      unit,
+      strap: strapSummary(strap, Date.now()),
+      notes: getNotes(),
+      dayPlan: getDayPlan(),
+    }),
+    { saveCheckin: onSaveCheckin, setDayPlan, addNote },
+  )
 
   async function refresh() {
     try {
@@ -1603,7 +1669,9 @@ export function Workouts({
   modeRef.current = mode
   useEffect(() => {
     return onResume(() => {
-      if (modeRef.current.m === 'meso-setup') return
+      if (modeRef.current.m === 'meso-setup' || modeRef.current.m === 'coach') {
+        return
+      }
       const timer = loadTimerDraft()
       if (timer) {
         setMode({ m: 'timer', draft: timer })
@@ -1782,8 +1850,13 @@ export function Workouts({
     return confirm({ title: 'Discard the live session?', action: 'Discard' })
   }
 
-  /** Start the given microcycle day with this week's prescriptions. */
-  async function startMesoDay(meso: Mesocycle, dayIndex: number) {
+  /**
+   * Start the given microcycle day with this week's prescriptions. A day
+   * plan from the coach may reshape it first (`trim`): the set counts come
+   * from the same applyTrim that drew the plan card, so the session opens
+   * as the card showed it.
+   */
+  async function startMesoDay(meso: Mesocycle, dayIndex: number, trim?: Trim) {
     const day = meso.days[dayIndex]
     if (!day) return
     if (!(await confirmReplaceLive())) return
@@ -1813,16 +1886,163 @@ export function Workouts({
     }
 
     const mesoWorkouts = workouts.filter((w) => w.mesoId === meso.id)
-    const planned = plannedSets(meso, day, week, mesoWorkouts, muscleLookup, now)
+    const planned = applyTrim(
+      plannedSets(meso, day, week, mesoWorkouts, muscleLookup, now).map((e) => ({
+        name: e.name,
+        sets: e.setCount,
+      })),
+      trim,
+      muscleLookup,
+    )
     const w = newWorkout('strength')
     w.mesoId = meso.id
     w.mesoDayIndex = dayIndex
     w.title = `${day.label} · wk ${week + 1}`
     w.exercises = planned.map((e) => ({
       name: e.name,
-      sets: Array.from({ length: e.setCount }, () => ({})),
+      sets: Array.from({ length: e.sets }, () => ({})),
     }))
+    if (trim) w.coach = { holdLoad: trim.holdLoad === true }
     setMode(beginStrength(w))
+  }
+
+  /** A live strength session with exactly these rows: what a day plan
+   * showed is what opens, with no further set changes applied. */
+  function startRows(
+    title: string,
+    rows: Array<{ name: string; sets: number }>,
+    holdLoad = false,
+  ) {
+    const w = newWorkout('strength')
+    w.title = title
+    w.exercises = rows.map((r) => ({
+      name: r.name,
+      sets: Array.from({ length: r.sets }, () => ({})),
+    }))
+    w.coach = { holdLoad }
+    setMode(beginStrength(w))
+  }
+
+  /** Start one item of the coach's day plan. Always from a tap. */
+  async function startPlanItem(item: DayPlanItem) {
+    const gone = () =>
+      setError('That is no longer in your plan. Ask the coach to plan the day again.')
+    if (item.kind === 'block') {
+      const m = mesos.find((x) => x.id === item.mesoId && x.status === 'active')
+      if (m) await startMesoDay(m, item.dayIndex, item.trim)
+      else gone()
+      return
+    }
+    if (item.kind === 'template') {
+      const t = templates.find((x) => x.id === item.templateId)
+      if (!t) return gone()
+      // Slot templates pick their exercises first; that flow asks about a
+      // live session itself
+      if (item.session === 'strength' && hasSlots(t)) {
+        setMode({ m: 'slots', template: t })
+        return
+      }
+      if (!(await confirmReplaceLive())) return
+      if (item.session === 'timer') {
+        setMode(startTimer(t.kind, t.sections ?? [], t.name))
+        return
+      }
+      startRows(
+        t.name,
+        applyTrim(
+          (t.exercises ?? []).map((e) => ({ name: e.name, sets: e.setCount })),
+          item.trim,
+          muscleLookup,
+        ),
+        item.trim?.holdLoad === true,
+      )
+      return
+    }
+    if (!(await confirmReplaceLive())) return
+    if (item.kind === 'custom') {
+      startRows(item.title, item.exercises)
+    } else if (item.kind === 'routine') {
+      const r = resolveRoutine(item.routineId, templates)
+      if (!r) return gone()
+      setMode(startTimer('recovery', routineSections(r), r.name))
+    } else if (item.kind === 'user-routine') {
+      const t = templates.find((x) => x.id === item.templateId)
+      if (!t) return gone()
+      setMode(
+        startTimer(
+          'recovery',
+          routineToSections(t.items ?? [], t.transitionSec),
+          t.name,
+        ),
+      )
+    } else {
+      const r = generatedRoutine(
+        item.muscles,
+        item.kind === 'warmup' ? 'pre' : 'post',
+        Date.now(),
+      )
+      if (!r) return gone()
+      setMode(
+        startTimer(
+          'recovery',
+          routineSections(r),
+          generatedTitle(item.kind, item.muscles),
+          item.kind === 'warmup' ? { modality: 'mobility' } : undefined,
+        ),
+      )
+    }
+  }
+
+  /** Ending a block by hand: completed if it ran its course, else abandoned. */
+  function endBlock(old: Mesocycle) {
+    const now = Date.now()
+    const ran =
+      mesoOverdue(old, now) ||
+      isDeloadWeek(old, Math.min(mesoWeek(old, now), old.weeks - 1))
+    upsertMeso({ ...old, status: ran ? 'completed' : 'abandoned' })
+  }
+
+  /** Save a block the coach proposed. Only one block is ever active, so
+   * the current one ends first, and only once the athlete has agreed. */
+  async function saveCoachBlock(cardId: string, proposal: BlockProposal) {
+    const old = activeMeso(mesos)
+    if (old) {
+      const ok = await confirm({
+        title: `End ${old.name}?`,
+        body: `${proposal.name} starts today in its place.`,
+        action: 'Start new block',
+        tone: 'brand',
+      })
+      if (!ok) return
+      endBlock(old)
+    }
+    const meso = mesoFromProposal(proposal, Date.now())
+    upsertMeso(meso)
+    coach.markBlockSaved(cardId, meso.id)
+  }
+
+  /** What the athlete can tap instead of typing, for where they are now. */
+  function coachChips(): CoachChip[] {
+    const meso = activeMeso(mesos)
+    const lift = exercisesByFrequency(workouts)[0]
+    return [
+      dayPlan
+        ? { label: 'Change the plan', say: 'I want to change today\u2019s plan.' }
+        : { label: 'Plan my day', say: 'Plan my day.' },
+      { label: 'Short on time', say: 'I only have 30 minutes today.' },
+      { label: 'Feeling beat up', say: 'I am beat up today. Go easy.' },
+      ...(!meso || mesoOverdue(meso, Date.now())
+        ? [{ label: 'Build a block', say: 'Build me a training block.' }]
+        : []),
+      ...(lift
+        ? [
+            {
+              label: `How\u2019s my ${lift.toLowerCase()}?`,
+              say: `How is my ${lift.toLowerCase()} going?`,
+            },
+          ]
+        : []),
+    ]
   }
 
   /**
@@ -1927,18 +2147,21 @@ export function Workouts({
       const mesoWorkouts = workouts.filter(
         (w) => w.mesoId === meso.id && w.id !== m.workout.id,
       )
-      prescribe = (names, setsByName) =>
-        prescribeExercises(
-          meso,
-          names,
-          week,
-          mesoWorkouts,
-          workouts,
-          setsByName,
-          muscleLookup,
-          bodyWeightLb,
-          dayIdx,
-        )
+      // A held day prescribes nothing: the rows fall back to this slot's
+      // last session, which is exactly "repeat last time".
+      if (!m.workout.coach?.holdLoad)
+        prescribe = (names, setsByName) =>
+          prescribeExercises(
+            meso,
+            names,
+            week,
+            mesoWorkouts,
+            workouts,
+            setsByName,
+            muscleLookup,
+            bodyWeightLb,
+            dayIdx,
+          )
       mesoSetCount = (name, usedByMuscle) =>
         plannedSetsForExercise(
           meso,
@@ -2005,7 +2228,12 @@ export function Workouts({
       />
     ) : (
       <Today
-        api={api}
+        strap={strap}
+        dayPlan={dayPlan}
+        coachChips={coachChips()}
+        coachBusy={coach.busy}
+        onCoach={(seed) => setMode({ m: 'coach', seed })}
+        onStartPlanItem={startPlanItem}
         workouts={workouts}
         meso={activeMeso(mesos)}
         lookup={muscleLookup}
@@ -2053,8 +2281,24 @@ export function Workouts({
   } else if (tab === 'plan') {
     content = (
       <div className="flex flex-col gap-3">
-        <h1 className="text-title-lg text-ink">Plan</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-title-lg text-ink">Plan</h1>
+          {activeMeso(mesos) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                setMode({ m: 'coach', seed: 'Build me my next training block.' })
+              }
+            >
+              Next block with coach
+            </Button>
+          )}
+        </div>
         <MesoCard
+          onCoach={() =>
+            setMode({ m: 'coach', seed: 'Build me a training block.' })
+          }
           meso={activeMeso(mesos)}
           workouts={workouts}
           onStartDay={(i) => {
@@ -2429,7 +2673,12 @@ export function Workouts({
           lookup={muscleLookup}
           history={workouts}
           initial={mode.initial}
+          draft={mode.draft}
           onSave={(m) => {
+            // A coach draft replaces whatever block is running
+            const old = activeMeso(mesos)
+            if (mode.draft && old && old.id !== m.id) endBlock(old)
+            if (mode.cardId) coach.markBlockSaved(mode.cardId, m.id)
             // Slot-derived rows carry a muscle — register free-typed names
             // so feedback/volume/prescriptions can resolve them (the same
             // convention SlotFill established).
@@ -2444,6 +2693,28 @@ export function Workouts({
             setMode({ m: 'list' })
           }}
           onCancel={toList}
+        />
+      )}
+
+      {mode.m === 'coach' && (
+        <CoachSheet
+          coach={coach}
+          seed={mode.seed}
+          demo={demo}
+          chips={coachChips()}
+          workouts={workouts}
+          activeBlockName={activeMeso(mesos)?.name}
+          onStartItem={startPlanItem}
+          onSaveBlock={saveCoachBlock}
+          onCustomizeBlock={(cardId, p) =>
+            setMode({
+              m: 'meso-setup',
+              initial: mesoFromProposal(p, Date.now()),
+              draft: true,
+              cardId,
+            })
+          }
+          onClose={toList}
         />
       )}
 

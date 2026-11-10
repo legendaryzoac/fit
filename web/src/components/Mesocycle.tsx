@@ -130,6 +130,7 @@ export function MesoCard({
   onEnd,
   onEdit,
   onPlan,
+  onCoach,
 }: {
   meso?: Mesocycle
   workouts: Workout[]
@@ -137,16 +138,23 @@ export function MesoCard({
   onEnd: (status: 'completed' | 'abandoned') => void
   onEdit: () => void
   onPlan: () => void
+  /** Build the block by talking it through with the coach. */
+  onCoach: () => void
 }) {
   if (!meso) {
     return (
       <EmptyState
         title="No block"
-        caption="Plan weeks of sessions with progression."
+        caption="Talk it through with the coach, or lay it out yourself. Either way it is yours to edit."
         action={
-          <Button variant="primary" onClick={onPlan}>
-            New block
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" onClick={onCoach}>
+              Build with coach
+            </Button>
+            <Button variant="quiet" onClick={onPlan}>
+              New block
+            </Button>
+          </div>
         }
       />
     )
@@ -355,7 +363,7 @@ export function MesoCard({
             <WeekStrip days={weekDays} />
           </div>
           {recoveryThisWeek.length > 0 && (
-            <p className="mt-2 text-caption font-semibold text-amber-strong">
+            <p className="mt-2 text-caption font-semibold text-sky-strong">
               Recovery · {recoveryThisWeek.length}{' '}
               {recoveryThisWeek.length === 1 ? 'session' : 'sessions'} ·{' '}
               {recoveryMinutes} min
@@ -432,6 +440,7 @@ export function MesoSetup({
   lookup,
   history,
   initial,
+  draft = false,
   onSave,
   onCancel,
 }: {
@@ -441,6 +450,8 @@ export function MesoSetup({
   history: Workout[]
   /** An existing block to edit; its id, start and status are kept. */
   initial?: Mesocycle
+  /** `initial` is a proposal that has never been saved (from the coach). */
+  draft?: boolean
   /** Runs once the sheet has dropped. */
   onSave: (meso: Mesocycle) => void
   /** Runs once the sheet has dropped. */
@@ -662,7 +673,9 @@ export function MesoSetup({
         label: d.label.trim() || 'Day',
         exercises: d.exercises.map((e) => ({ ...e, name: e.name.trim() })),
       })),
-      startDate: initial?.startDate ?? new Date().toISOString(),
+      // A draft was proposed a while ago; the block starts when it is saved
+      startDate:
+        initial && !draft ? initial.startDate : new Date().toISOString(),
       status: initial?.status ?? 'active',
     }
     // The API rejects bodies over 32KB — catch it here instead of letting
@@ -855,7 +868,7 @@ export function MesoSetup({
       open={open}
       onClose={cancel}
       onExited={onExited}
-      title={initial ? 'Edit block' : 'New block'}
+      title={initial && !draft ? 'Edit block' : 'New block'}
     >
       <div className="flex flex-col gap-3">
         <Segment

@@ -14,6 +14,7 @@ import { Banner } from '../cadence/Banner'
 import { Button } from '../cadence/Button'
 import { ListItem } from '../cadence/ListItem'
 import { StatusPill } from '../cadence/StatusPill'
+import { CoachSettings } from '../coach/CoachSettings'
 import { LockScreenSwitch } from '../LockScreenSwitch'
 import { Segment } from './Segment'
 import { Sheet } from './Sheet'
@@ -193,6 +194,10 @@ export function SettingsSheet({
       <div className="mt-6 h-px bg-hairline" />
 
       <div className="mt-6 flex flex-col gap-3">{open && <StrapRow api={api} />}</div>
+
+      <div className="mt-6 h-px bg-hairline" />
+
+      <div className="mt-6">{open && <CoachSettings api={api} demo={demo} />}</div>
 
       <div className="mt-6 h-px bg-hairline" />
 

@@ -96,6 +96,7 @@ export function AppShell({
             checkins={checkins}
             onSaveCheckin={saveCheckin}
             strapLinked={linked}
+            demo={demo}
           />
         </div>
       </main>

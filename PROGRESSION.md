@@ -305,3 +305,37 @@ better, plus a 0–10 Perceived Recovery Status before a session) is a
 status indicator shown beside the load history. It does not yet feed the
 decision table in §3; if it ever does, the defensible rule is gentle
 (hold load or drop a set when PRS ≤ 3), not a volume change.
+
+## 8. The coach sits in front of this engine, not beside it
+
+The coach (`web/src/lib/agent`, served by `api/src/agent`) is a small
+language model with a digest of this document as its standing
+instructions. It is allowed to choose; it is not trusted to count. So:
+
+- **It can only propose.** A day plan is assembled from ids the app
+  already knows how to start, plus at most one session it composes. A
+  block is exercises, set counts, days and up to three focus muscles.
+  Rep windows, loads and effort targets are never the model's: they stay
+  where §4, §6 and §7 put them.
+- **Every proposal is checked here before the athlete sees it.**
+  Exercise names must resolve to the catalog (shorthand like "RDL" is
+  canonicalised; an unknown lift is an error naming the nearest ones). A
+  session is held to the 8-set cap of §2 the way `plannedSets` would hold
+  it, except visibly: the card says what was cut. Weekly volume is laid
+  against §1, and anything past MRV is refused outright. A focus muscle
+  that opens under MEV, or with no room under the session cap, is flagged.
+  Errors go back to the model to fix; adjustments and warnings are shown.
+- **Readiness changes the day, gently.** This is where the rule sketched
+  at the end of §7 lives. When the check-in or the strap is poor, the
+  coach may hold the load (the session prescribes nothing and the rows
+  repeat that slot's last numbers), take one or two sets off each lift,
+  keep only the first lifts when time is short, or swap a movement that
+  hurts. It may not add volume, and none of this is written back to the
+  block: next week's plan is still derived from what was authored and
+  what was logged.
+- **The block editor is the source of truth afterwards.** A block the
+  coach built is an ordinary block. Saving it ends the one that was
+  running (completed if it reached its deload, abandoned otherwise), and
+  "Customize" opens the proposal in the same editor a hand-built block
+  uses.
+

@@ -204,3 +204,19 @@ export function IconRecover(p: IconProps) {
     </Icon>
   )
 }
+
+export function IconArrowUp(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M12 19V5M6 11l6-6 6 6" />
+    </Icon>
+  )
+}
+
+export function IconRestart(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 12a8 8 0 1 0 2.6-5.9M4 4v4h4" />
+    </Icon>
+  )
+}
