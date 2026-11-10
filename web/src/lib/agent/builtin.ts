@@ -123,9 +123,8 @@ const NO_TRIM = {
 
 interface Mods {
   minutes?: number
+  /** The athlete said they are run down. */
   gentle?: boolean
-  /** Why it is gentle, for the rationale. */
-  because?: string
   /** Muscles to leave out today (pain). */
   avoid?: string[]
   avoidPart?: string
@@ -185,7 +184,6 @@ function readMods(t: string, state: State): Mods {
   if (minutes) mods.minutes = minutes
   if (TIRED.test(t) || SORE.test(t)) {
     mods.gentle = true
-    mods.because = 'you said you are run down'
   }
   if (PAIN.test(t)) {
     const part = Object.keys(PART_MUSCLES).find((p) => new RegExp(`\\b${p}s?\\b`).test(t))
@@ -364,8 +362,10 @@ function planDay(state: State, mods: Mods): AgentReply {
       trim.drop_sets_per_exercise = 1
       trim.hold_load = true
       tags.push('easy')
+      // What they just said outranks the numbers in state, which were
+      // read before this message's check-in was logged
       reasons.push(
-        `${readiness ? `Readiness is low (${readiness})` : `Since ${mods.because ?? 'readiness is low'}`}, so one set comes off each lift and loads hold.`,
+        `${mods.gentle ? 'You said you are run down' : `Readiness is low${readiness ? ` (${readiness})` : ''}`}, so one set comes off each lift and loads hold.`,
       )
     } else if (readiness) {
       reasons.push(`Readiness: ${readiness}.`)
@@ -468,13 +468,16 @@ const FOCUS_WORDS: Array<[RegExp, string[]]> = [
 ]
 
 const BLOCK_INTENT =
-  /\b(block|program|programme|mesocycle|split)\b|\b(build|make|write|design|create|new)\b.*\b(plan|routine)\b|\btraining plan\b/
+  /\b(block|program|programme|mesocycle)\b|\b(build|make|write|design|create|new)\b.*\b(plan|routine|split)\b|\btraining plan\b/
+/** "Make me a plan for today" is about the day, not a block. */
+const ABOUT_THE_DAY = /\b(today|tonight|my day|this (morning|afternoon|evening))\b/
+const wantsBlock = (t: string) => BLOCK_INTENT.test(t) && !ABOUT_THE_DAY.test(t)
 
 function blockFlow(convo: Array<{ role: string; text: string }>): AgentReply | null {
   // The flow starts at the last message that asked for a block
   let start = -1
   for (let i = convo.length - 1; i >= 0; i--) {
-    if (convo[i].role === 'user' && BLOCK_INTENT.test(convo[i].text.toLowerCase())) {
+    if (convo[i].role === 'user' && wantsBlock(convo[i].text.toLowerCase())) {
       start = i
       break
     }

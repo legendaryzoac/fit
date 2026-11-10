@@ -67,9 +67,15 @@ async function spendCall(userId: string): Promise<boolean> {
         TableName: TABLE_NAME,
         Key: usageKey(userId, today()),
         UpdateExpression:
-          'ADD calls :one SET #type = if_not_exists(#type, :type), #ttl = if_not_exists(#ttl, :ttl)',
-        ConditionExpression: 'attribute_not_exists(calls) OR calls < :max',
-        ExpressionAttributeNames: { '#type': 'type', '#ttl': 'ttl' },
+          'ADD #calls :one SET #type = if_not_exists(#type, :type), #ttl = if_not_exists(#ttl, :ttl)',
+        ConditionExpression: 'attribute_not_exists(#calls) OR #calls < :max',
+        // Placeholders throughout: type and ttl are reserved words, and
+        // nothing is lost by not betting on calls staying off that list
+        ExpressionAttributeNames: {
+          '#calls': 'calls',
+          '#type': 'type',
+          '#ttl': 'ttl',
+        },
         ExpressionAttributeValues: {
           ':one': 1,
           ':max': AGENT_DAILY_CALLS,

@@ -292,9 +292,14 @@ export function checkDayPlan(
           adjustments,
         )
       : undefined
-    const exercises = reshapes
+    const trimmed = reshapes
       ? applyTrim(option.exercises, trim, ctx.lookup)
       : option.exercises
+    // A held day repeats last time, so the engine's progressed targets
+    // would promise numbers the session will not ask for
+    const exercises = trim?.holdLoad
+      ? trimmed.map(({ name, sets }) => ({ name, sets }))
+      : trimmed
     if (reshapes && exercises.length === 0) {
       errors.push(`${option.title}: nothing is left after the changes.`)
       return

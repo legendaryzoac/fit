@@ -255,6 +255,14 @@ describe('the built-in coach', () => {
     expect(callsOf(r).some((c) => c.name === 'offer_choices')).toBe(true)
   })
 
+  it('keeps "a plan for today" and a lift with "split" in its name out of the block interview', () => {
+    const day = ask('Make me a plan for today')
+    expect(callsOf(day).some((c) => c.name === 'set_day_plan')).toBe(true)
+    const swap = ask('Can we skip the Bulgarian split squat today, my knee hurts')
+    expect(callsOf(swap).some((c) => c.name === 'propose_block')).toBe(false)
+    expect(swap.content.some((b) => b.type === 'text' && /How many days/.test(b.text))).toBe(false)
+  })
+
   it('remembers a stated fact', () => {
     const r = ask("I don't have a barbell at home")
     const note = callsOf(r).find((c) => c.name === 'remember')!.input

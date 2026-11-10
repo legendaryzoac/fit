@@ -119,6 +119,8 @@ describe('checkDayPlan', () => {
     if (item?.kind !== 'block') return
     expect(item.exercises.map((e) => e.name)).toEqual(['Bench press', 'Barbell row'])
     expect(item.exercises[0].sets).toBe(3)
+    // Held: the card must not show the progressed target it will not ask for
+    expect(item.exercises[0].target).toBeUndefined()
     expect(item.trim).toEqual({ keepFirst: 2, dropSets: 1, holdLoad: true })
   })
 
