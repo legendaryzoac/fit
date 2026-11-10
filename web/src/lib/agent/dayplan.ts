@@ -2,7 +2,25 @@
 
 import { localDay } from '../wellness'
 import type { Workout } from '../workouts'
-import type { DayPlanItem } from './types'
+import type { DayPlan, DayPlanItem } from './types'
+
+/**
+ * The coach's one line, a few words in its own voice. It follows the day:
+ * nothing chosen yet, a plan standing, the work done. The home screen and
+ * the top of an empty conversation both show it, so they never disagree.
+ */
+export function coachLine(
+  workouts: Workout[],
+  dayPlan: DayPlan | null,
+  today: string,
+): string {
+  const trained = workouts.some(
+    (w) => w.kind !== 'recovery' && localDay(w.start) === today,
+  )
+  if (trained) return 'Wall\u2019s down. What\u2019s next?'
+  if (dayPlan) return 'Plan\u2019s set. Change anything?'
+  return 'Which wall today?'
+}
 
 /** The title a warm-up or cool-down is logged under, so it can be found again. */
 export function generatedTitle(

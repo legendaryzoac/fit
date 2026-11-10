@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { BLOCK, NOW, TEMPLATES, iso, strength } from '../agent/__tests__/fixtures'
 import { makeMuscleLookup } from '../exercises'
+import { coachLine } from '../agent/dayplan'
+import { localDay } from '../wellness'
 import { finalizeWorkout } from '../workouts'
 import {
   blockDaysAt,
   defaultPastStart,
   markFilledDone,
+  movePast,
   pastProblem,
   pastStartProblem,
   pastWorkout,
@@ -95,6 +98,27 @@ describe('pastWorkout', () => {
     )
   })
 
+  it('keeps the named lifts of a template that also has a slot', () => {
+    const tpl = {
+      id: 'tpl-slots',
+      name: 'Push + arms',
+      kind: 'strength' as const,
+      exercises: [
+        { name: 'Bench press', setCount: 4 },
+        { name: 'biceps exercise 1', setCount: 3, muscle: 'biceps' },
+        { name: 'Overhead press', setCount: 3 },
+      ],
+    }
+    const w = pastWorkout({ kind: 'template', templateId: 'tpl-slots' }, iso(2), {
+      ...ctx,
+      templates: [tpl],
+    })!
+    expect(w.exercises.map((e) => [e.name, e.sets.length])).toEqual([
+      ['Bench press', 4],
+      ['Overhead press', 3],
+    ])
+  })
+
   it('records a timer template the way the timer would have', () => {
     const tpl = {
       id: 'tpl-run',
@@ -148,12 +172,90 @@ describe('settlePast', () => {
     const out = settlePast({ ...day, start: iso(30) }, BLOCK)
     expect(out.mesoId).toBeUndefined()
     expect(out.mesoDayIndex).toBeUndefined()
+    // …and it stops claiming a week of a block it is not part of
+    expect(out.title).toBe('Upper A')
+    expect(settlePast({ ...day, start: iso(30), title: 'Garage' }, BLOCK).title).toBe('Garage')
   })
 
   it('ends cardio when its minutes say it did', () => {
     const run = { ...pastWorkout({ kind: 'cardio' }, iso(2), ctx)!, durationMin: 45 }
     const out = settlePast(run, undefined)
     expect(new Date(out.end!).getTime() - new Date(out.start).getTime()).toBe(45 * 60_000)
+  })
+})
+
+describe('movePast', () => {
+  // A week-1 session on this day that added a set: week 2 builds on it
+  const earlier = strength(7, 'Upper A · wk 1', [['Bench press', 4, 185, 8]], {
+    mesoId: BLOCK.id,
+    mesoDayIndex: 0,
+  })
+  const full = { ...ctx, workouts: [earlier] }
+  const opened = pastWorkout({ kind: 'block', dayIndex: 0 }, iso(1), full)!
+  const to = (w: typeof opened, daysAgo: number) => ({ ...w, start: iso(daysAgo) })
+
+  it('lays an untouched block day out again for the new date', () => {
+    const { workout, plan } = movePast(to(opened, 8), opened, full)
+    const wk1 = pastWorkout({ kind: 'block', dayIndex: 0 }, iso(8), full)!
+    expect(workout.title).toBe('Upper A · wk 1')
+    expect(workout.exercises).toEqual(wk1.exercises)
+    expect(plan.exercises).toEqual(wk1.exercises)
+    expect(plan.start).toBe(iso(8))
+    expect(workout.mesoId).toBe(BLOCK.id)
+  })
+
+  it('leaves rows the athlete has typed in alone, but still retitles', () => {
+    const typed = {
+      ...opened,
+      exercises: opened.exercises.map((e, i) =>
+        i === 0 ? { ...e, sets: [{ weight: 185, reps: 8 }, ...e.sets.slice(1)] } : e,
+      ),
+    }
+    const { workout } = movePast(to(typed, 8), opened, full)
+    expect(workout.title).toBe('Upper A · wk 1')
+    expect(workout.exercises).toEqual(typed.exercises)
+  })
+
+  it('leaves a list the athlete reshaped alone', () => {
+    const reshaped = { ...opened, exercises: opened.exercises.slice(0, 2) }
+    const { workout } = movePast(to(reshaped, 8), opened, full)
+    expect(workout.exercises).toEqual(reshaped.exercises)
+  })
+
+  it('drops the week from the title outside the block and finds it again inside', () => {
+    const out = movePast(to(opened, 30), opened, full)
+    expect(out.workout.title).toBe('Upper A')
+    expect(out.workout.mesoId).toBe(BLOCK.id) // unlinked only when saved
+    expect(out.workout.exercises).toEqual(opened.exercises)
+    const back = movePast(to(out.workout, 8), out.plan, full)
+    expect(back.workout.title).toBe('Upper A · wk 1')
+    expect(back.workout.exercises).toEqual(
+      pastWorkout({ kind: 'block', dayIndex: 0 }, iso(8), full)!.exercises,
+    )
+  })
+
+  it('only moves the dates of a session that is not a block day', () => {
+    const open = pastWorkout({ kind: 'open' }, iso(1), full)!
+    const { workout, plan } = movePast(to(open, 3), open, full)
+    expect(workout).toEqual(to(open, 3))
+    expect(plan.start).toBe(iso(3))
+  })
+})
+
+describe('coachLine', () => {
+  const today = localDay(new Date(NOW).toISOString())
+  const plan = { date: today, headline: 'Push', rationale: '', items: [] }
+
+  it('follows the day', () => {
+    expect(coachLine([], null, today)).toBe('Which wall today?')
+    expect(coachLine([], plan as never, today)).toMatch(/^Plan/)
+    const trained = { ...strength(0, 'Push', [['Bench press', 3, 185, 8]]), start: new Date(NOW).toISOString() }
+    expect(coachLine([trained], plan as never, today)).toMatch(/^Wall/)
+  })
+
+  it('does not count recovery or other days as the work done', () => {
+    const stretch = { ...strength(0, 'Stretch', []), kind: 'recovery' as const, start: new Date(NOW).toISOString() }
+    expect(coachLine([stretch, strength(1, 'Push', [])], null, today)).toBe('Which wall today?')
   })
 })
 

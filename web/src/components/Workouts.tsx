@@ -10,7 +10,7 @@ import {
 } from 'react'
 import type { ComponentProps } from 'react'
 import { mesoFromProposal } from '../lib/agent/block'
-import { generatedTitle } from '../lib/agent/dayplan'
+import { coachLine, generatedTitle } from '../lib/agent/dayplan'
 import { applyTrim, generatedRoutine } from '../lib/agent/options'
 import {
   addNote,
@@ -109,7 +109,15 @@ import {
 import type { CoachChip } from './coach/CoachHero'
 import { CoachSheet } from './coach/CoachSheet'
 import { MesoCard, MesoSetup } from './Mesocycle'
-import { pastProblem, pastWorkout, settlePast, type PastChoice } from '../lib/past'
+import {
+  blockDaysAt,
+  isFilled,
+  movePast,
+  pastProblem,
+  pastWorkout,
+  settlePast,
+  type PastChoice,
+} from '../lib/past'
 import { PastSession } from './PastSession'
 import {
   applyRecommendations,
@@ -306,6 +314,8 @@ function SessionEditor({
   initial,
   isNew,
   past = false,
+  onMoved,
+  whenHelp,
   history,
   customs,
   lookup,
@@ -326,6 +336,12 @@ function SessionEditor({
   /** A session being entered after the fact: not live, not yet saved.
    * `history` is then what had been logged before it. */
   past?: boolean
+  /** Past sessions: the date was changed in the form. Gets the session
+   * with its new start and returns it as it should now stand (a block
+   * day re-planned for that date, say). */
+  onMoved?: (moved: Workout) => Workout
+  /** Past sessions: what the chosen date means, shown under When. */
+  whenHelp?: string
   history: Workout[]
   customs: CustomExercise[]
   lookup: (name: string) => string | undefined
@@ -659,16 +675,7 @@ function SessionEditor({
   // Nothing is ticked off live in a past session: a row with numbers in
   // it is a set that was done.
   const enteredCount = w.exercises.reduce(
-    (n, e) =>
-      n +
-      e.sets.filter(
-        (s) =>
-          s.done ||
-          s.weight != null ||
-          s.reps != null ||
-          s.durationSec != null ||
-          s.distanceM != null,
-      ).length,
+    (n, e) => n + e.sets.filter(isFilled).length,
     0,
   )
 
@@ -693,32 +700,41 @@ function SessionEditor({
 
   // A saved session's length is its end minus its start, so the two are
   // edited together: moving the start keeps the length.
+  // A timer session also stores its minutes, and everything that shows a
+  // duration reads that figure first, so it is the one the field edits.
   const startMs = new Date(w.start).getTime()
+  const storesMinutes = w.kind !== 'cardio' && initial.durationMin != null
   const lengthMin =
-    w.end != null
-      ? Math.max(0, Math.round((new Date(w.end).getTime() - startMs) / 60_000))
-      : undefined
+    storesMinutes && w.durationMin != null
+      ? w.durationMin
+      : w.end != null
+        ? Math.max(0, Math.round((new Date(w.end).getTime() - startMs) / 60_000))
+        : undefined
 
   function setStart(value: string) {
     const next = new Date(value)
     if (!value || Number.isNaN(next.getTime())) return
-    setW({
+    const moved = {
       ...w,
       start: next.toISOString(),
       ...(!isNew &&
-        lengthMin != null && {
+        lengthMin != null &&
+        lengthMin > 0 && {
           end: new Date(next.getTime() + lengthMin * 60_000).toISOString(),
         }),
-    })
+    }
+    setW(onMoved ? onMoved(moved) : moved)
   }
 
-  function setLength(minutes: number | undefined) {
+  function setLength(raw: number | undefined) {
+    const minutes = raw != null && raw > 0 ? Math.round(raw) : undefined
     setW({
       ...w,
       end:
-        minutes != null && minutes > 0
+        minutes != null
           ? new Date(startMs + minutes * 60_000).toISOString()
           : undefined,
+      ...(storesMinutes && { durationMin: minutes }),
     })
   }
 
@@ -727,9 +743,10 @@ function SessionEditor({
     const entered =
       past &&
       (Boolean(w.notes) ||
-        w.exercises.some((e) =>
-          e.sets.some((s) => s.weight != null || s.reps != null || s.done),
-        ))
+        enteredCount > 0 ||
+        w.distanceM != null ||
+        w.sessionRpe != null ||
+        w.durationMin !== initial.durationMin)
     if (
       entered &&
       !(await confirm({ title: 'Discard this session?', action: 'Discard' }))
@@ -859,7 +876,7 @@ function SessionEditor({
         {past && (
           <Card>
             <div className="flex flex-col gap-3">
-              <Field label="When" htmlFor={startId}>
+              <Field label="When" htmlFor={startId} help={whenHelp}>
                 <TextInput
                   id={startId}
                   type="datetime-local"
@@ -2386,9 +2403,23 @@ export function Workouts({
     const meso = m.workout.mesoId
       ? mesos.find((x) => x.id === m.workout.mesoId)
       : undefined
+    // A past block day says what its date means: which week it counts
+    // for, or that it has left the block and will be saved on its own.
+    let whenHelp: string | undefined
+    if (past && meso) {
+      const startMs = new Date(originalStart).getTime()
+      whenHelp =
+        blockDaysAt(meso, startMs).length > 0
+          ? `Counts for week ${mesoWeek(meso, startMs) + 1} of ${meso.name}`
+          : `Outside ${meso.name}. It will be saved on its own.`
+    }
     let prescribe: ComponentProps<typeof SessionEditor>['prescribe']
     let mesoSetCount: ComponentProps<typeof SessionEditor>['mesoSetCount']
-    if (meso && (m.isNew || past)) {
+    // Targets belong to a date inside the block; outside it there are none
+    const inBlock =
+      meso != null &&
+      (!past || blockDaysAt(meso, new Date(originalStart).getTime()).length > 0)
+    if (meso && inBlock && (m.isNew || past)) {
       const at = past ? new Date(originalStart).getTime() : Date.now()
       const week = Math.min(mesoWeek(meso, at), meso.weeks - 1)
       const dayIdx = m.workout.mesoDayIndex
@@ -2428,6 +2459,23 @@ export function Workouts({
         initial={m.workout}
         isNew={m.isNew}
         past={past}
+        onMoved={
+          past
+            ? (moved) => {
+                // The date drives the plan: lay the session out again for
+                // the new one and remember that layout for the next move
+                const next = movePast(moved, m.workout, {
+                  meso,
+                  templates,
+                  workouts,
+                  lookup: muscleLookup,
+                })
+                setMode({ ...m, workout: next.plan })
+                return next.workout
+              }
+            : undefined
+        }
+        whenHelp={whenHelp}
         history={known}
         customs={customs}
         lookup={muscleLookup}
@@ -2997,6 +3045,7 @@ export function Workouts({
           coach={coach}
           seed={mode.seed}
           demo={demo}
+          prompt={coachLine(workouts, dayPlan, localToday())}
           chips={coachChips()}
           workouts={workouts}
           activeBlockName={activeMeso(mesos)?.name}

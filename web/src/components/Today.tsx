@@ -1,4 +1,5 @@
 import { Fragment, useMemo } from 'react'
+import { coachLine } from '../lib/agent/dayplan'
 import type { DayPlan, DayPlanItem } from '../lib/agent/types'
 import type { Checkin } from '../lib/checkins'
 import {
@@ -334,16 +335,8 @@ export function Today({
   const showTonight =
     new Date().getHours() >= 20 && sleepRoutine != null && !sleepDoneToday
 
-  // The coach's one line on the home screen: a nudge, not a headline. It
-  // follows the day: nothing chosen yet, a plan standing, the work done.
-  const trainedToday = workouts.some(
-    (w) => w.kind !== 'recovery' && localDay(w.start) === localToday(),
-  )
-  const coachPrompt = trainedToday
-    ? 'Wall\u2019s down. What\u2019s next?'
-    : dayPlan
-      ? 'Plan\u2019s set. Change anything?'
-      : 'Which wall today?'
+  // The coach's one line on the home screen: a nudge, not a headline
+  const coachPrompt = coachLine(workouts, dayPlan, localToday())
 
   // ---- recovery this calendar week (Mon-first) ----
   const recoverWeek = useMemo(() => {

@@ -11,7 +11,7 @@ import {
   plannedSets,
   type Mesocycle,
 } from './mesocycle'
-import { hasSlots, totalSec, type Template } from './templates'
+import { totalSec, type Template } from './templates'
 import { newWorkout, type IntervalSection, type Workout } from './workouts'
 
 export type PastChoice =
@@ -97,8 +97,8 @@ export function pastWorkout(
     if (!t || t.kind === 'recovery') return null
     if (t.kind === 'strength') {
       // Slot rows name a muscle, not a lift; they are left for the athlete
-      // to fill in with what they actually did
-      const rows = hasSlots(t) ? [] : (t.exercises ?? [])
+      // to fill in with what they actually did. The named lifts stay.
+      const rows = (t.exercises ?? []).filter((e) => e.muscle === undefined)
       return { ...dated('strength', 60), title: t.name, exercises: emptyRows(rows) }
     }
     // A timer session: what the timer would have saved had it run. Cardio
@@ -141,9 +141,74 @@ export function pastWorkout(
   return { ...dated('strength', 60), ...link, exercises: emptyRows(planned) }
 }
 
-/** True for a set the athlete filled in, ticked or not. */
-const filled = (s: Workout['exercises'][number]['sets'][number]) =>
+/**
+ * True for a set with numbers in it, ticked or not. This is the one test
+ * for "a set was entered": the same rows survive finalizeWorkout.
+ */
+export const isFilled = (s: Workout['exercises'][number]['sets'][number]) =>
   s.weight != null || s.reps != null || s.durationSec != null || s.distanceM != null
+
+/** The week a block day's generated title carries: "Upper A · wk 2". */
+const WEEK_SUFFIX = / · wk \d+$/
+
+const shapeOf = (rows: Workout['exercises']) =>
+  rows.map((e) => `${e.name.toLowerCase()}:${e.sets.length}`).join('|')
+
+/**
+ * A past session whose date was changed in the form. Everything that was
+ * derived from the date follows it: the end keeps the session's length, a
+ * block day takes the title of the week it now falls in, and while its
+ * rows are still the plan as it was laid out (nothing typed, nothing
+ * added or removed) they are laid out again for the new date. Rows the
+ * athlete has touched are theirs and stay.
+ *
+ * `current` already carries the new start. `plan` is the session as last
+ * laid out; the new plan is returned beside the session so the next move
+ * can be compared against it.
+ */
+export function movePast(
+  current: Workout,
+  plan: Workout,
+  ctx: Parameters<typeof pastWorkout>[2],
+): { workout: Workout; plan: Workout } {
+  const moved = { ...plan, start: current.start, end: current.end }
+  const meso = ctx.meso
+  const day =
+    meso && meso.id === current.mesoId && current.mesoDayIndex != null
+      ? meso.days[current.mesoDayIndex]
+      : undefined
+  if (!meso || !day || current.mesoDayIndex == null) {
+    return { workout: current, plan: moved }
+  }
+  const generated =
+    !current.title ||
+    current.title === day.label ||
+    current.title.startsWith(`${day.label} · wk `)
+  const fresh = pastWorkout(
+    { kind: 'block', dayIndex: current.mesoDayIndex },
+    current.start,
+    ctx,
+  )
+  if (!fresh) {
+    // Outside the block: it will be saved on its own, so it stops
+    // claiming a week
+    const title = generated ? day.label : current.title
+    return { workout: { ...current, title }, plan: { ...moved, title } }
+  }
+  const title = generated ? fresh.title : current.title
+  const untouched =
+    shapeOf(current.exercises) === shapeOf(plan.exercises) &&
+    !current.exercises.some((e) => e.sets.some((s) => isFilled(s) || s.done))
+  const exercises = untouched ? fresh.exercises : current.exercises
+  return {
+    workout: { ...current, title, exercises },
+    plan: {
+      ...moved,
+      title,
+      exercises: untouched ? fresh.exercises : plan.exercises,
+    },
+  }
+}
 
 /**
  * A past session is entered, not performed in front of the app: any row
@@ -155,7 +220,7 @@ export function markFilledDone(w: Workout): Workout {
     ...w,
     exercises: w.exercises.map((e) => ({
       ...e,
-      sets: e.sets.map((s) => (filled(s) ? { ...s, done: true } : s)),
+      sets: e.sets.map((s) => (isFilled(s) ? { ...s, done: true } : s)),
     })),
   }
 }
@@ -181,8 +246,9 @@ export function settlePast(w: Workout, meso: Mesocycle | undefined): Workout {
       ? meso.days[out.mesoDayIndex]
       : undefined
   if (!meso || !day || blockDaysAt(meso, startMs).length === 0) {
+    // On its own now: no block, and no week in a title the app wrote
     const { mesoId: _mesoId, mesoDayIndex: _mesoDayIndex, ...rest } = out
-    return rest
+    return { ...rest, title: rest.title?.replace(WEEK_SUFFIX, '') }
   }
   const stem = `${day.label} · wk `
   return !out.title || out.title.startsWith(stem)
@@ -212,7 +278,7 @@ export function pastProblem(w: Workout, nowMs: number): string | null {
       ? null
       : 'Enter how long it lasted.'
   }
-  if (w.exercises.some((e) => e.sets.some(filled))) return null
+  if (w.exercises.some((e) => e.sets.some(isFilled))) return null
   // An interval session has no rows to fill: its sections are the record
   const ran = w.end != null && new Date(w.end).getTime() > startMs
   if ((w.intervals?.length ?? 0) > 0 && ran) return null

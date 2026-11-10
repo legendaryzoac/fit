@@ -51,6 +51,7 @@ export function CoachSheet({
   coach,
   seed,
   demo,
+  prompt,
   chips,
   workouts,
   activeBlockName,
@@ -63,6 +64,8 @@ export function CoachSheet({
   /** Sent as soon as the sheet opens (a chip tapped on the home screen). */
   seed?: string
   demo: boolean
+  /** The coach's opening line, the same one the home screen shows. */
+  prompt: string
   /** Openers shown while the conversation is empty. */
   chips: CoachChip[]
   workouts: Workout[]
@@ -212,7 +215,7 @@ export function CoachSheet({
     >
       {thread.length === 0 && !busy ? (
         <div className="flex flex-col gap-4 pt-6">
-          <p className="text-title-lg text-ink">Which wall today?</p>
+          <p className="text-title-lg text-ink">{prompt}</p>
           <p className="text-body text-ink-2">
             Say how you feel, how long you have, or what you want to build.
             Every plan is checked against your training before you see it.
