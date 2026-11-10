@@ -154,6 +154,10 @@ const WEEK_SUFFIX = / · wk \d+$/
 const shapeOf = (rows: Workout['exercises']) =>
   rows.map((e) => `${e.name.toLowerCase()}:${e.sets.length}`).join('|')
 
+/** True when two exercise lists name the same lifts with the same set counts, in order. */
+export const sameRows = (a: Workout['exercises'], b: Workout['exercises']) =>
+  shapeOf(a) === shapeOf(b)
+
 /**
  * A past session whose date was changed in the form. Everything that was
  * derived from the date follows it: the end keeps the session's length, a
@@ -197,7 +201,7 @@ export function movePast(
   }
   const title = generated ? fresh.title : current.title
   const untouched =
-    shapeOf(current.exercises) === shapeOf(plan.exercises) &&
+    sameRows(current.exercises, plan.exercises) &&
     !current.exercises.some((e) => e.sets.some((s) => isFilled(s) || s.done))
   const exercises = untouched ? fresh.exercises : current.exercises
   return {

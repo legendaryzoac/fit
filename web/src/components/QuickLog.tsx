@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import { confirm } from '../lib/confirm'
+import { localInputValue } from '../lib/datetime'
 import { pastStartProblem } from '../lib/past'
 import { getUnitPref } from '../lib/units'
 import type { Modality, Workout } from '../lib/workouts'
@@ -51,12 +52,6 @@ function fToC(f: number): number {
   return Math.round((((f - 32) * 5) / 9) * 10) / 10
 }
 
-function toLocalInput(iso: string): string {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
 function seedFrom(m: Modality, prev?: Workout) {
   return {
     minutes: prev?.durationMin ?? (m === 'cold' ? 3 : m === 'sauna' ? 15 : 20),
@@ -93,7 +88,7 @@ export function QuickLog({
   )
   const [title, setTitle] = useState(initial?.title ?? '')
   const [start, setStart] = useState(() =>
-    toLocalInput(
+    localInputValue(
       initial?.start ??
         pastStart ??
         new Date(Date.now() - seed.minutes * 60_000).toISOString(),
@@ -126,7 +121,7 @@ export function QuickLog({
       setSeed(next)
       // A past session keeps the time it was given
       if (!past) {
-        setStart(toLocalInput(new Date(Date.now() - next.minutes * 60_000).toISOString()))
+        setStart(localInputValue(new Date(Date.now() - next.minutes * 60_000).toISOString()))
       }
     }
   }
@@ -195,7 +190,7 @@ export function QuickLog({
               id={startId}
               type="datetime-local"
               value={start}
-              max={toLocalInput(new Date().toISOString())}
+              max={localInputValue(new Date().toISOString())}
               onChange={(e) => setStart(e.target.value)}
             />
           </Field>

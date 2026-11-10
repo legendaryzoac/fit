@@ -1,4 +1,5 @@
 import { useId, useState } from 'react'
+import { localInputValue } from '../lib/datetime'
 import type { Mesocycle } from '../lib/mesocycle'
 import {
   blockDaysAt,
@@ -13,11 +14,6 @@ import { IconPlus, IconRecover, IconRun, IconStrength } from './shell/icons'
 import { Sheet } from './shell/Sheet'
 import { useSheetDismiss } from './shell/useSheetDismiss'
 import { KIND_LEAD, templateMeta } from './TemplateBuilder'
-
-function toLocalInput(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 
 /**
  * Logging something that already happened: when it was, then what it was.
@@ -39,7 +35,7 @@ export function PastSession({
 }) {
   const { open, dismiss, onExited } = useSheetDismiss()
   const whenId = useId()
-  const [when, setWhen] = useState(() => toLocalInput(defaultPastStart(Date.now())))
+  const [when, setWhen] = useState(() => localInputValue(defaultPastStart(Date.now())))
   const startMs = new Date(when).getTime()
   const problem = pastStartProblem(startMs, Date.now())
   const days = problem ? [] : blockDaysAt(meso, startMs)
@@ -63,7 +59,7 @@ export function PastSession({
             id={whenId}
             type="datetime-local"
             value={when}
-            max={toLocalInput(new Date())}
+            max={localInputValue(new Date())}
             onChange={(e) => setWhen(e.target.value)}
           />
         </Field>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { BLOCK, NOW, TEMPLATES, iso, strength } from '../agent/__tests__/fixtures'
 import { makeMuscleLookup } from '../exercises'
 import { coachLine } from '../agent/dayplan'
+import { localInputValue } from '../datetime'
 import { localDay } from '../wellness'
 import { finalizeWorkout } from '../workouts'
 import {
@@ -12,6 +13,7 @@ import {
   pastProblem,
   pastStartProblem,
   pastWorkout,
+  sameRows,
   settlePast,
 } from '../past'
 
@@ -239,6 +241,34 @@ describe('movePast', () => {
     const { workout, plan } = movePast(to(open, 3), open, full)
     expect(workout).toEqual(to(open, 3))
     expect(plan.start).toBe(iso(3))
+  })
+})
+
+describe('localInputValue', () => {
+  it('formats local wall time for a datetime-local input', () => {
+    expect(localInputValue(new Date(2026, 10, 9, 18, 5))).toBe('2026-11-09T18:05')
+    expect(localInputValue(new Date(2026, 0, 3, 7, 0).toISOString())).toBe('2026-01-03T07:00')
+  })
+
+  it('pads a half-typed year so the input keeps its value', () => {
+    // Typing 2026 one digit at a time passes through years 2, 20 and 202
+    for (const year of [2, 20, 202]) {
+      const d = new Date(2026, 10, 9, 18, 0)
+      d.setFullYear(year)
+      const value = localInputValue(d)
+      expect(value).toMatch(/^\d{4}-11-09T18:00$/)
+      expect(new Date(value).getFullYear()).toBe(year)
+    }
+  })
+})
+
+describe('sameRows', () => {
+  it('compares lifts and set counts in order, not what is typed in them', () => {
+    const a = [{ name: 'Bench press', sets: [{}, {}] }]
+    expect(sameRows(a, [{ name: 'bench press', sets: [{ weight: 185 }, {}] }])).toBe(true)
+    expect(sameRows(a, [{ name: 'Bench press', sets: [{}] }])).toBe(false)
+    expect(sameRows(a, [...a, { name: 'Barbell row', sets: [{}] }])).toBe(false)
+    expect(sameRows([], [])).toBe(true)
   })
 })
 

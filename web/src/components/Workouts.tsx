@@ -109,12 +109,15 @@ import {
 import type { CoachChip } from './coach/CoachHero'
 import { CoachSheet } from './coach/CoachSheet'
 import { MesoCard, MesoSetup } from './Mesocycle'
+import { localInputValue } from '../lib/datetime'
 import {
   blockDaysAt,
   isFilled,
   movePast,
   pastProblem,
+  pastStartProblem,
   pastWorkout,
+  sameRows,
   settlePast,
   type PastChoice,
 } from '../lib/past'
@@ -225,12 +228,6 @@ function fmtDate(iso: string): string {
 
 function fmtElapsed(ms: number): string {
   return fmtSec(ms / 1000)
-}
-
-function toLocalInput(iso: string): string {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /** Local calendar day as YYYY-MM-DD. */
@@ -693,6 +690,15 @@ function SessionEditor({
         topRef.current?.scrollIntoView({ block: 'start' })
         return
       }
+    } else if (!isNew && w.start !== initial.start) {
+      // A saved session moved to a date the log cannot show (a half-typed
+      // year, the future) would simply vanish from it
+      const why = pastStartProblem(new Date(w.start).getTime(), Date.now())
+      if (why) {
+        setProblem(why)
+        topRef.current?.scrollIntoView({ block: 'start' })
+        return
+      }
     }
     const done = { ...w, end: isNew ? new Date().toISOString() : w.end }
     dismiss(() => onFinish(done))
@@ -711,17 +717,28 @@ function SessionEditor({
         ? Math.max(0, Math.round((new Date(w.end).getTime() - startMs) / 60_000))
         : undefined
 
+  // What the form opened with, to tell an edit from a look
+  const openedLength = useRef(lengthMin)
+
   function setStart(value: string) {
     const next = new Date(value)
     if (!value || Number.isNaN(next.getTime())) return
+    // The end travels with the start, by exactly as much: a session keeps
+    // its length to the second, whatever that length is. One that only
+    // stores its minutes gets an end from them.
+    let end: string | undefined
+    if (!isNew) {
+      if (w.end != null) {
+        const shift = next.getTime() - startMs
+        end = new Date(new Date(w.end).getTime() + shift).toISOString()
+      } else if (lengthMin != null && lengthMin > 0) {
+        end = new Date(next.getTime() + lengthMin * 60_000).toISOString()
+      }
+    }
     const moved = {
       ...w,
       start: next.toISOString(),
-      ...(!isNew &&
-        lengthMin != null &&
-        lengthMin > 0 && {
-          end: new Date(next.getTime() + lengthMin * 60_000).toISOString(),
-        }),
+      ...(end !== undefined && { end }),
     }
     setW(onMoved ? onMoved(moved) : moved)
   }
@@ -746,7 +763,11 @@ function SessionEditor({
         enteredCount > 0 ||
         w.distanceM != null ||
         w.sessionRpe != null ||
-        w.durationMin !== initial.durationMin)
+        w.durationMin !== initial.durationMin ||
+        lengthMin !== openedLength.current ||
+        // `initial` is the session as last laid out, so a list that
+        // differs from it is one the athlete built or reshaped
+        !sameRows(w.exercises, initial.exercises))
     if (
       entered &&
       !(await confirm({ title: 'Discard this session?', action: 'Discard' }))
@@ -880,8 +901,8 @@ function SessionEditor({
                 <TextInput
                   id={startId}
                   type="datetime-local"
-                  value={toLocalInput(w.start)}
-                  max={toLocalInput(new Date().toISOString())}
+                  value={localInputValue(w.start)}
+                  max={localInputValue(new Date().toISOString())}
                   onChange={(e) => setStart(e.target.value)}
                 />
               </Field>
@@ -1240,7 +1261,7 @@ function SessionEditor({
                 <TextInput
                   id={startId}
                   type="datetime-local"
-                  value={toLocalInput(w.start)}
+                  value={localInputValue(w.start)}
                   onChange={(e) => setStart(e.target.value)}
                 />
               </Field>
