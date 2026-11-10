@@ -30,7 +30,7 @@ function grid(n: number, check: boolean): string {
 
 const CELL =
   'motion-quick min-h-11 w-full min-w-0 rounded-sm bg-surface-2 text-center text-title-sm font-semibold text-ink ' +
-  `placeholder:font-medium placeholder:text-ink-4 transition-[background-color,box-shadow] ${WELL_FOCUS} ${NO_SPINNER}`
+  `placeholder:font-medium placeholder:text-ink-3 transition-[background-color,box-shadow] ${WELL_FOCUS} ${NO_SPINNER}`
 
 /** One logged set: number circle, the fields, a check and a remove. */
 export function SetRow({
@@ -85,7 +85,7 @@ export function SetRow({
             className={`pressable motion-base flex h-11 w-11 items-center justify-center rounded-pill transition-[background-color,color] ${
               done
                 ? 'bg-brand text-on-brand'
-                : 'bg-surface-2 text-ink-4 hover:bg-surface-3'
+                : 'bg-surface-2 text-ink-3 hover:bg-surface-3'
             }`}
           >
             <IconCheck />

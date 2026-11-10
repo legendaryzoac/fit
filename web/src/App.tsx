@@ -5,6 +5,7 @@ import { LoginCard, NewPasswordCard, type AuthState } from './components/Auth'
 import { Button } from './components/cadence/Button'
 import { Card } from './components/cadence/Card'
 import { BrandMark } from './components/shell/BrandMark'
+import { clearCoach, setCoachScope } from './lib/agent/store'
 import { makeApi, type Api } from './lib/api'
 import { makeDemoApi } from './lib/demo'
 import { stopLockScreen } from './lib/lockScreen'
@@ -35,11 +36,18 @@ function SignInShell({ children }: { children?: React.ReactNode }) {
 export default function App() {
   const [auth, setAuth] = useState<Phase>({ phase: 'loading' })
 
+  // Every way into the signed-in app goes through here, so the coach's
+  // device-only storage is pointed at this account before anything reads it
+  const enter = (next: AuthState) => {
+    if (next.phase === 'signed-in') {
+      setCoachScope(String(next.session.getIdToken().payload.sub ?? ''))
+    }
+    setAuth(next)
+  }
+
   useEffect(() => {
     restoreSession().then((session) =>
-      setAuth(
-        session ? { phase: 'signed-in', session } : { phase: 'signed-out' },
-      ),
+      enter(session ? { phase: 'signed-in', session } : { phase: 'signed-out' }),
     )
   }, [])
 
@@ -59,6 +67,7 @@ export default function App() {
         onSignOut={() => {
           stopLockScreen() // don't leave the widget ticking on the login page
           signOut()
+          setCoachScope('')
           setAuth({ phase: 'signed-out' })
         }}
       />
@@ -88,7 +97,7 @@ export default function App() {
     <SignInShell>
       {auth.phase === 'signed-out' && (
         <div className="flex flex-col gap-4">
-          <LoginCard onResult={setAuth} />
+          <LoginCard onResult={enter} />
           <Button
             variant="ghost"
             onClick={() => {
@@ -96,6 +105,9 @@ export default function App() {
               // The demo API regenerates from scratch — a meso cached by
               // a previous demo visit would flash back then vanish.
               saveMesoCache([])
+              // …and so would yesterday's demo conversation and plan
+              setCoachScope('')
+              clearCoach()
               setAuth({ phase: 'demo', api: makeDemoApi() })
             }}
           >
@@ -106,7 +118,7 @@ export default function App() {
       {auth.phase === 'new-password' && (
         <NewPasswordCard
           user={auth.user}
-          onSignedIn={(session) => setAuth({ phase: 'signed-in', session })}
+          onSignedIn={(session) => enter({ phase: 'signed-in', session })}
         />
       )}
     </SignInShell>

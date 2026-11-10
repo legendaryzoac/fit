@@ -17,7 +17,7 @@ export const WELL_FOCUS =
 
 const WELL =
   'motion-quick w-full min-h-11 rounded-sm bg-surface-2 px-3.5 text-body text-ink ' +
-  `placeholder:text-ink-4 transition-[background-color,box-shadow] hover:bg-surface-3 ${WELL_FOCUS}`
+  `placeholder:text-ink-3 transition-[background-color,box-shadow] hover:bg-surface-3 ${WELL_FOCUS}`
 
 /** A native <select> as a well, matching TextInput. */
 export const SELECT_WELL = `h-11 w-full rounded-sm bg-surface-2 px-3.5 text-body text-ink hover:bg-surface-3 ${WELL_FOCUS}`

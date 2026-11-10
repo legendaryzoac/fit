@@ -8,6 +8,7 @@ import {
   activeMeso,
   dayKind,
   doneDayIndexes,
+  isDeloadWeek,
   mesoOverdue,
   mesoWeek,
   nextDayIndex,
@@ -33,6 +34,9 @@ export type DayOption =
       exercises: PlannedExercise[]
       scheduledToday: boolean
       doneThisWeek: boolean
+      /** The block's last week: the engine already prescribes the easy
+       * version, so there is nothing to hold. */
+      deload: boolean
     }
   | {
       id: string
@@ -202,6 +206,7 @@ export function buildOptions(ctx: AgentContext): DayOption[] {
         exercises,
         scheduledToday: today.has(i),
         doneThisWeek: done.has(i),
+        deload: isDeloadWeek(meso, week),
       })
     })
   }

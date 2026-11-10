@@ -23,6 +23,7 @@ import type {
   AgentContext,
   AgentEffects,
   AssistantBlock,
+  BlockProposal,
   CoachCard,
   CoachSource,
   ThreadEntry,
@@ -71,6 +72,16 @@ export function historyMessages(history: ThreadEntry[]): WireMessage[] {
   )
 }
 
+/** The newest block proposal in the conversation that was never saved. */
+function pendingBlock(history: ThreadEntry[]): BlockProposal | undefined {
+  for (let i = history.length - 1; i >= 0; i--) {
+    for (const c of history[i].cards ?? []) {
+      if (c.type === 'block') return c.savedMesoId ? undefined : c.proposal
+    }
+  }
+  return undefined
+}
+
 const isToolUse = (b: AssistantBlock): b is ToolUseBlock => b.type === 'tool_use'
 
 const textOf = (blocks: AssistantBlock[]): string =>
@@ -92,7 +103,12 @@ export async function runTurn(args: {
   effects: AgentEffects
 }): Promise<TurnResult> {
   // Tools read this copy; the effects keep it in step with what they save
-  const ctx: AgentContext = { ...args.ctx, notes: [...args.ctx.notes] }
+  const pending = pendingBlock(args.history)
+  const ctx: AgentContext = {
+    ...args.ctx,
+    notes: [...args.ctx.notes],
+    ...(pending && { pendingBlock: pending }),
+  }
   const effects: AgentEffects = {
     saveCheckin: (patch) => args.effects.saveCheckin(patch),
     setDayPlan: (plan) => {
@@ -117,7 +133,23 @@ export async function runTurn(args: {
     },
   ]
 
-  const said: string[] = []
+  // What the coach said, by round: a round whose proposal the engine
+  // refused or a later round replaced is dropped, so the reply never
+  // describes a version that is not the one on the card.
+  const spokenBy: Array<{ round: number; text: string }> = []
+  const said = {
+    push: (text: string, round = -1) => spokenBy.push({ round, text }),
+    drop: (round: number) => {
+      for (let i = spokenBy.length - 1; i >= 0; i--) {
+        if (spokenBy[i].round === round) spokenBy.splice(i, 1)
+      }
+    },
+    get length() {
+      return spokenBy.length
+    },
+  }
+  /** The round that produced the plan or block card now showing. */
+  const cardRound = new Map<CoachCard['type'], number>()
   const cards: CoachCard[] = []
   let source: CoachSource = 'live'
   let rounds = 0
@@ -144,7 +176,7 @@ export async function runTurn(args: {
       break
     }
     const spoken = textOf(reply.content)
-    if (spoken) said.push(spoken)
+    if (spoken) said.push(spoken, rounds)
 
     const calls = reply.content.filter(isToolUse)
     // A reply cut off at the token limit may carry half a tool call
@@ -153,13 +185,26 @@ export async function runTurn(args: {
     const plansToday = calls.some((c) => c.name === 'set_day_plan')
     const results: ToolResultBlock[] = []
     let again = false
+    let refusedProposal = false
     for (const call of calls) {
       const out = runTool(call.name, call.input, ctx, prep, effects, source)
+      if (
+        out.isError &&
+        (call.name === 'set_day_plan' || call.name === 'propose_block')
+      ) {
+        refusedProposal = true
+      }
       if (out.card) {
-        // A corrected proposal replaces the one it corrects
+        // A corrected proposal replaces the one it corrects, and with it
+        // the sentences that introduced the earlier version
         if (out.card.type === 'day-plan' || out.card.type === 'block') {
           const at = cards.findIndex((c) => c.type === out.card!.type)
-          if (at !== -1) cards.splice(at, 1)
+          if (at !== -1) {
+            cards.splice(at, 1)
+            const earlier = cardRound.get(out.card.type)
+            if (earlier !== undefined && earlier !== rounds) said.drop(earlier)
+          }
+          cardRound.set(out.card.type, rounds)
         }
         cards.push(out.card)
       }
@@ -174,6 +219,8 @@ export async function runTurn(args: {
         ...(out.isError && { is_error: true }),
       })
     }
+    // The lead-in to a proposal the engine refused describes nothing real
+    if (refusedProposal) said.drop(rounds)
     // Said nothing and showed nothing that answers: let it finish the thought
     if (!again && said.length === 0 && !cards.some(answers)) again = true
     if (!again) break
@@ -191,7 +238,7 @@ export async function runTurn(args: {
     )
   }
 
-  let text = said.join('\n\n')
+  let text = spokenBy.map((s) => s.text).join('\n\n')
   if (!text) {
     const card = cards.find(answers)
     text =

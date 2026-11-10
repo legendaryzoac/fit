@@ -188,8 +188,9 @@ export function checkBlock(
         `${row.muscle}: ${row.sets} weekly sets is past the recoverable maximum of ${row.mrv}. Cut ${row.sets - row.mrv} or more.`,
       )
     } else if (row.zone === 'high') {
+      const { mavHi } = landmarksFor(row.muscle)
       warnings.push(
-        `${row.muscle} opens at ${row.sets} weekly sets, above its productive range; a block should start nearer ${row.mev}.`,
+        `${row.muscle} opens at ${row.sets} weekly sets, above the top of its productive range (${mavHi}); open at or under ${mavHi} unless the log shows they already train there.`,
       )
     } else if (row.focus && row.sets < row.mev) {
       warnings.push(

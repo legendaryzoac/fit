@@ -97,14 +97,9 @@ const KIND_LABEL: Record<WorkoutKind, string> = {
   recovery: 'Recovery',
 }
 
-/** Recovery-minutes bars, in the order the design calls for. */
-const MINUTES_COLORS = [
-  'var(--series-1)',
-  'var(--series-2)',
-  'var(--series-3)',
-  'var(--series-4)',
-  'var(--series-5)',
-]
+/** How many recovery modalities get a colour of their own; the rest are
+ * summed into "other" so no hue is ever used twice in one chart. */
+const MINUTES_OWN = SERIES.length - 1
 
 const OUTCOME_LABEL: Record<'soreness' | 'fatigue' | 'prs', string> = {
   soreness: 'Soreness',
@@ -801,10 +796,22 @@ export function Trends({
   }, [checkins])
   const hasReadiness = readiness.some((r) => r.latest != null)
 
-  const recoveryMinutes = useMemo(
-    () => weeklyMinutesByModality(workouts, 12),
-    [workouts],
-  )
+  const recoveryMinutes = useMemo(() => {
+    const all = weeklyMinutesByModality(workouts, 12)
+    if (all.modalities.length <= SERIES.length) return all
+    // More modalities than colours: keep the biggest, fold the tail
+    const own = all.modalities.filter((m) => m !== 'other').slice(0, MINUTES_OWN)
+    const folded = all.modalities.filter((m) => !own.includes(m))
+    return {
+      modalities: [...own, 'other'],
+      rows: all.rows.map((row) => {
+        const out: typeof row = { week: row.week }
+        for (const m of own) out[m] = row[m]
+        out.other = folded.reduce((sum, m) => sum + Number(row[m] ?? 0), 0)
+        return out
+      }),
+    }
+  }, [workouts])
 
   const impacts = useMemo(
     () => behaviourImpact(workouts, checkins, localToday()),
@@ -860,7 +867,7 @@ export function Trends({
                 </span>
                 <span className="text-caption tabular-nums text-ink-3">
                   {r.latest ?? '—'}
-                  <span className="text-ink-4">/5</span>
+                  <span className="text-ink-3">/5</span>
                 </span>
               </div>
               <TrendChart
@@ -896,7 +903,7 @@ export function Trends({
             keys={recoveryMinutes.modalities.map((m, i) => ({
               key: m,
               label: modalityLabel(m as Modality),
-              color: MINUTES_COLORS[i % MINUTES_COLORS.length],
+              color: SERIES[i],
             }))}
             unit="min"
             xKey="week"
@@ -1287,11 +1294,14 @@ export function Trends({
                   {
                     key: 'avgHr',
                     label: 'Heart rate',
-                    color: 'var(--sky)',
+                    // Dashed as well as blue: beside the neutral pace line
+                    // the two must not depend on colour alone
+                    color: 'var(--series-1)',
                     kind: 'line',
                     axis: 'right',
                     unit: 'bpm',
                     strokeWidth: 1.5,
+                    dashed: true,
                   },
                 ]}
                 left={{ reversed: true }}
@@ -1387,7 +1397,9 @@ export function Trends({
                     {
                       key: 'recovery',
                       label: 'Recovery',
-                      color: 'var(--brand)',
+                      // The chart step of the blue: the accent itself is as
+                      // dark as the strain bars it runs across
+                      color: 'var(--series-1)',
                       kind: 'line',
                       axis: 'right',
                       unit: '%',

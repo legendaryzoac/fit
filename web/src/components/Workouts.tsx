@@ -1540,7 +1540,7 @@ export function Workouts({
   const topLift = useMemo(() => exercisesByFrequency(workouts)[0], [workouts])
   // Fetched here rather than in Today so the coach reads the same strap
   // numbers the home screen draws, whichever tab it is opened from.
-  const strap = useStrapMetrics(api, strapLinked)
+  const strap = useStrapMetrics(api, strapLinked, tab)
   const dayPlan = useDayPlan()
   const coach = useCoach(
     api,
@@ -1561,6 +1561,12 @@ export function Workouts({
     }),
     { saveCheckin: onSaveCheckin, setDayPlan, addNote },
   )
+  // Shown on Home when a plan item could not be started; gone once there
+  // is a plan again
+  const [planNotice, setPlanNotice] = useState<string | null>(null)
+  useEffect(() => {
+    if (dayPlan) setPlanNotice(null)
+  }, [dayPlan])
 
   async function refresh() {
     try {
@@ -1824,6 +1830,16 @@ export function Workouts({
         saveTemplateCache(next)
         return next
       })
+      const plan = getDayPlan()
+      if (
+        plan?.items.some(
+          (i) =>
+            (i.kind === 'template' || i.kind === 'user-routine') &&
+            i.templateId === t.id,
+        )
+      ) {
+        setDayPlan(null)
+      }
       return true
     } catch {
       setError('Deleting templates needs a connection.')
@@ -1832,6 +1848,14 @@ export function Workouts({
   }
 
   function upsertMeso(meso: Mesocycle) {
+    // A plan built on a block that just ended would offer a session that
+    // can no longer start; Home falls back to the engine's own card.
+    if (meso.status !== 'active') {
+      const plan = getDayPlan()
+      if (plan?.items.some((i) => i.kind === 'block' && i.mesoId === meso.id)) {
+        setDayPlan(null)
+      }
+    }
     // Optimistic — the card keeps working offline; refresh() reconciles.
     setMesos((prev) => {
       const next = [...prev.filter((m) => m.id !== meso.id), meso]
@@ -1904,7 +1928,11 @@ export function Workouts({
       name: e.name,
       sets: Array.from({ length: e.sets }, () => ({})),
     }))
-    if (trim) w.coach = { holdLoad: trim.holdLoad === true }
+    // Never on a deload week: its prescription is already the light one,
+    // and "repeat last time" would be the block's hardest numbers
+    if (trim) {
+      w.coach = { holdLoad: trim.holdLoad === true && !isDeloadWeek(meso, week) }
+    }
     setMode(beginStrength(w))
   }
 
@@ -1927,8 +1955,12 @@ export function Workouts({
 
   /** Start one item of the coach's day plan. Always from a tap. */
   async function startPlanItem(item: DayPlanItem) {
-    const gone = () =>
-      setError('That is no longer in your plan. Ask the coach to plan the day again.')
+    const gone = () => {
+      setPlanNotice(
+        'That plan pointed at a block or template that is gone. Ask the coach to plan the day again.',
+      )
+      if (getDayPlan()?.items.some((i) => i.key === item.key)) setDayPlan(null)
+    }
     if (item.kind === 'block') {
       const m = mesos.find((x) => x.id === item.mesoId && x.status === 'active')
       if (m) await startMesoDay(m, item.dayIndex, item.trim)
@@ -2230,37 +2262,43 @@ export function Workouts({
         }}
       />
     ) : (
-      <Today
-        strap={strap}
-        dayPlan={dayPlan}
-        coachChips={coachChips()}
-        coachBusy={coach.busy}
-        onCoach={(seed) => setMode({ m: 'coach', seed })}
-        onStartPlanItem={startPlanItem}
-        workouts={workouts}
-        meso={activeMeso(mesos)}
-        lookup={muscleLookup}
-        bodyWeightLb={bodyWeightLb}
-        checkins={checkins}
-        onSaveCheckin={onSaveCheckin}
-        strapLinked={strapLinked}
-        templates={templates}
-        onStartMesoDay={(i) => {
-          const m = activeMeso(mesos)
-          if (m) startMesoDay(m, i)
-        }}
-        onStartWorkout={() => setMode({ m: 'pick' })}
-        onPlan={() => setMode({ m: 'meso-setup' })}
-        onEndMeso={() => {
-          const m = activeMeso(mesos)
-          if (m) upsertMeso({ ...m, status: 'completed' })
-        }}
-        onRecover={() => setMode({ m: 'pick', kind: 'recovery' })}
-        onQuickLog={() => setMode({ m: 'quicklog' })}
-        onStartRoutine={(r) =>
-          setMode(startTimer('recovery', routineSections(r), r.name))
-        }
-      />
+      <>
+        {planNotice && <Banner tone="caution">{planNotice}</Banner>}
+        <Today
+          strap={strap}
+          dayPlan={dayPlan}
+          coachChips={coachChips()}
+          coachBusy={coach.busy}
+          onCoach={(seed) => {
+            setPlanNotice(null)
+            setMode({ m: 'coach', seed })
+          }}
+          onStartPlanItem={startPlanItem}
+          workouts={workouts}
+          meso={activeMeso(mesos)}
+          lookup={muscleLookup}
+          bodyWeightLb={bodyWeightLb}
+          checkins={checkins}
+          onSaveCheckin={onSaveCheckin}
+          strapLinked={strapLinked}
+          templates={templates}
+          onStartMesoDay={(i) => {
+            const m = activeMeso(mesos)
+            if (m) startMesoDay(m, i)
+          }}
+          onStartWorkout={() => setMode({ m: 'pick' })}
+          onPlan={() => setMode({ m: 'meso-setup' })}
+          onEndMeso={() => {
+            const m = activeMeso(mesos)
+            if (m) upsertMeso({ ...m, status: 'completed' })
+          }}
+          onRecover={() => setMode({ m: 'pick', kind: 'recovery' })}
+          onQuickLog={() => setMode({ m: 'quicklog' })}
+          onStartRoutine={(r) =>
+            setMode(startTimer('recovery', routineSections(r), r.name))
+          }
+        />
+      </>
     )
   } else if (tab === 'progress') {
     content = (
@@ -2677,6 +2715,23 @@ export function Workouts({
           history={workouts}
           initial={mode.initial}
           draft={mode.draft}
+          confirmSave={
+            mode.draft
+              ? async (m) => {
+                  const old = activeMeso(mesos)
+                  return (
+                    !old ||
+                    old.id === m.id ||
+                    confirm({
+                      title: `End ${old.name}?`,
+                      body: `${m.name} starts today in its place.`,
+                      action: 'Start new block',
+                      tone: 'brand',
+                    })
+                  )
+                }
+              : undefined
+          }
           onSave={(m) => {
             // A coach draft replaces whatever block is running
             const old = activeMeso(mesos)
@@ -2707,7 +2762,13 @@ export function Workouts({
           chips={coachChips()}
           workouts={workouts}
           activeBlockName={activeMeso(mesos)?.name}
-          onStartItem={startPlanItem}
+          // The sheet has already dropped when this runs. Leave coach mode
+          // first: a start that is declined or cannot run would otherwise
+          // strand the app on a closed sheet.
+          onStartItem={(item) => {
+            toList()
+            void startPlanItem(item)
+          }}
           onSaveBlock={saveCoachBlock}
           onCustomizeBlock={(cardId, p) =>
             setMode({

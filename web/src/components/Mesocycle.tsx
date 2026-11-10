@@ -441,6 +441,7 @@ export function MesoSetup({
   history,
   initial,
   draft = false,
+  confirmSave,
   onSave,
   onCancel,
 }: {
@@ -452,6 +453,8 @@ export function MesoSetup({
   initial?: Mesocycle
   /** `initial` is a proposal that has never been saved (from the coach). */
   draft?: boolean
+  /** Asked before the editor closes; false keeps it open with the edits. */
+  confirmSave?: (meso: Mesocycle) => Promise<boolean>
   /** Runs once the sheet has dropped. */
   onSave: (meso: Mesocycle) => void
   /** Runs once the sheet has dropped. */
@@ -660,7 +663,7 @@ export function MesoSetup({
     goTo(target)
   }
 
-  function save() {
+  async function save() {
     const err = !name.trim() ? 'Name the mesocycle.' : daysError()
     if (err) return setError(err)
     const meso: Mesocycle = {
@@ -685,6 +688,7 @@ export function MesoSetup({
         'This plan is too large to sync — trim exercises or shorten names.',
       )
     }
+    if (confirmSave && !(await confirmSave(meso))) return
     dismiss(() => onSave(meso))
   }
 

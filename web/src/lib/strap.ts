@@ -29,11 +29,30 @@ export interface StrapMetrics {
 
 const NONE: StrapMetrics = { recoveries: [], sleeps: [] }
 
-export function useStrapMetrics(api: Api, linked: boolean): StrapMetrics {
+/**
+ * `refreshKey` refetches when it changes (the shell passes the open tab, so
+ * returning to Home asks again, as the screen did when it owned the fetch).
+ * Coming back to a backgrounded app refetches too: an installed app left
+ * open overnight must not present yesterday's score as this morning's.
+ * The last numbers stay up while the new ones load.
+ */
+export function useStrapMetrics(
+  api: Api,
+  linked: boolean,
+  refreshKey?: string,
+): StrapMetrics {
   const [metrics, setMetrics] = useState<StrapMetrics>({
     recoveries: null,
     sleeps: [],
   })
+  const [woke, setWoke] = useState(0)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') setWoke((n) => n + 1)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
   useEffect(() => {
     if (!linked) {
       setMetrics(NONE)
@@ -55,7 +74,7 @@ export function useStrapMetrics(api: Api, linked: boolean): StrapMetrics {
     return () => {
       alive = false
     }
-  }, [api, linked])
+  }, [api, linked, refreshKey, woke])
   return metrics
 }
 

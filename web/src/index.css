@@ -109,9 +109,11 @@
 
   /* On a dark surface the fill steps up the ramp to stay visible; the
      deep navy lives in the soft tint behind tonal controls. */
-  --brand: #256abf;
+  /* The fill has to clear 3:1 against its own tracks (surface-3,
+     brand-soft) as well as carry a white label; pressed steps darker. */
+  --brand: #2874d0;
   --brand-strong: #86b6ef;
-  --brand-press: #2a78d6;
+  --brand-press: #256abf;
   --brand-soft: #10294d;
   --on-brand: #ffffff;
 

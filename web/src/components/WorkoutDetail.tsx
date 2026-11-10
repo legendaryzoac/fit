@@ -32,7 +32,7 @@ const KIND_TONE: Record<WorkoutKind, StatusTone> = {
   strength: 'good',
   speed: 'effort',
   cardio: 'rest',
-  recovery: 'mid',
+  recovery: 'rest',
 }
 
 const FELT: Record<DifficultyRating, string> = {

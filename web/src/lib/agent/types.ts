@@ -92,6 +92,9 @@ export interface AgentContext {
   strap: StrapSummary | null
   notes: CoachNote[]
   dayPlan: DayPlan | null
+  /** A block the coach proposed in this conversation that has not been
+   * saved: shown to the model so "swap the rows" amends it, not reinvents it. */
+  pendingBlock?: BlockProposal
 }
 
 /** The only things a tool call may change without a tap from the athlete. */

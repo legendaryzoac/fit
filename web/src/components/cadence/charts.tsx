@@ -47,9 +47,10 @@ export const ZONES = [
 ]
 
 /**
- * Categorical series, assigned in this order and never cycled. The order
- * is the colour-vision safeguard (adjacent slots stay apart under protan
- * and deutan simulation), so add to the end rather than reshuffling.
+ * Categorical series, assigned in this order. The order is the
+ * colour-vision safeguard (adjacent slots stay apart under protan and
+ * deutan simulation), so add to the end rather than reshuffling, and fold
+ * anything past the seventh series into "other" rather than reusing a hue.
  */
 export const SERIES = [
   'var(--series-1)',
@@ -408,6 +409,11 @@ export function StackedBars({
               dataKey={k.key}
               stackId="s"
               fill={k.color}
+              // A hairline of surface between segments: when a middle series
+              // is empty its neighbours touch, and two slots that were never
+              // meant to sit together still read as two
+              stroke="var(--surface)"
+              strokeWidth={1}
               radius={i === top ? [4, 4, 0, 0] : undefined}
             />
           ))}

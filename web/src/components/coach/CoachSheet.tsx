@@ -77,14 +77,16 @@ export function CoachSheet({
   const endRef = useRef<HTMLDivElement>(null)
   const { thread, busy, send } = coach
 
-  // The seed goes out once, on the mount that carried it
+  // The seed goes out once, on the mount that carried it, and waits its
+  // turn: sent while an earlier answer is still on its way it would be
+  // dropped.
   const seeded = useRef(false)
   useEffect(() => {
-    if (seed && !seeded.current) {
+    if (seed && !seeded.current && !busy) {
       seeded.current = true
       send(seed)
     }
-  }, [seed, send])
+  }, [seed, send, busy])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' })
@@ -240,6 +242,7 @@ export function CoachSheet({
                 key={e.id}
                 className="ml-auto max-w-[85%] rounded-lg bg-surface-2 px-4 py-2.5 text-body whitespace-pre-wrap text-ink"
               >
+                <span className="sr-only">You: </span>
                 {e.text}
               </p>
             ) : e.error ? (
@@ -264,6 +267,7 @@ export function CoachSheet({
               <div key={e.id} className="flex flex-col gap-2.5">
                 {e.text && (
                   <p className="max-w-[92%] text-body whitespace-pre-wrap text-ink">
+                    <span className="sr-only">Coach: </span>
                     {e.text}
                   </p>
                 )}

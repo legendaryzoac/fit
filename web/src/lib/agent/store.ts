@@ -18,6 +18,14 @@ const NOTES_KEY = 'fit.coachNotes'
 
 const MAX_THREAD = 60
 
+// The coach's storage is device-only: no server refresh ever overwrites
+// it, unlike the workout and block caches. So it is kept per account, or a
+// second person signing in on this browser would inherit the first one's
+// notes and plan.
+let scope = ''
+
+const scoped = (key: string) => (scope ? `${key}.${scope}` : key)
+
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -29,9 +37,28 @@ export function subscribeCoach(fn: () => void): () => void {
   return () => listeners.delete(fn)
 }
 
+/** Whose coach this is: the signed-in account's id, or '' for the demo. */
+export function setCoachScope(id: string): void {
+  if (id === scope) return
+  scope = id
+  emit()
+}
+
+/** Forget the conversation, the plan and the notes in the current scope. */
+export function clearCoach(): void {
+  for (const key of [THREAD_KEY, PLAN_KEY, NOTES_KEY]) {
+    try {
+      localStorage.removeItem(storageKey(scoped(key)))
+    } catch {
+      // storage unavailable: nothing to clear
+    }
+  }
+  emit()
+}
+
 function read(key: string): string | null {
   try {
-    return localStorage.getItem(storageKey(key))
+    return localStorage.getItem(storageKey(scoped(key)))
   } catch {
     return null
   }
@@ -39,8 +66,8 @@ function read(key: string): string | null {
 
 function write(key: string, value: unknown): void {
   try {
-    if (value === null) localStorage.removeItem(storageKey(key))
-    else localStorage.setItem(storageKey(key), JSON.stringify(value))
+    if (value === null) localStorage.removeItem(storageKey(scoped(key)))
+    else localStorage.setItem(storageKey(scoped(key)), JSON.stringify(value))
   } catch {
     // storage full or unavailable: the in-memory copy still serves this page
   }
@@ -53,7 +80,7 @@ function cached<T>(parse: (raw: string | null) => T) {
   let lastRaw: string | null | undefined
   let value: T
   return (key: string): T => {
-    const full = storageKey(key)
+    const full = storageKey(scoped(key))
     const raw = read(key)
     if (full !== lastKey || raw !== lastRaw) {
       lastKey = full

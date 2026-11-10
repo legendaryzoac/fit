@@ -4,7 +4,11 @@
 // error the model gets back; anything merely clamped is an adjustment the
 // athlete can see on the card.
 
-import { SESSION_SET_CAP } from '../progression'
+import {
+  SESSION_SET_CAP,
+  landmarksFor,
+  weeklySetsByMuscle,
+} from '../progression'
 import type { Catalog } from './catalog'
 import {
   applyTrim,
@@ -107,6 +111,41 @@ export function checkExerciseRows(
     }
   }
   return capped
+}
+
+/**
+ * Hold a session the coach composed to the week's recoverable maximum: the
+ * sets already logged in the last seven days plus this session may not pass
+ * MRV for any muscle (PROGRESSION.md §5: never a positive delta at or above
+ * it). Later lifts give way first. The athlete's own templates and block
+ * days are not touched here: what they authored is theirs.
+ */
+export function capToWeek(
+  rows: PlannedExercise[],
+  where: string,
+  ctx: AgentContext,
+  adjustments: string[],
+): PlannedExercise[] {
+  const logged = weeklySetsByMuscle(ctx.workouts, ctx.lookup, ctx.now)
+  const added = new Map<string, number>()
+  return rows.flatMap((r) => {
+    const muscle = ctx.lookup(r.name)
+    if (!muscle) return [r]
+    const { mrv } = landmarksFor(muscle)
+    const week = logged[muscle] ?? 0
+    const room = mrv - week - (added.get(muscle) ?? 0)
+    const sets = Math.min(r.sets, Math.max(0, room))
+    if (sets < r.sets) {
+      adjustments.push(
+        sets < 1
+          ? `${where}: dropped ${r.name}; ${muscle} is at ${week} of ${mrv} weekly sets.`
+          : `${where}: ${r.name} cut to ${sets} sets; ${muscle} is at ${week} of ${mrv} weekly sets.`,
+      )
+    }
+    if (sets < 1) return []
+    added.set(muscle, (added.get(muscle) ?? 0) + sets)
+    return [{ ...r, sets }]
+  })
 }
 
 function checkTrim(
@@ -222,7 +261,7 @@ export function checkDayPlan(
         return
       }
       const title = text(c.title, 60) || 'Custom session'
-      const exercises = checkExerciseRows(
+      const rows = checkExerciseRows(
         c.exercises,
         title,
         catalog,
@@ -231,6 +270,12 @@ export function checkDayPlan(
         adjustments,
         MAX_CUSTOM_EXERCISES,
       )
+      const exercises = capToWeek(rows, title, ctx, adjustments)
+      if (rows.length > 0 && exercises.length === 0) {
+        errors.push(
+          `${title}: every muscle it trains is already at its weekly maximum. Plan recovery, or other muscles.`,
+        )
+      }
       if (exercises.length === 0) return
       items.push({
         key,
@@ -281,7 +326,7 @@ export function checkDayPlan(
     // A block day or a template
     const reshapes =
       option.session === 'strength' && !(option.kind === 'template' && option.slots)
-    const trim = reshapes
+    let trim = reshapes
       ? checkTrim(
           raw.trim,
           option.exercises,
@@ -292,6 +337,16 @@ export function checkDayPlan(
           adjustments,
         )
       : undefined
+    // In the deload week the engine's prescription is already the light
+    // one (about 90% load, half the reps). "Repeat last time" would swap
+    // it for the hardest week of the block.
+    if (trim?.holdLoad && option.kind === 'block' && option.deload) {
+      const { holdLoad: _hold, ...rest } = trim
+      trim = Object.keys(rest).length > 0 ? rest : undefined
+      adjustments.push(
+        `${option.title}: the deload week already lightens the load, so loads are not held.`,
+      )
+    }
     const trimmed = reshapes
       ? applyTrim(option.exercises, trim, ctx.lookup)
       : option.exercises
@@ -335,6 +390,19 @@ export function checkDayPlan(
       })
     }
   })
+
+  // A session nobody placed would vanish without a word
+  const orphan = input.custom_session
+  if (
+    !customUsed &&
+    isObject(orphan) &&
+    Array.isArray(orphan.exercises) &&
+    orphan.exercises.length > 0
+  ) {
+    errors.push(
+      'custom_session was given but no item has option_id "custom". Add an item with option_id "custom" where the session belongs, or send custom_session: null.',
+    )
+  }
 
   // Warm-up and cool-down are generated from what the main session trains
   const main = items.find(isStrength)

@@ -61,7 +61,7 @@ export function Stepper({
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur()
         }}
-        className={`min-h-11 w-16 min-w-0 bg-transparent text-center text-title-sm font-semibold text-ink placeholder:font-medium placeholder:text-ink-4 focus-visible:outline-none ${NO_SPINNER}`}
+        className={`min-h-11 w-16 min-w-0 bg-transparent text-center text-title-sm font-semibold text-ink placeholder:font-medium placeholder:text-ink-3 focus-visible:outline-none ${NO_SPINNER}`}
       />
       <button
         type="button"

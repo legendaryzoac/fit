@@ -683,7 +683,7 @@ export function IntervalSession({
                     muted={i < idx}
                     trail={
                       i === announcedIdx ? (
-                        <StatusPill tone={recovery ? 'mid' : 'effort'}>
+                        <StatusPill tone={recovery ? 'rest' : 'effort'}>
                           Now
                         </StatusPill>
                       ) : undefined

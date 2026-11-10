@@ -11,15 +11,17 @@ const PILL: Record<CountdownTone, StatusTone> = {
   rest: 'rest',
   caution: 'mid',
   neutral: 'neutral',
-  calm: 'mid',
+  // Recovery is the calm blue, pill and arc alike; amber is caution only
+  calm: 'rest',
 }
 
 const ARC: Record<CountdownTone, string> = {
   effort: 'var(--ember)',
-  rest: 'var(--sky)',
+  // The stronger blue step: it has to read against the ring's own track
+  rest: 'var(--sky-strong)',
   caution: 'var(--amber)',
   neutral: 'var(--ink-3)',
-  calm: 'var(--sky)',
+  calm: 'var(--sky-strong)',
 }
 
 /**

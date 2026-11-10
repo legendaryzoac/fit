@@ -147,12 +147,35 @@ const PART_MUSCLES: Record<string, string[]> = {
   neck: ['traps'],
 }
 
+/** Lowercase, with the curly apostrophes phones type made straight, so
+ * "don’t" and "don't" read the same to every pattern below. */
+const norm = (s: string): string => s.toLowerCase().replace(/[‘’]/g, "'")
+
+const SLEPT_BADLY =
+  /\b(rough night|no sleep|did ?n[o']?t sleep|slept (badly|poorly|terribly|like))\b/
+const LOW_ENERGY = /\b(tired|exhausted|wrecked|run[- ]?down|low energy|drained|hungover)\b/
 const TIRED =
   /\b(tired|beat[- ]?up|fried|exhausted|wrecked|run[- ]?down|rough night|no sleep|did ?n[o']?t sleep|slept (badly|poorly|terribly|like)|stressed|hungover|low energy|drained|not feeling (it|great|good)|go easy|take it easy)\b/
 const SORE = /\b(sore|fried|beat[- ]?up|achy|stiff|doms)\b/
 const GREAT =
   /\b(feel(ing)? (great|good|strong|fresh|amazing)|slept (well|great)|fully recovered|let'?s go|ready to go)\b/
 const PAIN = /\b(hurts?|hurting|pain|painful|tweak(ed)?|injur(y|ed)|pinch(ing|ed)?|flar(e|ed|ing))\b/
+const TODAYISH = /\b(today|tonight|tomorrow|later|this (morning|afternoon|evening|week))\b/
+
+/**
+ * True when the pattern matches somewhere it is not negated: "sore" counts,
+ * "not sore" and "aren't that sore" do not. Phrases that carry their own
+ * negator ("no sleep", "not feeling great") are unaffected, because the
+ * negator is inside the match rather than before it.
+ */
+function hit(re: RegExp, t: string): boolean {
+  for (const m of t.matchAll(new RegExp(re.source, 'g'))) {
+    if (!/(\bnot|\bno|\bnever|n't)\s+(\w+\s+)?$/.test(t.slice(0, m.index))) {
+      return true
+    }
+  }
+  return false
+}
 
 function readMinutes(t: string): number | undefined {
   const m = t.match(/\b(\d{2,3})\s*(?:min|mins|minutes|m)\b/)
@@ -167,25 +190,56 @@ function readMinutes(t: string): number | undefined {
 
 function checkinFrom(t: string): Record<string, number> | null {
   const c = { sleep: 0, energy: 0, soreness: 0, stress: 0, prs: -1 }
-  if (/\b(rough night|no sleep|did ?n[o']?t sleep|slept (badly|poorly|terribly|like))\b/.test(t)) c.sleep = 2
-  if (/\b(tired|exhausted|wrecked|run[- ]?down|low energy|drained|hungover)\b/.test(t)) c.energy = 2
-  if (SORE.test(t)) c.soreness = 2
-  if (/\bstressed\b/.test(t)) c.stress = 2
-  if (GREAT.test(t)) {
+  const tired = hit(TIRED, t)
+  if (hit(SLEPT_BADLY, t)) c.sleep = 2
+  if (hit(LOW_ENERGY, t)) c.energy = 2
+  if (hit(SORE, t)) c.soreness = 2
+  if (hit(/\bstressed\b/, t)) c.stress = 2
+  // "Not feeling great" must not log as feeling great
+  if (!tired && hit(GREAT, t)) {
     if (/slept (well|great)/.test(t)) c.sleep = 4
     c.energy = 4
   }
   return c.sleep || c.energy || c.soreness || c.stress ? c : null
 }
 
+const trains = (o: StateOption) =>
+  o.kind === 'strength' || o.kind === 'strength template' || o.kind === 'cardio'
+
+const lifts = (o: StateOption) =>
+  o.kind === 'strength' || o.kind === 'strength template'
+
+const plain = (s: string) =>
+  s.replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+
+/**
+ * A session the athlete asked for by name. The title has to be the request
+ * ("legs", "do the pull day", "upper a instead"), not just a word in the
+ * sentence: "my legs are fried" is about the athlete, not the Legs day.
+ */
+function namedOption(t: string, state: State): StateOption | undefined {
+  const said = plain(t)
+  return (state.options ?? []).find((o) => {
+    if (!trains(o)) return false
+    const title = plain(o.title.toLowerCase())
+    if (!title) return false
+    const x = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return (
+      new RegExp(`^(the )?${x}( (today|day|session|instead|please))?$`).test(said) ||
+      new RegExp(
+        `\\b(do|run|start|switch to|swap to|rather do|want|give me) (the )?${x}\\b`,
+      ).test(said) ||
+      new RegExp(`\\b${x} (day|session|instead)\\b`).test(said)
+    )
+  })
+}
+
 function readMods(t: string, state: State): Mods {
   const mods: Mods = {}
   const minutes = readMinutes(t)
   if (minutes) mods.minutes = minutes
-  if (TIRED.test(t) || SORE.test(t)) {
-    mods.gentle = true
-  }
-  if (PAIN.test(t)) {
+  if (hit(TIRED, t) || hit(SORE, t)) mods.gentle = true
+  if (hit(PAIN, t)) {
     const part = Object.keys(PART_MUSCLES).find((p) => new RegExp(`\\b${p}s?\\b`).test(t))
     if (part) {
       mods.avoid = PART_MUSCLES[part]
@@ -195,22 +249,13 @@ function readMods(t: string, state: State): Mods {
   if (/\b(rest day|day off|skip (today|it|the session)|take (today|the day) off|no training)\b/.test(t)) {
     mods.rest = true
   }
-  if (/\b(train anyway|anyway|still train|want to (train|lift))\b/.test(t)) {
+  // "Pull it forward" answers the coach's own rest-day line: it means the
+  // next session, not the day called Pull
+  const forward = /\b(pull it forward|bring it forward|move it up)\b/.test(t)
+  if (forward || /\b(train anyway|anyway|still train|want to (train|lift))\b/.test(t)) {
     mods.trainAnyway = true
   }
-  // "do legs instead": a session named in the message
-  const named = (state.options ?? []).find(
-    (o) =>
-      (o.kind === 'strength' || o.kind === 'strength template' || o.kind === 'cardio') &&
-      o.title
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((w) => w.length > 2)
-        .some((w) => new RegExp(`\\b${w}\\b`).test(t)) &&
-      new RegExp(`\\b${o.title.toLowerCase().replace(/[^a-z0-9 ]/g, '')}\\b`).test(
-        t.replace(/[^a-z0-9 ]/g, ''),
-      ),
-  )
+  const named = forward ? undefined : namedOption(t, state)
   if (named) mods.optionId = named.id
   return mods
 }
@@ -256,7 +301,17 @@ function planDay(state: State, mods: Mods): AgentReply {
       'Day off it is. The session keeps.',
     )
   }
-  if (trainedToday && !mods.trainAnyway && !mods.optionId) {
+
+  // What is still on today's schedule. A session logged without its block
+  // link stays "scheduled", so anything already trained under that title
+  // (logged titles carry " · wk N") is counted as done here too.
+  const trainedTitles = (state.today?.trained ?? []).map((x) => x.title)
+  const remaining = (state.today?.scheduled ?? [])
+    .map((id) => options.find((o) => o.id === id))
+    .filter((o): o is StateOption => !!o)
+    .filter((o) => !trainedTitles.some((title) => title.startsWith(o.title)))
+
+  if (trainedToday && !mods.trainAnyway && !mods.optionId && remaining.length === 0) {
     const done = state.today?.trained?.find((t) => t.kind !== 'recovery')?.title
     const asked = mods.minutes || mods.gentle || mods.avoid
     return restPlan(
@@ -268,21 +323,27 @@ function planDay(state: State, mods: Mods): AgentReply {
     )
   }
 
-  // Which session is today's
-  const scheduled = state.today?.scheduled ?? []
-  let main: StateOption | undefined
+  // Which sessions are today's. Usually one; a double day has two.
+  let sessions: StateOption[] = []
   let why = ''
   if (mods.optionId) {
-    main = options.find((o) => o.id === mods.optionId)
-    why = `You asked for ${main?.title}.`
+    const asked = options.find((o) => o.id === mods.optionId)
+    if (asked) sessions = [asked]
+    why = `You asked for ${asked?.title}.`
   } else if (block && !block.finished) {
     const days = block.days ?? []
     const anchored = days.some((d) => d.weekday)
-    const id = scheduled[0] ?? (!anchored || mods.trainAnyway ? state.today?.next : undefined)
-    main = options.find((o) => o.id === id)
-    if (main) {
-      why = `Week ${block.week} of ${block.weeks}${block.deload ? ', deload' : ''}: ${main.title} is ${scheduled.length ? 'on the schedule' : 'next up'}.`
-    } else {
+    if (remaining.length > 0) {
+      sessions = remaining
+      why = `Week ${block.week} of ${block.weeks}${block.deload ? ', deload' : ''}: ${remaining.map((o) => o.title).join(' and ')} ${remaining.length > 1 ? 'are' : 'is'} on the schedule.`
+    } else if (!anchored || mods.trainAnyway) {
+      const next = options.find((o) => o.id === state.today?.next)
+      if (next) {
+        sessions = [next]
+        why = `Week ${block.week} of ${block.weeks}${block.deload ? ', deload' : ''}: ${next.title} is next up.`
+      }
+    }
+    if (sessions.length === 0) {
       const next = options.find((o) => o.id === state.today?.next)
       const day = days.find((d) => d.id === state.today?.next)
       return reply(
@@ -302,8 +363,11 @@ function planDay(state: State, mods: Mods): AgentReply {
     // No block: the strength template that was not the last thing trained
     const templates = options.filter((o) => o.kind === 'strength template')
     const lastTitle = (state.recent ?? []).find((r) => r.kind === 'strength')?.title
-    main = templates.find((o) => o.title !== lastTitle) ?? templates[0]
-    if (main) why = `No block is running, so this is ${main.title}${lastTitle && lastTitle !== main.title ? `, since ${lastTitle} was last` : ''}.`
+    const pick = templates.find((o) => o.title !== lastTitle) ?? templates[0]
+    if (pick) {
+      sessions = [pick]
+      why = `No block is running, so this is ${pick.title}${lastTitle && lastTitle !== pick.title ? `, since ${lastTitle} was last` : ''}.`
+    }
   }
 
   const gentle = mods.gentle || flags.includes('readiness_low')
@@ -312,7 +376,7 @@ function planDay(state: State, mods: Mods): AgentReply {
   const trim = { ...NO_TRIM, swaps: [] as Array<{ from: string; to: string }> }
   const tags: string[] = []
 
-  if (!main) {
+  if (sessions.length === 0) {
     // Nothing saved to run: a simple full-body session from the catalog
     const pick = (muscle: string, want: string) =>
       (state.catalog?.[muscle] ?? []).includes(want) ? want : state.catalog?.[muscle]?.[0]
@@ -341,9 +405,11 @@ function planDay(state: State, mods: Mods): AgentReply {
     )
   }
 
-  const strength = main.kind === 'strength' || main.kind === 'strength template'
-  const exercises = main.exercises ?? []
-  if (strength && exercises.length > 0) {
+  // The lift is the session the day is shaped around: trims apply to it
+  // and the warm-up and cool-down are built from it.
+  const lift = sessions.find(lifts)
+  const exercises = lift?.exercises ?? []
+  if (lift && exercises.length > 0) {
     if (mods.avoid) {
       const catalog = state.catalog ?? {}
       for (const e of exercises) {
@@ -367,6 +433,8 @@ function planDay(state: State, mods: Mods): AgentReply {
       reasons.push(
         `${mods.gentle ? 'You said you are run down' : `Readiness is low${readiness ? ` (${readiness})` : ''}`}, so one set comes off each lift and loads hold.`,
       )
+    } else if (gentle) {
+      reasons.push('It is the deload week, which is already the easy version.')
     } else if (readiness) {
       reasons.push(`Readiness: ${readiness}.`)
     }
@@ -396,22 +464,29 @@ function planDay(state: State, mods: Mods): AgentReply {
     reasons.push(`Readiness: ${readiness}.`)
   }
 
-  const headline = [main.title, ...tags].join(', ')
+  const title = sessions.map((o) => o.title).join(' and ')
+  const headline = [title, ...tags].join(', ')
   const changed =
     trim.swaps.length > 0 || trim.drop_sets_per_exercise > 0 || trim.keep_first_exercises > 0
   const lead = changed
-    ? `${main.title}, reshaped for today: ${tags.join(', ')}.`
-    : `${main.title} today, as written.`
-  if (!changed && readiness && strength) reasons.push('Run it as written.')
+    ? `${title}, reshaped for today: ${tags.join(', ')}.`
+    : `${title} today, as written.`
+  if (!changed && readiness && lift) reasons.push('Run it as written.')
   return reply(
     say(lead),
     call('set_day_plan', {
       headline,
       rationale: reasons.filter(Boolean).join(' '),
       items: [
-        ...(strength ? [{ option_id: 'warmup', note: '', trim: NO_TRIM }] : []),
-        { option_id: main.id, note: trim.hold_load ? 'Repeat last time’s numbers' : '', trim },
-        ...(strength ? [{ option_id: 'cooldown', note: '', trim: NO_TRIM }] : []),
+        ...sessions.flatMap((o) =>
+          o === lift
+            ? [
+                { option_id: 'warmup', note: '', trim: NO_TRIM },
+                { option_id: o.id, note: trim.hold_load ? 'Repeat last time’s numbers' : '', trim },
+                { option_id: 'cooldown', note: '', trim: NO_TRIM },
+              ]
+            : [{ option_id: o.id, note: '', trim: NO_TRIM }],
+        ),
         ...evening,
       ],
       custom_session: null,
@@ -456,8 +531,8 @@ const SPLITS: Record<number, { name: string; days: ReturnType<typeof day>[] }> =
 
 const FOCUS_WORDS: Array<[RegExp, string[]]> = [
   [/\b(balanced|everything|general|overall|no focus|nothing in particular)\b/, []],
-  [/\bchest|pecs?\b/, ['chest']],
-  [/\bback|lats?\b/, ['back']],
+  [/\b(chest|pecs?)\b/, ['chest']],
+  [/\b(back|lats?)\b/, ['back']],
   [/\b(legs?|lower body)\b/, ['quads', 'hamstrings']],
   [/\bquads?\b/, ['quads']],
   [/\bglutes?\b/, ['glutes']],
@@ -472,12 +547,17 @@ const BLOCK_INTENT =
 /** "Make me a plan for today" is about the day, not a block. */
 const ABOUT_THE_DAY = /\b(today|tonight|my day|this (morning|afternoon|evening))\b/
 const wantsBlock = (t: string) => BLOCK_INTENT.test(t) && !ABOUT_THE_DAY.test(t)
+/** In the opening request a muscle is a focus only when it is asked for as
+ * one: "get back into lifting" is not a back block. */
+const FOCUS_CUE = /\b(focus|prioriti[sz]|emphasi[sz]|bigger|grow|bring up|build (up )?my)/
+const LEAVES_INTERVIEW =
+  /\b(never ?mind|cancel|forget it|stop|not now|no thanks)\b|^\s*(thanks|thank you|cheers|ok|okay)[.! ]*$/
 
 function blockFlow(convo: Array<{ role: string; text: string }>): AgentReply | null {
   // The flow starts at the last message that asked for a block
   let start = -1
   for (let i = convo.length - 1; i >= 0; i--) {
-    if (convo[i].role === 'user' && wantsBlock(convo[i].text.toLowerCase())) {
+    if (convo[i].role === 'user' && wantsBlock(norm(convo[i].text))) {
       start = i
       break
     }
@@ -493,27 +573,39 @@ function blockFlow(convo: Array<{ role: string; text: string }>): AgentReply | n
   if (lastCoach && ![Q_DAYS, Q_FOCUS, Q_WEEKS].some((q) => lastCoach.text.includes(q))) {
     return null
   }
+  // A way out: "never mind", a thanks, or a question about today hands the
+  // message back to the router, and its answer ends the interview.
+  const latest = norm(convo.at(-1)?.text ?? '')
+  if (since.length > 1 && (LEAVES_INTERVIEW.test(latest) || ABOUT_THE_DAY.test(latest))) {
+    return null
+  }
 
   let days: number | undefined
   let focus: string[] | undefined
   let weeks: number | undefined
   since.forEach((m, i) => {
     if (m.role !== 'user') return
-    const t = m.text.toLowerCase()
+    const t = norm(m.text)
     const asked = i > 0 ? since[i - 1].text : ''
     const d = t.match(/\b([2-6])\s*(?:x|days?|times|sessions)\b/) ?? (asked.includes(Q_DAYS) ? t.match(/\b([2-6])\b/) : null)
     if (d) days = Number(d[1])
     const w = t.match(/\b([4-6])\s*(?:weeks?|wks?)\b/) ?? (asked.includes(Q_WEEKS) ? t.match(/\b([4-6])\b/) : null)
     if (w) weeks = Number(w[1])
-    if (i === 0 || asked.includes(Q_FOCUS)) {
-      const hit = FOCUS_WORDS.find(([re]) => re.test(t))
-      if (hit) focus = hit[1]
+    const opening = i === 0 && FOCUS_CUE.test(t) && !PAIN.test(t)
+    if (opening || asked.includes(Q_FOCUS)) {
+      const found = FOCUS_WORDS.find(([re]) => re.test(t))
+      if (found) focus = found[1]
       else if (asked.includes(Q_FOCUS)) focus = []
     }
   })
 
   if (days === undefined) {
-    return reply(say(Q_DAYS), call('offer_choices', { options: ['3 days', '4 days', '5 days', '6 days'] }))
+    // Asked already and the answer was not a number it can use
+    const again = since.some((m) => m.role === 'assistant' && m.text.includes(Q_DAYS))
+    return reply(
+      say(again ? `Between 2 and 6 days works. ${Q_DAYS}` : Q_DAYS),
+      call('offer_choices', { options: ['3 days', '4 days', '5 days', '6 days'] }),
+    )
   }
   if (focus === undefined) {
     return reply(say(Q_FOCUS), call('offer_choices', { options: ['Balanced', 'Chest', 'Back', 'Legs', 'Arms'] }))
@@ -557,8 +649,10 @@ function mentionedLift(t: string, state: State): string | undefined {
   return word && names.includes(word[1]) ? word[1] : undefined
 }
 
+// Short tokens are closed with a word boundary: an open "pr" matched the
+// start of "press", which sent every message naming a press to a lookup.
 const ASKS_HISTORY =
-  /\b(how('?s| is| are| has| have)|progress|trend(ing)?|pr|record|best|max|1rm|history|last time|stall(ed|ing)?|plateau|going up|improv)/
+  /\b(how('?s| is| are| has| have)\b|progress|trend(ing)?\b|prs?\b|records?\b|best\b|max\b|1rm\b|history|last time|stall(ed|ing)?\b|plateau|going up|improv)/
 
 /** "I don't have a barbell" → "No barbell": notes read as facts about them. */
 function thirdPerson(text: string): string {
@@ -584,8 +678,8 @@ function noteFrom(t: string, raw: string): { category: string; note: string } | 
   )
   if (!text) return null
   let category = 'preference'
-  if (/\b(barbell|rack|bench|machine|cable|dumbbell|kettlebell|band|gym|home|equipment)\b/.test(t)) category = 'equipment'
-  else if (PAIN.test(t) || /\b(avoid|bad (knee|shoulder|back|hip|elbow))\b/.test(t)) category = 'injury'
+  if (PAIN.test(t) || /\b(avoid|bad (knee|shoulder|back|hip|elbow))\b/.test(t)) category = 'injury'
+  else if (/\b(barbell|rack|bench|machine|cable|dumbbell|kettlebell|band|gym|home|equipment)\b/.test(t)) category = 'equipment'
   else if (/\b(goal|want to|aiming|trying to)\b/.test(t)) category = 'goal'
   else if (/\b(mon|tue|wed|thu|fri|sat|sun|morning|evening|weekday|weekend|days a week)\w*\b/.test(t)) category = 'schedule'
   const note = text[0].toUpperCase() + text.slice(1)
@@ -669,7 +763,7 @@ function afterTools(messages: WireMessage[], state: State): AgentReply {
     if (name === 'log_checkin' && !calls.some((c) => c.name === 'set_day_plan')) {
       // The check-in was the input; now plan with it
       const said = [...transcript(messages)].reverse().find((m) => m.role === 'user')?.text ?? ''
-      const mods = readMods(said.toLowerCase(), state)
+      const mods = readMods(norm(said), state)
       const planned = planDay(state, mods)
       return planned
     }
@@ -701,7 +795,7 @@ export function builtinReply(messages: WireMessage[]): AgentReply {
 
   const convo = transcript(messages)
   const raw = convo.at(-1)?.text ?? ''
-  const t = raw.toLowerCase()
+  const t = norm(raw)
 
   const building = blockFlow(convo)
   if (building) return building
@@ -711,7 +805,13 @@ export function builtinReply(messages: WireMessage[]): AgentReply {
     return reply(call('get_exercise_history', { exercise: lift, sessions: 5 }))
   }
 
-  if (REMEMBER.test(t) && !PAIN.test(t)) {
+  // An explicit "remember ..." always wins. Otherwise a statement is only
+  // kept when it reads as a standing fact: not about today, how they feel,
+  // or how long they have.
+  const explicit = /^\s*(please\s+)?remember\b/.test(t)
+  const passing =
+    readMinutes(t) !== undefined || hit(TIRED, t) || hit(SORE, t) || TODAYISH.test(t)
+  if (explicit || (REMEMBER.test(t) && !PAIN.test(t) && !passing)) {
     const note = noteFrom(t, raw)
     if (note) return reply(say('Noted. I will plan around that.'), call('remember', note))
   }
@@ -724,7 +824,7 @@ export function builtinReply(messages: WireMessage[]): AgentReply {
   const aboutToday =
     /\b(today|plan|session|train|training|workout|lift|gym|as planned|looks good|run it|what should i|what('?s| is) (on|next)|ready)\b/.test(t) ||
     Object.keys(mods).length > 0 ||
-    GREAT.test(t)
+    hit(GREAT, t)
   if (aboutToday) {
     const checkin = checkinFrom(t)
     const planned = planDay(state, mods)

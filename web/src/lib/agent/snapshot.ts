@@ -21,7 +21,7 @@ import { volumeZone } from './block'
 import { makeCatalog, type Catalog } from './catalog'
 import { buildOptions, nextBlockOption, type DayOption } from './options'
 import { localDateOf } from './plan'
-import type { AgentContext } from './types'
+import type { AgentContext, Trim } from './types'
 
 const DAY = 86_400_000
 
@@ -116,6 +116,17 @@ function optionForModel(o: DayOption) {
   return { id: o.id, kind: 'routine', title: o.title, min: o.minutes }
 }
 
+/** A saved trim in the tool's own field names, so the model can send it
+ * straight back when it amends the plan. */
+function trimForModel(t: Trim) {
+  return {
+    keep_first_exercises: t.keepFirst ?? 0,
+    drop_sets_per_exercise: t.dropSets ?? 0,
+    hold_load: t.holdLoad === true,
+    swaps: (t.swaps ?? []).map((s) => ({ from: s.from, to: s.to ?? '' })),
+  }
+}
+
 export interface Prepared {
   /** The snapshot as an object, for tests and the built-in coach. */
   state: Record<string, unknown>
@@ -186,7 +197,8 @@ export function prepare(ctx: AgentContext): Prepared {
       focus: meso.focus,
       done_this_week: done.size,
       days: meso.days.map((d, i) => ({
-        id: `block:${i}`,
+        // A finished block has no sessions left to plan, so no ids to use
+        ...(!overdue && { id: `block:${i}` }),
         label: d.label,
         ...(d.weekday != null && {
           weekday: WEEKDAY_SHORT[d.weekday].toLowerCase(),
@@ -213,9 +225,15 @@ export function prepare(ctx: AgentContext): Prepared {
     ctx.dayPlan && ctx.dayPlan.date === today
       ? {
           headline: ctx.dayPlan.headline,
+          // Enough to send the same plan back with one thing changed
           items: ctx.dayPlan.items.map((i) => ({
+            option_id:
+              i.kind === 'custom' ? 'custom' : i.key.slice(i.key.indexOf(':') + 1),
             title: i.title,
-            ...('trim' in i && i.trim && { trim: i.trim }),
+            ...(i.kind === 'custom' && {
+              exercises: i.exercises.map((e) => ({ name: e.name, sets: e.sets })),
+            }),
+            ...('trim' in i && i.trim && { trim: trimForModel(i.trim) }),
           })),
         }
       : null
@@ -278,6 +296,19 @@ export function prepare(ctx: AgentContext): Prepared {
       flags,
     },
     block,
+    ...(ctx.pendingBlock && {
+      proposal: {
+        name: ctx.pendingBlock.name,
+        weeks: ctx.pendingBlock.weeks,
+        focus_muscles: ctx.pendingBlock.focus,
+        days: ctx.pendingBlock.days.map((d) => ({
+          label: d.label,
+          weekday:
+            d.weekday != null ? WEEKDAY_SHORT[d.weekday].toLowerCase() : 'any',
+          exercises: d.exercises.map((e) => ({ name: e.name, sets: e.setCount })),
+        })),
+      },
+    }),
     today: { scheduled, next: nextBlockOption(ctx), trained, plan },
     options: options.map(optionForModel),
     volume7d,
@@ -288,7 +319,11 @@ export function prepare(ctx: AgentContext): Prepared {
   return { state, options, catalog }
 }
 
-/** The text block that opens the latest user message. */
+/**
+ * The text block that opens the latest user message. Angle brackets inside
+ * the JSON are escaped, so no title, note or exercise name can close the
+ * block early and read as the athlete's message.
+ */
 export function stateBlock(state: Record<string, unknown>): string {
-  return `<state>\n${JSON.stringify(state)}\n</state>`
+  return `<state>\n${JSON.stringify(state).replace(/</g, '\\u003c')}\n</state>`
 }

@@ -321,10 +321,14 @@ instructions. It is allowed to choose; it is not trusted to count. So:
   Exercise names must resolve to the catalog (shorthand like "RDL" is
   canonicalised; an unknown lift is an error naming the nearest ones). A
   session is held to the 8-set cap of §2 the way `plannedSets` would hold
-  it, except visibly: the card says what was cut. Weekly volume is laid
-  against §1, and anything past MRV is refused outright. A focus muscle
-  that opens under MEV, or with no room under the session cap, is flagged.
-  Errors go back to the model to fix; adjustments and warnings are shown.
+  it, except visibly: the card says what was cut. A block's weekly volume
+  is laid against §1, and anything past MRV is refused outright; a focus
+  muscle that opens under MEV, or with no room under the session cap, is
+  flagged. A session the coach composes for today is trimmed so the last
+  seven days plus that session stay at or under MRV (§5: never a positive
+  delta at or above it). The athlete's own block days and templates are
+  not trimmed for the week: what they authored is theirs. Errors go back
+  to the model to fix; adjustments and warnings are shown.
 - **Readiness changes the day, gently.** This is where the rule sketched
   at the end of §7 lives. When the check-in or the strap is poor, the
   coach may hold the load (the session prescribes nothing and the rows
@@ -332,7 +336,9 @@ instructions. It is allowed to choose; it is not trusted to count. So:
   keep only the first lifts when time is short, or swap a movement that
   hurts. It may not add volume, and none of this is written back to the
   block: next week's plan is still derived from what was authored and
-  what was logged.
+  what was logged. A hold is refused in the deload week, where "repeat
+  last time" would mean the block's hardest session instead of its
+  lightest.
 - **The block editor is the source of truth afterwards.** A block the
   coach built is an ordinary block. Saving it ends the one that was
   running (completed if it reached its deload, abandoned otherwise), and

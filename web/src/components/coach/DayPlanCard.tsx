@@ -137,6 +137,7 @@ export function DayPlanCard({
                       variant="quiet"
                       size="sm"
                       className="shrink-0"
+                      aria-label={`Start ${item.title}`}
                       onClick={() => onStart(item)}
                     >
                       Start
@@ -148,6 +149,7 @@ export function DayPlanCard({
                     variant="primary"
                     block
                     className="mb-2.5"
+                    aria-label={`Start session: ${item.title}`}
                     onClick={() => onStart(item)}
                   >
                     Start session

@@ -138,7 +138,7 @@ export function agentTools(strict: boolean): Anthropic.Tool[] {
                     hold_load: {
                       type: 'boolean',
                       description:
-                        "True to repeat last session's weights and reps instead of progressing today.",
+                        "True to repeat last session's weights and reps instead of progressing today. Never in a deload week: the engine ignores it there.",
                     },
                     swaps: {
                       type: 'array',
@@ -168,7 +168,7 @@ export function agentTools(strict: boolean): Anthropic.Tool[] {
           },
           custom_session: {
             description:
-              'A strength session you composed for today, or null. Only when nothing in state.options fits.',
+              'A strength session you composed for today, or null. Only when nothing in state.options fits. It is placed by an item whose option_id is "custom"; without that item the call is rejected.',
             anyOf: [
               { type: 'null' },
               {
