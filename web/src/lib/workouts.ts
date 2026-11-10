@@ -97,12 +97,19 @@ export interface Workout {
   updatedAt?: string
   /** Set when an edit changes start: tells the API to move, not duplicate. */
   previousStart?: string
+  /** Live sessions the coach's day plan started. Client-only: it rides in
+   * the draft so a reload keeps it, and is stripped before saving. */
+  coach?: {
+    /** Repeat last time's numbers: no progression is prescribed today. */
+    holdLoad?: boolean
+  }
 }
 
 /** Drop rows the lifter never filled in and strip client-only flags. */
 export function finalizeWorkout(w: Workout): Workout {
+  const { coach: _coach, ...rest } = w
   return {
-    ...w,
+    ...rest,
     exercises: w.exercises
       .map((e) => ({
         ...e,

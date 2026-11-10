@@ -2,6 +2,8 @@
  * Fully client-side demo: deterministic synthetic data behind the same Api
  * seam the real backend serves. No network, no accounts, nothing to abuse.
  */
+import { builtinReply } from './agent/builtin'
+import type { WireMessage } from './agent/types'
 import type { Api } from './api'
 import type { Checkin } from './checkins'
 import type { CustomExercise } from './exercises'
@@ -512,6 +514,8 @@ export function makeDemoApi(): Api {
     if (pathname === '/api/whoop/connect') {
       return respond({ error: 'Not available in the demo' }, 400)
     }
+    // The demo never spends a model call: its coach is the built-in one
+    if (pathname === '/api/agent') return respond({ available: false })
     return respond({ error: 'not found in demo' })
   }
 
@@ -521,6 +525,12 @@ export function makeDemoApi(): Api {
     body?: unknown,
   ): Promise<Response> {
     await wait()
+    if (path === '/api/agent') {
+      // A beat longer than a save, so the reply reads as an answer
+      await new Promise((r) => setTimeout(r, 450))
+      const { messages } = body as { messages: WireMessage[] }
+      return respond(builtinReply(messages))
+    }
     if (path.startsWith('/api/workouts')) {
       if (method === 'POST') {
         const { previousStart: _m, ...w } = body as Workout & {
