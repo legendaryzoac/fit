@@ -115,7 +115,7 @@ describe('POST /api/agent', () => {
     const system = sent.system as Anthropic.TextBlockParam[]
     expect(system).toHaveLength(1)
     expect(system[0].cache_control).toEqual({ type: 'ephemeral' })
-    expect(system[0].text).toContain('What wall are we running through today?')
+    expect(system[0].text).toContain('Which wall today?')
     expect(sent.tools?.map((t) => ('name' in t ? t.name : ''))).toEqual([
       'get_exercise_history',
       'get_training_log',

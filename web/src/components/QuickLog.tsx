@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import { confirm } from '../lib/confirm'
+import { pastStartProblem } from '../lib/past'
 import { getUnitPref } from '../lib/units'
 import type { Modality, Workout } from '../lib/workouts'
 import { Button } from './cadence/Button'
@@ -66,6 +67,7 @@ function seedFrom(m: Modality, prev?: Workout) {
 
 export function QuickLog({
   initial,
+  pastStart,
   lastOf,
   onSave,
   onCancel,
@@ -73,6 +75,9 @@ export function QuickLog({
 }: {
   /** Editing an existing recovery session; absent = new quick log. */
   initial?: Workout
+  /** A new log of something that already happened, at this time: the
+   * date leads the form and stretching and mobility can be picked too. */
+  pastStart?: string
   /** Most recent saved session of a modality, for pre-filling. */
   lastOf: (m: Modality) => Workout | undefined
   onSave: (w: Workout) => void
@@ -81,6 +86,7 @@ export function QuickLog({
   onDelete?: (w: Workout) => Promise<boolean>
 }) {
   const editing = initial !== undefined
+  const past = !editing && pastStart !== undefined
   const [modality, setModality] = useState<Modality>(initial?.modality ?? 'sauna')
   const [seed, setSeed] = useState(() =>
     seedFrom(initial?.modality ?? 'sauna', initial ?? lastOf('sauna')),
@@ -88,7 +94,9 @@ export function QuickLog({
   const [title, setTitle] = useState(initial?.title ?? '')
   const [start, setStart] = useState(() =>
     toLocalInput(
-      initial?.start ?? new Date(Date.now() - seed.minutes * 60_000).toISOString(),
+      initial?.start ??
+        pastStart ??
+        new Date(Date.now() - seed.minutes * 60_000).toISOString(),
     ),
   )
   const [feel, setFeel] = useState<number | undefined>(initial?.rating?.post)
@@ -116,7 +124,10 @@ export function QuickLog({
     if (!editing) {
       const next = seedFrom(m, lastOf(m))
       setSeed(next)
-      setStart(toLocalInput(new Date(Date.now() - next.minutes * 60_000).toISOString()))
+      // A past session keeps the time it was given
+      if (!past) {
+        setStart(toLocalInput(new Date(Date.now() - next.minutes * 60_000).toISOString()))
+      }
     }
   }
 
@@ -124,6 +135,11 @@ export function QuickLog({
     const startMs = new Date(start).getTime()
     if (!Number.isFinite(startMs)) {
       setError('Pick a valid start time.')
+      return
+    }
+    const when = past ? pastStartProblem(startMs, Date.now()) : null
+    if (when) {
+      setError(when)
       return
     }
     const tempC = TEMP_MODALITIES.includes(modality) ? fToC(seed.tempF) : undefined
@@ -170,9 +186,21 @@ export function QuickLog({
       open={open}
       onClose={() => dismiss(onCancel)}
       onExited={onExited}
-      title={editing ? 'Edit recovery' : 'Log recovery'}
+      title={editing ? 'Edit recovery' : past ? 'Log past recovery' : 'Log recovery'}
     >
       <div className="flex flex-col gap-4">
+        {past && (
+          <Field label="When" htmlFor={startId}>
+            <TextInput
+              id={startId}
+              type="datetime-local"
+              value={start}
+              max={toLocalInput(new Date().toISOString())}
+              onChange={(e) => setStart(e.target.value)}
+            />
+          </Field>
+        )}
+
         <Field label="What" htmlFor={modalityId}>
           <select
             id={modalityId}
@@ -180,7 +208,7 @@ export function QuickLog({
             value={modality}
             onChange={(e) => pickModality(e.target.value as Modality)}
           >
-            {MODALITIES.filter((m) => !m.timed || guided).map((m) => (
+            {MODALITIES.filter((m) => !m.timed || guided || past).map((m) => (
               <option key={m.value} value={m.value}>
                 {m.label}
               </option>
@@ -236,14 +264,16 @@ export function QuickLog({
             onChange={(e) => setTitle(e.target.value)}
           />
         </Field>
-        <Field label="Start" htmlFor={startId}>
-          <TextInput
-            id={startId}
-            type="datetime-local"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-          />
-        </Field>
+        {!past && (
+          <Field label="Start" htmlFor={startId}>
+            <TextInput
+              id={startId}
+              type="datetime-local"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+            />
+          </Field>
+        )}
 
         {guided && initial && (
           <p className="text-caption text-ink-3">

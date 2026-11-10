@@ -8,18 +8,24 @@ export interface CoachChip {
 }
 
 /**
- * The top of the home screen: the question the coach opens every day with,
- * a way to answer it, and a few answers ready to tap. The field is a
+ * The top of the home screen: a greeting, then the coach in one short
+ * line of its own voice, and a few answers ready to tap. The field is a
  * button: the conversation itself happens in the coach sheet.
  */
 export function CoachHero({
+  greeting,
+  prompt,
   context,
   chips,
   busy,
   onOpen,
   onChip,
 }: {
-  /** One quiet line under the question, e.g. "Week 2 of 5 · 1 of 4 done". */
+  /** "Good morning" and so on. */
+  greeting: string
+  /** What the coach is asking right now, a few words at most. */
+  prompt: string
+  /** One quiet line under the greeting, e.g. "Week 2 of 5 · 1 of 4 done". */
   context?: string
   chips: CoachChip[]
   busy: boolean
@@ -30,7 +36,7 @@ export function CoachHero({
     <section className="flex flex-col gap-3.5 pt-1">
       <div>
         <h1 className="text-[30px] leading-[34px] font-semibold tracking-[-0.02em] text-ink">
-          What wall are we running through today?
+          {greeting}
         </h1>
         {context && <p className="mt-1.5 text-caption text-ink-2">{context}</p>}
       </div>
@@ -40,8 +46,8 @@ export function CoachHero({
         onClick={onOpen}
         className="pressable flex h-13 w-full items-center justify-between gap-3 rounded-pill bg-surface pr-1.5 pl-5 text-left shadow-lift"
       >
-        <span className="truncate text-body text-ink-3">
-          {busy ? 'Coach is working on it' : 'Tell your coach'}
+        <span className="truncate text-body text-ink-2">
+          {busy ? 'Coach is on it' : prompt}
         </span>
         <span
           aria-hidden="true"

@@ -109,6 +109,8 @@ import {
 import type { CoachChip } from './coach/CoachHero'
 import { CoachSheet } from './coach/CoachSheet'
 import { MesoCard, MesoSetup } from './Mesocycle'
+import { pastProblem, pastWorkout, settlePast, type PastChoice } from '../lib/past'
+import { PastSession } from './PastSession'
 import {
   applyRecommendations,
   feedbackMuscles,
@@ -303,6 +305,7 @@ function ghostRpe(
 function SessionEditor({
   initial,
   isNew,
+  past = false,
   history,
   customs,
   lookup,
@@ -320,6 +323,9 @@ function SessionEditor({
 }: {
   initial: Workout
   isNew: boolean
+  /** A session being entered after the fact: not live, not yet saved.
+   * `history` is then what had been logged before it. */
+  past?: boolean
   history: Workout[]
   customs: CustomExercise[]
   lookup: (name: string) => string | undefined
@@ -356,6 +362,8 @@ function SessionEditor({
   const [newEquipment, setNewEquipment] = useState<Equipment | null>(null)
   const [now, setNow] = useState(Date.now())
   const [coachHidden, setCoachHidden] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const topRef = useRef<HTMLDivElement>(null)
   const exerciseId = useId()
   const muscleId = useId()
   const equipmentId = useId()
@@ -364,6 +372,7 @@ function SessionEditor({
   const notesId = useId()
   const durationId = useId()
   const distanceId = useId()
+  const lengthId = useId()
 
   // Every way out unmounts this screen in the parent, so the sheet drops
   // first and the real callback waits for the exit to finish.
@@ -647,10 +656,87 @@ function SessionEditor({
     0,
   )
   const totalCount = w.exercises.reduce((n, e) => n + e.sets.length, 0)
+  // Nothing is ticked off live in a past session: a row with numbers in
+  // it is a set that was done.
+  const enteredCount = w.exercises.reduce(
+    (n, e) =>
+      n +
+      e.sets.filter(
+        (s) =>
+          s.done ||
+          s.weight != null ||
+          s.reps != null ||
+          s.durationSec != null ||
+          s.distanceM != null,
+      ).length,
+    0,
+  )
+
+  // What was wrong with the last save attempt stops being true as soon
+  // as the session changes
+  useEffect(() => {
+    setProblem(null)
+  }, [w])
 
   function finish() {
+    if (past) {
+      const why = pastProblem(w, Date.now())
+      if (why) {
+        setProblem(why)
+        topRef.current?.scrollIntoView({ block: 'start' })
+        return
+      }
+    }
     const done = { ...w, end: isNew ? new Date().toISOString() : w.end }
     dismiss(() => onFinish(done))
+  }
+
+  // A saved session's length is its end minus its start, so the two are
+  // edited together: moving the start keeps the length.
+  const startMs = new Date(w.start).getTime()
+  const lengthMin =
+    w.end != null
+      ? Math.max(0, Math.round((new Date(w.end).getTime() - startMs) / 60_000))
+      : undefined
+
+  function setStart(value: string) {
+    const next = new Date(value)
+    if (!value || Number.isNaN(next.getTime())) return
+    setW({
+      ...w,
+      start: next.toISOString(),
+      ...(!isNew &&
+        lengthMin != null && {
+          end: new Date(next.getTime() + lengthMin * 60_000).toISOString(),
+        }),
+    })
+  }
+
+  function setLength(minutes: number | undefined) {
+    setW({
+      ...w,
+      end:
+        minutes != null && minutes > 0
+          ? new Date(startMs + minutes * 60_000).toISOString()
+          : undefined,
+    })
+  }
+
+  /** Back out of a past session, asking first once something is entered. */
+  async function leave() {
+    const entered =
+      past &&
+      (Boolean(w.notes) ||
+        w.exercises.some((e) =>
+          e.sets.some((s) => s.weight != null || s.reps != null || s.done),
+        ))
+    if (
+      entered &&
+      !(await confirm({ title: 'Discard this session?', action: 'Discard' }))
+    ) {
+      return
+    }
+    dismiss(onClose)
   }
 
   async function discard() {
@@ -707,16 +793,18 @@ function SessionEditor({
   return (
     <Sheet
       open={open}
-      onClose={() => dismiss(onClose)}
+      onClose={() => void leave()}
       onExited={onExited}
-      ariaLabel={isNew ? 'Live session' : 'Edit workout'}
+      ariaLabel={
+        isNew ? 'Live session' : past ? 'Log a past session' : 'Edit workout'
+      }
       dockClearance={isNew}
       header={
         <SessionBar
           left={
             <IconButton
               label={isNew ? 'Minimise' : 'Back'}
-              onClick={() => dismiss(onClose)}
+              onClick={() => void leave()}
             >
               {isNew ? <IconChevronDown /> : <IconChevronLeft />}
             </IconButton>
@@ -734,7 +822,7 @@ function SessionEditor({
               )}
               {totalCount > 0 && (
                 <span className="shrink-0 text-caption text-ink-2">
-                  {doneCount} of {totalCount} sets
+                  {past ? enteredCount : doneCount} of {totalCount} sets
                 </span>
               )}
             </div>
@@ -755,7 +843,7 @@ function SessionEditor({
         />
       }
     >
-      <div className="mt-3 flex flex-col gap-3">
+      <div ref={topRef} className="mt-3 flex scroll-mt-24 flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="min-w-0 truncate text-title text-ink">{heading}</h2>
           {isNew && (
@@ -763,7 +851,38 @@ function SessionEditor({
               Live
             </StatusPill>
           )}
+          {past && <StatusPill>Past session</StatusPill>}
         </div>
+
+        {problem && <Banner tone="error">{problem}</Banner>}
+
+        {past && (
+          <Card>
+            <div className="flex flex-col gap-3">
+              <Field label="When" htmlFor={startId}>
+                <TextInput
+                  id={startId}
+                  type="datetime-local"
+                  value={toLocalInput(w.start)}
+                  max={toLocalInput(new Date().toISOString())}
+                  onChange={(e) => setStart(e.target.value)}
+                />
+              </Field>
+              {w.kind !== 'cardio' && (
+                <Field label="How long (min)" htmlFor={lengthId}>
+                  <TextInput
+                    id={lengthId}
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    value={lengthMin ?? ''}
+                    onChange={(e) => setLength(numeric(e.target.value))}
+                  />
+                </Field>
+              )}
+            </div>
+          </Card>
+        )}
 
         {isNew && initial.coach?.holdLoad && (
           <Banner>
@@ -1076,6 +1195,18 @@ function SessionEditor({
           </Card>
         )}
 
+        {!isNew && w.kind !== 'strength' && (
+          <Card>
+            <ScaleRow
+              label="Effort"
+              low="Rest"
+              high="Max"
+              value={w.sessionRpe}
+              onChange={(n) => setW({ ...w, sessionRpe: n })}
+            />
+          </Card>
+        )}
+
         <Card>
           <div className="flex flex-col gap-3">
             <Field label="Title" htmlFor={titleId}>
@@ -1087,17 +1218,28 @@ function SessionEditor({
                 }
               />
             </Field>
-            <Field label="Start" htmlFor={startId}>
-              <TextInput
-                id={startId}
-                type="datetime-local"
-                value={toLocalInput(w.start)}
-                onChange={(e) =>
-                  e.target.value &&
-                  setW({ ...w, start: new Date(e.target.value).toISOString() })
-                }
-              />
-            </Field>
+            {!past && (
+              <Field label="Start" htmlFor={startId}>
+                <TextInput
+                  id={startId}
+                  type="datetime-local"
+                  value={toLocalInput(w.start)}
+                  onChange={(e) => setStart(e.target.value)}
+                />
+              </Field>
+            )}
+            {!isNew && !past && w.kind !== 'cardio' && (
+              <Field label="Duration (min)" htmlFor={lengthId}>
+                <TextInput
+                  id={lengthId}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  value={lengthMin ?? ''}
+                  onChange={(e) => setLength(numeric(e.target.value))}
+                />
+              </Field>
+            )}
             <Field label="Notes" htmlFor={notesId}>
               <TextArea
                 id={notesId}
@@ -1118,6 +1260,10 @@ function SessionEditor({
 
         {isNew ? (
           <Button variant="ghost-danger" block onClick={discard}>
+            Discard
+          </Button>
+        ) : past ? (
+          <Button variant="ghost-danger" block onClick={() => void leave()}>
             Discard
           </Button>
         ) : (
@@ -1149,6 +1295,7 @@ function StartPicker({
   onStrength,
   onTimer,
   onQuickLog,
+  onPast,
   onNewRoutine,
   confirmStart,
   onEnter,
@@ -1164,6 +1311,8 @@ function StartPicker({
   onTimer: (kind: WorkoutKind, sections: IntervalSection[], title?: string) => Mode
   /** Runs once the sheet has dropped. */
   onQuickLog: () => void
+  /** Log something that already happened; runs once the sheet has dropped. */
+  onPast: () => void
   /** Runs once the sheet has dropped. */
   onNewRoutine: () => void
   /** False when a live draft exists and the lifter keeps it. */
@@ -1340,6 +1489,10 @@ function StartPicker({
             />
           </List>
         )}
+
+        <Button variant="quiet" block onClick={() => dismiss(onPast)}>
+          Log a past session
+        </Button>
       </div>
     </Sheet>
   )
@@ -1354,7 +1507,10 @@ function workoutMeta(w: Workout): string[] {
   const { sets, volume } = workoutVolume(w)
   const parts: string[] = []
   if (w.kind === 'strength' && sets > 0) {
-    parts.push(`${w.exercises.length} exercises · ${sets} sets`)
+    const n = w.exercises.length
+    parts.push(
+      `${n} ${n === 1 ? 'exercise' : 'exercises'} · ${sets} ${sets === 1 ? 'set' : 'sets'}`,
+    )
     // Tonnage shows in the row's trail instead
   }
   if (w.kind === 'recovery') {
@@ -1459,14 +1615,19 @@ type Mode =
        * a saved template — so there is nothing to delete yet. */
       fresh?: boolean
     }
-  | { m: 'strength'; workout: Workout; isNew: boolean }
+  /** `past`: a session entered after the fact. It is not live (`isNew`
+   * is false) and not saved yet either. */
+  | { m: 'strength'; workout: Workout; isNew: boolean; past?: boolean }
   | { m: 'timer'; draft: TimerDraft }
   | { m: 'slots'; template: Template }
-  | { m: 'feedback'; workout: Workout }
+  | { m: 'feedback'; workout: Workout; past?: boolean }
   /** After a strength save: offer a cooldown for the muscles just trained. */
   | { m: 'cooldown'; muscles: string[] }
-  /** Untimed recovery log, or editing any recovery session. */
-  | { m: 'quicklog'; workout?: Workout }
+  /** Untimed recovery log, or editing any recovery session. `pastStart`
+   * opens it on a recovery session that already happened. */
+  | { m: 'quicklog'; workout?: Workout; pastStart?: string }
+  /** Choosing what to log after the fact, and when it was. */
+  | { m: 'past' }
   /** `draft`: `initial` is a coach proposal that was never saved, and
    * `cardId` is the card in the conversation it came from. */
   | { m: 'meso-setup'; initial?: Mesocycle; draft?: boolean; cardId?: string }
@@ -1666,7 +1827,9 @@ export function Workouts({
   // flow here is a sheet over the tab, so the dock stays (under the scrim)
   // and takes over the moment a session is minimised.
   useEffect(() => {
-    setInSession(mode.m === 'strength' || mode.m === 'timer')
+    // Only a live session raises the dock: over an edit or a past session
+    // a tab tap would park the sheet and lose what was typed.
+    setInSession((mode.m === 'strength' && mode.isNew) || mode.m === 'timer')
     return () => setInSession(false)
   }, [mode])
 
@@ -1677,9 +1840,10 @@ export function Workouts({
   modeRef.current = mode
   useEffect(() => {
     return onResume(() => {
-      if (modeRef.current.m === 'meso-setup' || modeRef.current.m === 'coach') {
-        return
-      }
+      const cur = modeRef.current
+      if (cur.m === 'meso-setup' || cur.m === 'coach') return
+      // …or half-way through entering a past session
+      if (cur.m === 'strength' && cur.past) return
       const timer = loadTimerDraft()
       if (timer) {
         setMode({ m: 'timer', draft: timer })
@@ -1695,7 +1859,8 @@ export function Workouts({
   useEffect(
     () =>
       onMinimise(() => {
-        if (modeRef.current.m === 'strength' || modeRef.current.m === 'timer') {
+        const cur = modeRef.current
+        if ((cur.m === 'strength' && cur.isNew) || cur.m === 'timer') {
           setMode({ m: 'list' })
         }
       }),
@@ -1707,6 +1872,9 @@ export function Workouts({
     /** A warm-up timer saving from inside a strength session: leave the
      * strength draft alone and return to the ledger. */
     keepStrengthDraft?: boolean
+    /** A record being written, not a live session ending: an edit, a
+     * quick log, a past session. Whatever is live stays live. */
+    logged?: boolean
   }
 
   /**
@@ -1729,6 +1897,38 @@ export function Workouts({
     commitFinish(raw, opts)
   }
 
+  /**
+   * A session entered after the fact. It still gets the how-did-it-feel
+   * sheet (those ratings steer the block), but it is a record, not a live
+   * session ending: no draft is touched and no cooldown is offered.
+   */
+  function finishPast(raw: Workout) {
+    const w = settlePast(
+      raw,
+      mesos.find((x) => x.id === raw.mesoId),
+    )
+    if (w.kind === 'strength' && feedbackMuscles(w, muscleLookup).length > 0) {
+      setMode({ m: 'feedback', workout: w, past: true })
+      return
+    }
+    commitFinish(w, { logged: true })
+  }
+
+  /** Open the right form for a past session, dated and pre-shaped. */
+  function openPast(choice: PastChoice, startIso: string) {
+    if (choice.kind === 'recovery') {
+      setMode({ m: 'quicklog', pastStart: startIso })
+      return
+    }
+    const w = pastWorkout(choice, startIso, {
+      meso: activeMeso(mesos),
+      templates,
+      workouts,
+      lookup: muscleLookup,
+    })
+    setMode(w ? { m: 'strength', workout: w, isNew: false, past: true } : { m: 'list' })
+  }
+
   /** Back into the live strength draft, or the list if it's gone. */
   function reenterStrength() {
     const d = loadDraft()
@@ -1746,6 +1946,11 @@ export function Workouts({
       saveWorkoutCache(merged)
       return merged
     })
+    if (opts?.logged) {
+      setMode({ m: 'list' })
+      void sync()
+      return
+    }
     saveTimerDraft(null)
     if (opts?.keepStrengthDraft) {
       // The warm-up is logged; the lift it was for is still live.
@@ -2168,6 +2373,13 @@ export function Workouts({
 
   function sessionSheet(m: Extract<Mode, { m: 'strength' }>) {
     const originalStart = m.workout.start
+    const past = m.past === true
+    // A past session sees the log as it stood when it happened: targets
+    // and "last time" come from what came before it, not from sessions
+    // logged since.
+    const known = past
+      ? workouts.filter((w) => w.start < originalStart)
+      : workouts
     // Meso sessions carry per-exercise targets anchored to this meso's
     // logged actuals. The session re-runs this as its exercise list
     // changes, so a lift swapped in mid-session is prescribed for too.
@@ -2176,10 +2388,11 @@ export function Workouts({
       : undefined
     let prescribe: ComponentProps<typeof SessionEditor>['prescribe']
     let mesoSetCount: ComponentProps<typeof SessionEditor>['mesoSetCount']
-    if (meso && m.isNew) {
-      const week = Math.min(mesoWeek(meso, Date.now()), meso.weeks - 1)
+    if (meso && (m.isNew || past)) {
+      const at = past ? new Date(originalStart).getTime() : Date.now()
+      const week = Math.min(mesoWeek(meso, at), meso.weeks - 1)
       const dayIdx = m.workout.mesoDayIndex
-      const mesoWorkouts = workouts.filter(
+      const mesoWorkouts = known.filter(
         (w) => w.mesoId === meso.id && w.id !== m.workout.id,
       )
       // A held day prescribes nothing: the rows fall back to this slot's
@@ -2191,7 +2404,7 @@ export function Workouts({
             names,
             week,
             mesoWorkouts,
-            workouts,
+            known,
             setsByName,
             muscleLookup,
             bodyWeightLb,
@@ -2203,7 +2416,7 @@ export function Workouts({
           name,
           week,
           mesoWorkouts,
-          workouts,
+          known,
           muscleLookup(name),
           muscleLookup,
           usedByMuscle,
@@ -2214,7 +2427,8 @@ export function Workouts({
         key={m.workout.id}
         initial={m.workout}
         isNew={m.isNew}
-        history={workouts}
+        past={past}
+        history={known}
         customs={customs}
         lookup={muscleLookup}
         bodyWeightLb={bodyWeightLb}
@@ -2222,18 +2436,20 @@ export function Workouts({
         mesoSetCount={mesoSetCount}
         onSaveCustom={saveCustomExercise}
         onFinish={(w) =>
-          finish(
-            // An edited start time is a key move — tell the API which old
-            // row to drop so the workout doesn't duplicate.
-            !m.isNew && w.start !== originalStart
-              ? { ...w, previousStart: originalStart }
-              : w,
-            { isNew: m.isNew },
-          )
+          past
+            ? finishPast(w)
+            : finish(
+                // An edited start time is a key move — tell the API which
+                // old row to drop so the workout doesn't duplicate.
+                !m.isNew && w.start !== originalStart
+                  ? { ...w, previousStart: originalStart }
+                  : w,
+                { isNew: m.isNew, logged: !m.isNew },
+              )
         }
         onClose={toList}
         onDiscard={toList}
-        onDelete={m.isNew ? undefined : remove}
+        onDelete={m.isNew || past ? undefined : remove}
         onWarmUp={m.isNew ? startWarmUp : undefined}
         prsToday={todayCheckin(checkins)?.prs}
         onPrs={m.isNew ? (n) => onSaveCheckin({ prs: n }) : undefined}
@@ -2418,12 +2634,17 @@ export function Workouts({
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-title-lg text-ink">Log</h1>
-          <IconButton
-            label="New workout"
-            onClick={() => setMode({ m: 'pick' })}
-          >
-            <IconPlus />
-          </IconButton>
+          <div className="flex items-center gap-1">
+            <Button variant="quiet" size="sm" onClick={() => setMode({ m: 'past' })}>
+              Add past session
+            </Button>
+            <IconButton
+              label="New workout"
+              onClick={() => setMode({ m: 'pick' })}
+            >
+              <IconPlus />
+            </IconButton>
+          </div>
         </div>
         <Chips
           options={chips}
@@ -2628,9 +2849,14 @@ export function Workouts({
         <FeedbackModal
           muscles={feedbackMuscles(mode.workout, muscleLookup)}
           onSubmit={(fb, sessionRpe) =>
-            commitFinish({ ...mode.workout, feedback: fb, sessionRpe }, { isNew: true })
+            commitFinish(
+              { ...mode.workout, feedback: fb, sessionRpe },
+              mode.past ? { logged: true } : { isNew: true },
+            )
           }
-          onSkip={() => commitFinish(mode.workout, { isNew: true })}
+          onSkip={() =>
+            commitFinish(mode.workout, mode.past ? { logged: true } : { isNew: true })
+          }
         />
       )}
 
@@ -2644,18 +2870,29 @@ export function Workouts({
 
       {mode.m === 'quicklog' && (
         <QuickLog
-          key={mode.workout?.id ?? 'new'}
+          key={mode.workout?.id ?? mode.pastStart ?? 'new'}
           initial={mode.workout}
+          pastStart={mode.pastStart}
           lastOf={lastRecoveryOf}
           onSave={(w) =>
             finish(
               mode.workout && w.start !== mode.workout.start
                 ? { ...w, previousStart: mode.workout.start }
                 : w,
+              { logged: true },
             )
           }
           onCancel={toList}
           onDelete={mode.workout ? remove : undefined}
+        />
+      )}
+
+      {mode.m === 'past' && (
+        <PastSession
+          meso={activeMeso(mesos)}
+          templates={templates}
+          onPick={openPast}
+          onCancel={toList}
         />
       )}
 
@@ -2666,6 +2903,7 @@ export function Workouts({
           onStrength={startStrength}
           onTimer={startTimer}
           onQuickLog={() => setMode({ m: 'quicklog' })}
+          onPast={() => setMode({ m: 'past' })}
           onNewRoutine={() =>
             setMode({ m: 'build', kind: 'recovery', returnTo: 'recover' })
           }

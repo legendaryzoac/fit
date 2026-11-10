@@ -39,6 +39,12 @@ import { CoachHero, type CoachChip } from './coach/CoachHero'
 import { DayPlanCard } from './coach/DayPlanCard'
 import { IconRecover } from './shell/icons'
 
+function greeting(hour: number): string {
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
+
 const mean = (xs: number[]) =>
   xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
 
@@ -328,6 +334,17 @@ export function Today({
   const showTonight =
     new Date().getHours() >= 20 && sleepRoutine != null && !sleepDoneToday
 
+  // The coach's one line on the home screen: a nudge, not a headline. It
+  // follows the day: nothing chosen yet, a plan standing, the work done.
+  const trainedToday = workouts.some(
+    (w) => w.kind !== 'recovery' && localDay(w.start) === localToday(),
+  )
+  const coachPrompt = trainedToday
+    ? 'Wall\u2019s down. What\u2019s next?'
+    : dayPlan
+      ? 'Plan\u2019s set. Change anything?'
+      : 'Which wall today?'
+
   // ---- recovery this calendar week (Mon-first) ----
   const recoverWeek = useMemo(() => {
     const now2 = new Date()
@@ -489,6 +506,8 @@ export function Today({
   return (
     <div className="flex flex-col gap-3">
       <CoachHero
+        greeting={greeting(new Date().getHours())}
+        prompt={coachPrompt}
         context={
           meso
             ? `${meso.name} · week ${week + 1} of ${meso.weeks} · ${sessionsDone} of ${sessionsPlanned} sessions done`

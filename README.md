@@ -13,8 +13,8 @@ effectively **$0/month**.
 
 ## What it does
 
-- **Coach** — the home screen opens on one question, *"What wall are we
-  running through today?"*, and a coach that answers it. It plans the day
+- **Coach** — the home screen greets you and the coach asks one short
+  question, *"Which wall today?"*, then answers it with you. It plans the day
   (session, warm-up, cool-down, wind-down), reshapes it when you say you are
   short on time, run down or working around something, and builds training
   blocks by talking them through. It runs on the cheapest current Claude
@@ -28,7 +28,9 @@ effectively **$0/month**.
   ghosts (checking an empty row means "same as last time"), previous-set
   autofill, reusable templates, and localStorage drafts that survive a dead
   phone battery mid-workout. Writes are local-first and replay through an
-  offline queue.
+  offline queue. A session you forgot to log can be added after the fact
+  (Log → *Add past session*): a block day is planned as of the date it
+  happened and counts for that week, and nothing live is disturbed.
 - **Interval timer** — speed/cardio sessions run a full-screen, timestamp-drift-free
   countdown with color-coded warm-up/work/rest/cool-down sections, pause/skip,
   and audio + vibration cues; cardio finishes into a mileage + WHOOP-link summary.

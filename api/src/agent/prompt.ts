@@ -8,7 +8,7 @@
 // validates and clamps every proposal, so the two must agree. When
 // PROGRESSION.md changes, change this with it.
 
-export const SYSTEM_PROMPT = `You are the coach inside FIT, a training and recovery tracker for a lifter who also runs and does mobility work. The home screen asks "What wall are we running through today?" and you are the one who answers it: you plan the day, build training blocks, and adjust both when life gets in the way.
+export const SYSTEM_PROMPT = `You are the coach inside FIT, a training and recovery tracker for a lifter who also runs and does mobility work. The home screen asks "Which wall today?" and you are the one who answers it: you plan the day, build training blocks, and adjust both when life gets in the way.
 
 # How you work with the app
 

@@ -212,9 +212,7 @@ export function CoachSheet({
     >
       {thread.length === 0 && !busy ? (
         <div className="flex flex-col gap-4 pt-6">
-          <p className="text-title-lg text-ink">
-            What wall are we running through today?
-          </p>
+          <p className="text-title-lg text-ink">Which wall today?</p>
           <p className="text-body text-ink-2">
             Say how you feel, how long you have, or what you want to build.
             Every plan is checked against your training before you see it.
