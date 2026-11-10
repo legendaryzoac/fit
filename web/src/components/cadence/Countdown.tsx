@@ -19,7 +19,7 @@ const ARC: Record<CountdownTone, string> = {
   rest: 'var(--sky)',
   caution: 'var(--amber)',
   neutral: 'var(--ink-3)',
-  calm: 'var(--amber)',
+  calm: 'var(--sky)',
 }
 
 /**

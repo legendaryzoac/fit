@@ -22,7 +22,8 @@ import {
 export type ChartTone = 'brand' | 'effort' | 'rest' | 'caution'
 
 export const TONE: Record<ChartTone, string> = {
-  brand: 'var(--brand)',
+  // A line needs more presence than a fill: the chart step of the ramp
+  brand: 'var(--series-1)',
   effort: 'var(--ember)',
   rest: 'var(--sky)',
   caution: 'var(--amber)',
@@ -30,28 +31,32 @@ export const TONE: Record<ChartTone, string> = {
 
 /** Sleep stages, deepest first. */
 export const SLEEP = {
-  deep: 'var(--sky-strong)',
-  rem: 'var(--sky)',
+  deep: 'var(--sleep-deep)',
+  rem: 'var(--sleep-rem)',
   light: 'var(--sleep-light)',
   awake: 'var(--sleep-awake)',
 }
 
-/** Heart-rate zones 1 to 5. */
+/** Heart-rate zones 1 to 5: ordered, so one hue stepping in lightness. */
 export const ZONES = [
   'var(--zone-1)',
-  'var(--sky)',
-  'var(--brand)',
-  'var(--ember)',
-  'var(--rose)',
+  'var(--zone-2)',
+  'var(--zone-3)',
+  'var(--zone-4)',
+  'var(--zone-5)',
 ]
 
-/** Categorical series, in order of use. */
+/**
+ * Categorical series, assigned in this order and never cycled. The order
+ * is the colour-vision safeguard (adjacent slots stay apart under protan
+ * and deutan simulation), so add to the end rather than reshuffling.
+ */
 export const SERIES = [
-  'var(--brand)',
-  'var(--ember)',
-  'var(--sky)',
-  'var(--amber)',
-  'var(--rose)',
+  'var(--series-1)',
+  'var(--series-2)',
+  'var(--series-3)',
+  'var(--series-4)',
+  'var(--series-5)',
   'var(--series-6)',
   'var(--series-7)',
 ]

@@ -8,8 +8,8 @@ const LEAD: Record<LeadTone, string> = {
   brand: 'bg-brand-soft text-brand-strong',
   effort: 'bg-ember-soft text-ember-strong',
   rest: 'bg-sky-soft text-sky-strong',
-  // Recovery: amber, the calm tone
-  calm: 'bg-amber-soft text-amber-strong',
+  // Recovery: the calm tone, a lighter step of the accent
+  calm: 'bg-sky-soft text-sky-strong',
 }
 
 const ROW =

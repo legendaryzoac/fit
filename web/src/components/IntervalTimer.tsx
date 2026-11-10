@@ -191,7 +191,8 @@ function DrillSetsEditor({
   )
 }
 
-// Work shouts in ember, rest cools to sky, warm-up is a caution amber.
+// Work is the strongest neutral, rest is the accent blue, warm-up is a
+// caution amber.
 const TONE: Record<SectionTone, CountdownTone> = {
   warm: 'caution',
   work: 'effort',

@@ -7,7 +7,7 @@ export type ThemePref = 'light' | 'dark' | 'auto'
 export type Theme = 'light' | 'dark'
 
 const KEY = 'fit.theme'
-const CANVAS: Record<Theme, string> = { light: '#f2f0ea', dark: '#0f1311' }
+const CANVAS: Record<Theme, string> = { light: '#f3f4f6', dark: '#0a0b0e' }
 
 const listeners = new Set<() => void>()
 const media =

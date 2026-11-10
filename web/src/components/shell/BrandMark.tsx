@@ -1,4 +1,4 @@
-/** The mark: a barbell, evergreen plates on an ink bar. Colours come from
+/** The mark: a barbell, accent-blue plates on an ink bar. Colours come from
  * the theme so it follows Dawn and Dusk. Pairs with the FIT wordmark. */
 export function BrandMark({ className = 'h-10 w-10' }: { className?: string }) {
   return (

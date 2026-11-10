@@ -4,8 +4,8 @@
   "description": "Training and recovery tracker.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f1311",
-  "theme_color": "#0f1311",
+  "background_color": "#0a0b0e",
+  "theme_color": "#0a0b0e",
   "icons": [
     {
       "src": "/icon.svg",

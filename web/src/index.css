@@ -1,7 +1,12 @@
 /* FIT Cadence — tokens and base.
    Dawn lives on :root, Dusk under [data-theme="dark"] (set on <html> by
    lib/theme.ts). Tailwind utilities read the runtime variables through
-   `@theme inline`, so `bg-canvas` follows the theme without a rebuild. */
+   `@theme inline`, so `bg-canvas` follows the theme without a rebuild.
+
+   The palette is monochrome with one accent. Greys carry the interface,
+   dark blue marks what is live or chosen, and amber and rose appear only
+   as status. Token names predate this palette (ember, sky): they name a
+   role (effort, rest), not the colour they once were. */
 @import '@fontsource-variable/manrope';
 @import 'tailwindcss';
 
@@ -10,51 +15,75 @@
 :root {
   color-scheme: light;
 
-  --canvas: #f2f0ea;
+  /* Neutrals: cool greys with no hue of their own */
+  --canvas: #f3f4f6;
   --surface: #ffffff;
-  --surface-2: #f1efe9;
-  --surface-3: #e9e6df;
-  --hairline: #1b211d14;
-  --scrim: #1b211d80;
+  --surface-2: #eef0f3;
+  --surface-3: #e3e6eb;
+  --hairline: #0b0f1a14;
+  --scrim: #0b0f1a80;
 
-  --ink: #1b211d;
-  --ink-2: #576058;
-  --ink-3: #626b63;
-  --ink-4: #8f988f;
+  --ink: #0b0f1a;
+  --ink-2: #454c5c;
+  --ink-3: #5c6474;
+  --ink-4: #8a91a0;
 
-  --brand: #1b6b5a;
-  --brand-strong: #15574a;
-  --brand-soft: #d9efe7;
+  /* The one accent: dark blue. Every blue in the app is a step of the
+     same ramp, so the interface and the charts read as one colour. */
+  --brand: #104281;
+  --brand-strong: #0d366b;
+  --brand-press: #0d366b;
+  --brand-soft: #e3eefc;
   --on-brand: #ffffff;
 
-  --ember: #e2683b;
-  --ember-strong: #b8451c;
-  --ember-soft: #fbe6dc;
-  --on-ember: #1b211d;
+  /* Effort is the strongest neutral, not a hue: work reads as ink,
+     rest as blue. */
+  --ember: #3d4350;
+  --ember-strong: #0b0f1a;
+  --ember-soft: #e3e6eb;
+  --on-ember: #ffffff;
 
-  --sky: #3d6fb4;
-  --sky-strong: #2f5a95;
-  --sky-soft: #dfeafa;
+  /* Rest and recovery: the lighter steps of the blue ramp */
+  --sky: #3987e5;
+  --sky-strong: #1c5cab;
+  --sky-soft: #d9e8fb;
   --on-sky: #ffffff;
 
+  /* Status only: caution and danger keep their hues because they mean
+     something, and always sit beside a word */
   --amber: #bd7f17;
   --amber-strong: #8f5e0c;
   --amber-soft: #fbefd6;
-  --on-amber: #1b211d;
+  --on-amber: #0b0f1a;
 
-  --rose: #d64c4c;
+  --rose: #cd3f3f;
   --rose-strong: #ad2f2f;
   --rose-soft: #fbe1e1;
   --on-rose: #ffffff;
 
-  --sleep-light: #9dbdf0;
-  --sleep-awake: #d9d3c4;
-  --zone-1: #cfd6d0;
-  --series-6: #6d7a74;
-  --series-7: #8bbf9a;
+  /* Charts. Ordered data (sleep depth, heart-rate zones) walks the blue
+     ramp. Unordered series are the one place other hues appear: identity
+     needs them, and this order is validated for colour-vision
+     deficiency against both surfaces. */
+  --sleep-deep: #104281;
+  --sleep-rem: #2a78d6;
+  --sleep-light: #86b6ef;
+  --sleep-awake: #d5d9e0;
+  --zone-1: #86b6ef;
+  --zone-2: #5598e7;
+  --zone-3: #2a78d6;
+  --zone-4: #1c5cab;
+  --zone-5: #104281;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
 
-  --shadow-lift: 0 1px 2px #1b211d0f, 0 12px 32px -16px #1b211d33;
-  --shadow-float: 0 16px 40px -12px #1b211d59;
+  --shadow-lift: 0 1px 2px #0b0f1a0f, 0 12px 32px -16px #0b0f1a33;
+  --shadow-float: 0 16px 40px -12px #0b0f1a59;
 
   /* Motion */
   --motion-quick: 120ms;
@@ -66,51 +95,66 @@
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --canvas: #0f1311;
-  --surface: #181d1a;
-  --surface-2: #212724;
-  --surface-3: #2a312d;
-  --hairline: #eef0ea14;
+  --canvas: #0a0b0e;
+  --surface: #131519;
+  --surface-2: #1b1e24;
+  --surface-3: #262a32;
+  --hairline: #eef1f614;
   --scrim: #00000099;
 
-  --ink: #eef0ea;
-  --ink-2: #aab2ab;
-  --ink-3: #8a938b;
-  --ink-4: #6a736b;
+  --ink: #eef1f6;
+  --ink-2: #a9afbb;
+  --ink-3: #878e9b;
+  --ink-4: #636a77;
 
-  --brand: #5ccbab;
-  --brand-strong: #86dcc0;
-  --brand-soft: #1a3b32;
-  --on-brand: #0f1311;
+  /* On a dark surface the fill steps up the ramp to stay visible; the
+     deep navy lives in the soft tint behind tonal controls. */
+  --brand: #256abf;
+  --brand-strong: #86b6ef;
+  --brand-press: #2a78d6;
+  --brand-soft: #10294d;
+  --on-brand: #ffffff;
 
-  --ember: #f08a5e;
-  --ember-strong: #f7a583;
-  --ember-soft: #3d2519;
-  --on-ember: #0f1311;
+  --ember: #cfd4dd;
+  --ember-strong: #eef1f6;
+  --ember-soft: #2b3038;
+  --on-ember: #0a0b0e;
 
-  --sky: #7fa9ec;
-  --sky-strong: #a3c2f5;
-  --sky-soft: #1c2b44;
-  --on-sky: #0f1311;
+  --sky: #6da7ec;
+  --sky-strong: #9ec5f4;
+  --sky-soft: #13294a;
+  --on-sky: #0a0b0e;
 
   --amber: #e6a83c;
   --amber-strong: #f2c46a;
   --amber-soft: #3b2d12;
-  --on-amber: #0f1311;
+  --on-amber: #0a0b0e;
 
   --rose: #ee6b6b;
   --rose-strong: #f59a9a;
   --rose-soft: #43201f;
-  --on-rose: #0f1311;
+  --on-rose: #0a0b0e;
 
-  --sleep-light: #4f78b8;
-  --sleep-awake: #3a4440;
-  --zone-1: #3a4440;
-  --series-6: #8a9a92;
-  --series-7: #6fae86;
+  /* The ramp runs the other way here: more is brighter */
+  --sleep-deep: #9ec5f4;
+  --sleep-rem: #3987e5;
+  --sleep-light: #184f95;
+  --sleep-awake: #3a3f49;
+  --zone-1: #184f95;
+  --zone-2: #256abf;
+  --zone-3: #3987e5;
+  --zone-4: #6da7ec;
+  --zone-5: #9ec5f4;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
 
-  --shadow-lift: 0 0 0 1px #eef0ea0f;
-  --shadow-float: 0 16px 40px -12px #00000099, 0 0 0 1px #eef0ea14;
+  --shadow-lift: 0 0 0 1px #eef1f60f;
+  --shadow-float: 0 16px 40px -12px #00000099, 0 0 0 1px #eef1f614;
 }
 
 @theme inline {
@@ -130,6 +174,7 @@
 
   --color-brand: var(--brand);
   --color-brand-strong: var(--brand-strong);
+  --color-brand-press: var(--brand-press);
   --color-brand-soft: var(--brand-soft);
   --color-on-brand: var(--on-brand);
 
@@ -153,22 +198,22 @@
   --color-rose-soft: var(--rose-soft);
   --color-on-rose: var(--on-rose);
 
-  --color-sleep-deep: var(--sky-strong);
-  --color-sleep-rem: var(--sky);
+  --color-sleep-deep: var(--sleep-deep);
+  --color-sleep-rem: var(--sleep-rem);
   --color-sleep-light: var(--sleep-light);
   --color-sleep-awake: var(--sleep-awake);
 
   --color-zone-1: var(--zone-1);
-  --color-zone-2: var(--sky);
-  --color-zone-3: var(--brand);
-  --color-zone-4: var(--ember);
-  --color-zone-5: var(--rose);
+  --color-zone-2: var(--zone-2);
+  --color-zone-3: var(--zone-3);
+  --color-zone-4: var(--zone-4);
+  --color-zone-5: var(--zone-5);
 
-  --color-series-1: var(--brand);
-  --color-series-2: var(--ember);
-  --color-series-3: var(--sky);
-  --color-series-4: var(--amber);
-  --color-series-5: var(--rose);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+  --color-series-4: var(--series-4);
+  --color-series-5: var(--series-5);
   --color-series-6: var(--series-6);
   --color-series-7: var(--series-7);
 

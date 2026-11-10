@@ -84,10 +84,10 @@ const GROUPS: Array<{ value: Group; label: string }> = [
 
 /** Kind colours, shared by the load chart and the recovery signals. */
 const KIND_COLOR: Record<WorkoutKind, string> = {
-  strength: 'var(--brand)',
-  speed: 'var(--ember)',
-  cardio: 'var(--sky)',
-  recovery: 'var(--amber)',
+  strength: 'var(--series-1)',
+  speed: 'var(--series-2)',
+  cardio: 'var(--series-3)',
+  recovery: 'var(--series-4)',
 }
 
 const KIND_LABEL: Record<WorkoutKind, string> = {
@@ -99,11 +99,11 @@ const KIND_LABEL: Record<WorkoutKind, string> = {
 
 /** Recovery-minutes bars, in the order the design calls for. */
 const MINUTES_COLORS = [
-  'var(--amber)',
-  'var(--sky)',
-  'var(--brand)',
-  'var(--ember)',
-  'var(--rose)',
+  'var(--series-1)',
+  'var(--series-2)',
+  'var(--series-3)',
+  'var(--series-4)',
+  'var(--series-5)',
 ]
 
 const OUTCOME_LABEL: Record<'soreness' | 'fatigue' | 'prs', string> = {
@@ -112,8 +112,9 @@ const OUTCOME_LABEL: Record<'soreness' | 'fatigue' | 'prs', string> = {
   prs: 'Recovered',
 }
 
-/** Sleep, energy, soreness, stress: one chart tone each. */
-const READINESS_TONE: ChartTone[] = ['brand', 'effort', 'rest', 'caution']
+/** Sleep, energy, soreness, stress. Each has its own labelled chart, so
+ * they share the accent: a second hue here would only read as a warning. */
+const READINESS_TONE: ChartTone[] = ['brand', 'brand', 'brand', 'brand']
 
 type Range = '30' | '90' | '180'
 
@@ -884,7 +885,7 @@ export function Trends({
         <CardHead
           title="Recovery minutes"
           action={
-            <StatusPill tone="mid" dot={false}>
+            <StatusPill tone="neutral" dot={false}>
               {consistencyPct(workouts, localToday())}% of 28 d
             </StatusPill>
           }
