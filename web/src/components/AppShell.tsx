@@ -21,6 +21,7 @@ import {
 } from '../lib/workouts'
 import {
   Dock,
+  DOCK_STRIP_PX,
   type DockLive,
   type DockMode,
   type DockTab,
@@ -86,7 +87,8 @@ export function AppShell({
     <div className="min-h-dvh bg-canvas text-ink">
       <TopBar demo={demo} onSettings={() => setSettingsOpen(true)} />
 
-      <main className="mx-auto flex max-w-column flex-col gap-4 px-gutter pt-3 pb-[calc(88px+env(safe-area-inset-bottom))]">
+      {/* --dock-strip: the dock grows by a strip while a session is parked */}
+      <main className="mx-auto flex max-w-column flex-col gap-4 px-gutter pt-3 pb-[calc(88px+var(--dock-strip,0px)+env(safe-area-inset-bottom))]">
         <div ref={contentRef} className="flex flex-col gap-4">
           {/* One Workouts instance stays mounted across all four tabs so
               drafts and caches survive tab hops. */}
@@ -104,10 +106,9 @@ export function AppShell({
       <ShellDock
         tab={tab}
         onTab={setTab}
-        onOpen={() => {
-          setTab('today')
-          requestResume()
-        }}
+        // The session opens over whichever tab is showing: with the tabs
+        // always in reach, minimising it lands back where it was opened
+        onOpen={requestResume}
       />
 
       <SettingsSheet
@@ -249,15 +250,28 @@ function ShellDock({
     return () => clearInterval(t)
   }, [])
 
+  // A session running off-screen rides on top of the tabs as a strip; on
+  // screen (its sheet is open) it needs none.
+  const mode: DockMode =
+    timer && !inSession ? 'timer' : live && !inSession ? 'live' : 'tabs'
+
+  // The page pads its bottom by the strip's height while it is up, so the
+  // last row of any tab still scrolls clear of the taller dock.
+  const strip = !overlay && mode !== 'tabs'
+  useEffect(() => {
+    const root = document.documentElement
+    root.style.setProperty('--dock-strip', strip ? `${DOCK_STRIP_PX}px` : '0px')
+    return () => {
+      root.style.removeProperty('--dock-strip')
+    }
+  }, [strip])
+
   // Full-screen flows (live session, wizards) own the whole viewport —
   // the dock yields to their action bars.
   if (overlay) return null
 
-  const mode: DockMode =
-    timer && !inSession ? 'timer' : live && !inSession ? 'live' : 'tabs'
-
   // Over a live session sheet the dock is raised above it; a tab tap parks
-  // the session (it becomes the live bar) and then switches tab.
+  // the session (it becomes the strip above the tabs) and then switches tab.
   const handleTab = (t: Tab) => {
     if (inSession) requestMinimise()
     onTab(t)

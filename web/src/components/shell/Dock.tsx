@@ -44,18 +44,22 @@ const TONE: Record<TimerTone, string> = {
   neutral: 'bg-surface-2 text-ink-2',
 }
 
-/** Each layer crossfades and slides 12px; the hidden ones ignore taps. */
-function layerClass(active: boolean, leavesUp: boolean): string {
-  return `motion-slow absolute inset-0 flex items-center transition-[opacity,transform] ${
-    active
-      ? 'opacity-100'
-      : `pointer-events-none opacity-0 ${leavesUp ? '-translate-y-3' : 'translate-y-3'}`
+/** The strip's two faces crossfade in place; the hidden one ignores taps. */
+function faceClass(active: boolean): string {
+  return `motion-slow absolute inset-0 flex items-center transition-opacity ${
+    active ? 'opacity-100' : 'pointer-events-none opacity-0'
   }`
 }
 
+/** Height of the strip a parked session adds on top of the tabs. Page
+ * content pads its bottom by this much while the strip is up. */
+export const DOCK_STRIP_PX = 52
+
 /**
- * The floating bottom dock. It is one surface that morphs between three
- * faces: the four tabs, the parked strength session, and the running timer.
+ * The floating bottom dock. The four tabs are always there. A session
+ * running off-screen (a parked strength session, an interval timer) rides
+ * on top of them as a slim strip, so getting back into it is one tap and
+ * so is every other part of the app.
  */
 export function Dock({
   tab,
@@ -67,6 +71,7 @@ export function Dock({
 }: {
   tab: DockTab
   onTab: (t: DockTab) => void
+  /** Which strip is up: none ('tabs'), the parked session or the timer. */
   mode: DockMode
   live?: DockLive
   timer?: DockTimer
@@ -77,6 +82,7 @@ export function Dock({
     0,
     TABS.findIndex((t) => t.value === tab),
   )
+  const parked = mode !== 'tabs'
 
   return (
     <div
@@ -84,13 +90,109 @@ export function Dock({
         raised ? 'z-[60]' : 'z-30'
       }`}
     >
-      <div className="relative mx-auto h-dock max-w-column overflow-hidden rounded-xl bg-surface/90 shadow-float backdrop-blur-xl">
-        {/* Tabs */}
-        <nav
-          aria-label="Sections"
-          aria-hidden={mode !== 'tabs'}
-          className={layerClass(mode === 'tabs', true)}
+      <div className="mx-auto max-w-column overflow-hidden rounded-xl bg-surface/90 shadow-float backdrop-blur-xl">
+        {/* The parked session: grows out of the top of the dock */}
+        <div
+          className={`motion-slow grid transition-[grid-template-rows] ${
+            parked ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+          }`}
         >
+          <div className="min-h-0 overflow-hidden" aria-hidden={!parked}>
+            <div
+              className="relative border-b border-hairline"
+              style={{ height: DOCK_STRIP_PX }}
+            >
+              {/* Live strength session parked off-screen */}
+              <div
+                aria-hidden={mode !== 'live'}
+                className={`${faceClass(mode === 'live')} gap-2 pl-[18px] pr-2.5`}
+              >
+                <button
+                  type="button"
+                  onClick={live?.onOpen}
+                  aria-label="Open the live session"
+                  tabIndex={mode === 'live' ? 0 : -1}
+                  className="pressable flex h-full min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="animate-live h-2.5 w-2.5 shrink-0 rounded-pill bg-ember"
+                  />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-[15px] leading-5 font-semibold text-ink">
+                      {live?.title}
+                    </span>
+                    <span className="truncate text-caption text-ink-2">
+                      {live?.sub}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={live?.onOpen}
+                  tabIndex={mode === 'live' ? 0 : -1}
+                  className="pressable flex h-9 shrink-0 items-center rounded-pill bg-brand-soft px-3.5 text-caption font-semibold text-brand-strong"
+                >
+                  Resume
+                </button>
+              </div>
+
+              {/* Interval timer running off-screen */}
+              <div
+                aria-hidden={mode !== 'timer'}
+                className={`${faceClass(mode === 'timer')} gap-1 pl-[18px] pr-1.5`}
+              >
+                <button
+                  type="button"
+                  onClick={timer?.onOpen}
+                  aria-label="Open the timer"
+                  tabIndex={mode === 'timer' ? 0 : -1}
+                  className="pressable flex h-full min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <span
+                    className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-pill px-2.5 text-caption font-semibold ${
+                      TONE[timer?.tone ?? 'neutral']
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="h-2 w-2 rounded-pill bg-current"
+                    />
+                    {timer?.label}
+                  </span>
+                  <span className="truncate text-numeric-lg text-ink">
+                    {timer?.time}
+                  </span>
+                </button>
+                {timer?.onPauseToggle && (
+                  <button
+                    type="button"
+                    onClick={timer.onPauseToggle}
+                    aria-label={timer.paused ? 'Resume' : 'Pause'}
+                    tabIndex={mode === 'timer' ? 0 : -1}
+                    className="pressable flex h-touch w-touch shrink-0 items-center justify-center rounded-pill bg-surface-2 text-ink"
+                  >
+                    {timer.paused ? <IconPlay /> : <IconPause />}
+                  </button>
+                )}
+                {timer?.onSkip && (
+                  <button
+                    type="button"
+                    onClick={timer.onSkip}
+                    aria-label="Skip section"
+                    tabIndex={mode === 'timer' ? 0 : -1}
+                    className="pressable flex h-touch w-touch shrink-0 items-center justify-center rounded-pill text-ink-2"
+                  >
+                    <IconSkip />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <nav aria-label="Sections" className="h-dock">
           <div className="relative grid h-full w-full grid-cols-4">
             {/* One indicator, a column wide, slides by whole columns */}
             <div
@@ -110,7 +212,6 @@ export function Dock({
                   type="button"
                   onClick={() => onTab(t.value)}
                   aria-current={active ? 'page' : undefined}
-                  tabIndex={mode === 'tabs' ? 0 : -1}
                   className={`pressable relative z-10 flex h-full flex-col items-center justify-center gap-0.5 text-micro transition-colors duration-[200ms] ease-standard ${
                     active ? 'font-semibold text-brand-strong' : 'text-ink-3'
                   }`}
@@ -124,92 +225,6 @@ export function Dock({
             })}
           </div>
         </nav>
-
-        {/* Live strength session parked off-screen */}
-        <div
-          aria-hidden={mode !== 'live'}
-          className={`${layerClass(mode === 'live', false)} gap-2 pl-[18px] pr-3`}
-        >
-          <button
-            type="button"
-            onClick={live?.onOpen}
-            aria-label="Open the live session"
-            tabIndex={mode === 'live' ? 0 : -1}
-            className="pressable flex h-full min-w-0 flex-1 items-center gap-3 text-left"
-          >
-            <span
-              aria-hidden="true"
-              className="animate-live h-2.5 w-2.5 shrink-0 rounded-pill bg-ember"
-            />
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate text-body font-semibold text-ink">
-                {live?.title}
-              </span>
-              <span className="truncate text-caption text-ink-2">
-                {live?.sub}
-              </span>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={live?.onOpen}
-            tabIndex={mode === 'live' ? 0 : -1}
-            className="pressable flex h-9 shrink-0 items-center rounded-pill bg-brand-soft px-3.5 text-caption font-semibold text-brand-strong"
-          >
-            Resume
-          </button>
-        </div>
-
-        {/* Interval timer running off-screen */}
-        <div
-          aria-hidden={mode !== 'timer'}
-          className={`${layerClass(mode === 'timer', false)} gap-1 pl-[18px] pr-2.5`}
-        >
-          <button
-            type="button"
-            onClick={timer?.onOpen}
-            aria-label="Open the timer"
-            tabIndex={mode === 'timer' ? 0 : -1}
-            className="pressable flex h-full min-w-0 flex-1 items-center gap-3 text-left"
-          >
-            <span
-              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-pill px-2.5 text-caption font-semibold ${
-                TONE[timer?.tone ?? 'neutral']
-              }`}
-            >
-              <span
-                aria-hidden="true"
-                className="h-2 w-2 rounded-pill bg-current"
-              />
-              {timer?.label}
-            </span>
-            <span className="truncate text-numeric-lg text-ink">
-              {timer?.time}
-            </span>
-          </button>
-          {timer?.onPauseToggle && (
-            <button
-              type="button"
-              onClick={timer.onPauseToggle}
-              aria-label={timer.paused ? 'Resume' : 'Pause'}
-              tabIndex={mode === 'timer' ? 0 : -1}
-              className="pressable flex h-touch w-touch shrink-0 items-center justify-center rounded-pill bg-surface-2 text-ink"
-            >
-              {timer.paused ? <IconPlay /> : <IconPause />}
-            </button>
-          )}
-          {timer?.onSkip && (
-            <button
-              type="button"
-              onClick={timer.onSkip}
-              aria-label="Skip section"
-              tabIndex={mode === 'timer' ? 0 : -1}
-              className="pressable flex h-touch w-touch shrink-0 items-center justify-center rounded-pill text-ink-2"
-            >
-              <IconSkip />
-            </button>
-          )}
-        </div>
       </div>
     </div>
   )
