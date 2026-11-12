@@ -247,7 +247,14 @@ function ShellDock({
     }
     check()
     const t = setInterval(check, 1000)
-    return () => clearInterval(t)
+    // A session sheet opening or closing is when its draft is most likely
+    // to have just changed (discarded, finished): read it now rather than
+    // show the old one until the next tick
+    const un = subscribeInSession(check)
+    return () => {
+      clearInterval(t)
+      un()
+    }
   }, [])
 
   // A session running off-screen rides on top of the tabs as a strip; on
@@ -255,9 +262,12 @@ function ShellDock({
   const mode: DockMode =
     timer && !inSession ? 'timer' : live && !inSession ? 'live' : 'tabs'
 
-  // The page pads its bottom by the strip's height while it is up, so the
-  // last row of any tab still scrolls clear of the taller dock.
-  const strip = !overlay && mode !== 'tabs'
+  // The page pads its bottom by the strip's height for as long as a
+  // session exists, so the last row of any tab still scrolls clear of the
+  // taller dock. Not only while the strip shows: opening the session hides
+  // the strip, and a page that shrank under the sheet would come back
+  // scrolled with its last row behind the strip.
+  const strip = timer != null || live != null
   useEffect(() => {
     const root = document.documentElement
     root.style.setProperty('--dock-strip', strip ? `${DOCK_STRIP_PX}px` : '0px')

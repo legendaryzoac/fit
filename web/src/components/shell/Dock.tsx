@@ -149,18 +149,19 @@ export function Dock({
                   tabIndex={mode === 'timer' ? 0 : -1}
                   className="pressable flex h-full min-w-0 flex-1 items-center gap-3 text-left"
                 >
+                  {/* A long section name gives way; the countdown never does */}
                   <span
-                    className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-pill px-2.5 text-caption font-semibold ${
+                    className={`inline-flex h-7 min-w-0 items-center gap-1.5 rounded-pill px-2.5 text-caption font-semibold ${
                       TONE[timer?.tone ?? 'neutral']
                     }`}
                   >
                     <span
                       aria-hidden="true"
-                      className="h-2 w-2 rounded-pill bg-current"
+                      className="h-2 w-2 shrink-0 rounded-pill bg-current"
                     />
-                    {timer?.label}
+                    <span className="truncate">{timer?.label}</span>
                   </span>
-                  <span className="truncate text-numeric-lg text-ink">
+                  <span className="shrink-0 text-numeric-lg text-ink">
                     {timer?.time}
                   </span>
                 </button>

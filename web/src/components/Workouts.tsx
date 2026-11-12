@@ -1379,15 +1379,13 @@ function StartPicker({
       // A slot template picks its lifts first; that flow guards the draft.
       start(() => onStrength(t), !hasSlots(t))
     } else if (t.sections) {
-      start(() => onTimer(t.kind, t.sections ?? [], t.name), false)
+      start(() => onTimer(t.kind, t.sections ?? [], t.name))
     }
   }
 
   function startRoutine(t: Template) {
-    start(
-      () =>
-        onTimer('recovery', routineToSections(t.items ?? [], t.transitionSec), t.name),
-      false,
+    start(() =>
+      onTimer('recovery', routineToSections(t.items ?? [], t.transitionSec), t.name),
     )
   }
 
@@ -1443,7 +1441,7 @@ function StartPicker({
               leadTone="rest"
               title="Stopwatch"
               sub="Log the miles after"
-              onClick={() => start(() => onTimer('cardio', []), false)}
+              onClick={() => start(() => onTimer('cardio', []))}
             />
             <div key="intervals">
               <ListItem
@@ -1461,7 +1459,7 @@ function StartPicker({
                     variant="primary"
                     block
                     onClick={() =>
-                      start(() => onTimer('speed', buildIntervals(plan)), false)
+                      start(() => onTimer('speed', buildIntervals(plan)))
                     }
                   >
                     Start
@@ -1495,7 +1493,7 @@ function StartPicker({
                 title={r.name}
                 sub={`${routineMinutes(r)} min`}
                 onClick={() =>
-                  start(() => onTimer('recovery', routineSections(r), r.name), false)
+                  start(() => onTimer('recovery', routineSections(r), r.name))
                 }
               />
             ))}
@@ -1506,7 +1504,7 @@ function StartPicker({
               title="Free stretch"
               sub="Stopwatch"
               onClick={() =>
-                start(() => onTimer('recovery', [], 'Free stretch'), false)
+                start(() => onTimer('recovery', [], 'Free stretch'))
               }
             />
             <ListItem
@@ -1898,6 +1896,9 @@ export function Workouts({
     () =>
       onMinimise(() => {
         const cur = modeRef.current
+        // A finished timer is showing its summary and has nothing left in
+        // storage to park: closing it here would lose the session
+        if (cur.m === 'timer' && !loadTimerDraft()) return
         if ((cur.m === 'strength' && cur.isNew) || cur.m === 'timer') {
           setMode({ m: 'list' })
         }
@@ -2368,6 +2369,11 @@ export function Workouts({
     title?: string,
     extra?: Pick<TimerDraft, 'modality' | 'resumeStrength'>,
   ): Mode {
+    // Every caller has already asked before replacing a live session; a
+    // strength session left in storage would come back if the timer is
+    // discarded, and be deleted with no word when it is saved. Only a
+    // warm-up runs inside a strength session and leaves it alone.
+    if (!extra?.resumeStrength) saveDraft(null)
     const draft: TimerDraft = {
       kind,
       title,
@@ -2579,9 +2585,10 @@ export function Workouts({
           }}
           onRecover={() => setMode({ m: 'pick', kind: 'recovery' })}
           onQuickLog={() => setMode({ m: 'quicklog' })}
-          onStartRoutine={(r) =>
+          onStartRoutine={async (r) => {
+            if (!(await confirmReplaceLive())) return
             setMode(startTimer('recovery', routineSections(r), r.name))
-          }
+          }}
         />
       </>
     )
