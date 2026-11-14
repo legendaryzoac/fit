@@ -128,7 +128,7 @@ import {
   recommendations,
   type Recommendation,
 } from '../lib/progression'
-import { refreshMe, useMe } from '../lib/me'
+import { refreshMe, strapCaps, useMe } from '../lib/me'
 import { onMinimise, onResume, setInSession } from '../lib/sessionBus'
 import { useUnitPref } from '../lib/units'
 import {
@@ -1708,8 +1708,9 @@ export function Workouts({
   useMemo(() => registerEquipmentOverrides(customs), [customs])
   const [pendingCount, setPendingCount] = useState(() => loadPending().length)
   const me = useMe()
+  const caps = strapCaps(me)
   // The strap's measurement only counts while a strap is linked
-  const whoopWeightLb = strapLinked ? me?.whoop.bodyWeightLb : undefined
+  const whoopWeightLb = strapLinked ? me?.strap.bodyWeightLb : undefined
   const [weights, setWeights] = useState<WeightEntry[]>(loadWeightCache)
   const unit = useUnitPref()
   // The local date the morning weigh-in was waved off on
@@ -1721,9 +1722,11 @@ export function Workouts({
   const [offline, setOffline] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE)
-  // Captured sessions are the strap's; the server keeps old ones after a
-  // disconnect, so the gate is here rather than on the fetch.
-  const strapSessions = strapLinked ? sessions : []
+  // Captured sessions are the strap's, and only some bands capture them;
+  // the server keeps old ones after a disconnect or a change of band, so
+  // the gate is here rather than on the fetch.
+  const capturesSessions = strapLinked && caps.sessions
+  const strapSessions = capturesSessions ? sessions : []
   const [mode, setMode] = useState<Mode>(() => {
     const timer = loadTimerDraft()
     if (timer) return { m: 'timer', draft: timer }
@@ -1737,7 +1740,7 @@ export function Workouts({
   const topLift = useMemo(() => exercisesByFrequency(workouts)[0], [workouts])
   // Fetched here rather than in Today so the coach reads the same strap
   // numbers the home screen draws, whichever tab it is opened from.
-  const strap = useStrapMetrics(api, strapLinked, tab)
+  const strap = useStrapMetrics(api, strapLinked, tab, me?.strap.syncOnOpen === true)
   const dayPlan = useDayPlan()
   const coach = useCoach(
     api,
@@ -2679,8 +2682,8 @@ export function Workouts({
     // Captured sessions come from the strap: without one the chip goes,
     // and a filter left on it reads as All.
     const filter: LogFilter =
-      logFilter === 'captured' && !strapLinked ? 'all' : logFilter
-    const chips = strapLinked
+      logFilter === 'captured' && !capturesSessions ? 'all' : logFilter
+    const chips = capturesSessions
       ? LOG_CHIPS
       : LOG_CHIPS.filter((c) => c.value !== 'captured')
     const captured = filter === 'captured'

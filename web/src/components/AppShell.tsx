@@ -53,11 +53,13 @@ export function AppShell({
   demo?: boolean
   onSignOut: () => void
 }) {
-  // The WHOOP OAuth redirect (?whoop=connected|error) must land where its
-  // result banner lives — Trends, which reads the query itself — not Today.
-  const [tab, setTab] = useState<Tab>(() =>
-    new URLSearchParams(window.location.search).has('whoop') ? 'trends' : 'today',
-  )
+  // A band's OAuth redirect (?whoop=… or ?google=…, connected|error) must
+  // land where its result banner lives — Trends, which reads the query
+  // itself — not Today.
+  const [tab, setTab] = useState<Tab>(() => {
+    const q = new URLSearchParams(window.location.search)
+    return q.has('whoop') || q.has('google') ? 'trends' : 'today'
+  })
   const [settingsOpen, setSettingsOpen] = useState(false)
   // Owned by the shell so Today, the ledger and (eventually) the Recovery
   // tab all see the same check-ins.

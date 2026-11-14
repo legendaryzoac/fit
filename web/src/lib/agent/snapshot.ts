@@ -158,7 +158,7 @@ export function prepare(ctx: AgentContext): Prepared {
   const low =
     (c?.prs != null && c.prs <= 3) ||
     [c?.sleep, c?.fatigue, c?.soreness].some((v) => v != null && v <= 2) ||
-    (ctx.strap != null && ctx.strap.recovery < 34)
+    (ctx.strap?.recovery != null && ctx.strap.recovery < 34)
   if (low) flags.push('readiness_low')
 
   const weekAgo = new Date(ctx.now - 7 * DAY).toISOString()
@@ -271,7 +271,9 @@ export function prepare(ctx: AgentContext): Prepared {
       checkin,
       strap: ctx.strap
         ? {
-            recovery: Math.round(ctx.strap.recovery),
+            ...(ctx.strap.recovery != null && {
+              recovery: Math.round(ctx.strap.recovery),
+            }),
             ...(ctx.strap.hrvMs != null && { hrv_ms: Math.round(ctx.strap.hrvMs) }),
             ...(ctx.strap.hrvVs30d != null && {
               hrv_vs_30d: round1(ctx.strap.hrvVs30d),

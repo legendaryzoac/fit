@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { Api } from '../../lib/api'
 import { confirm } from '../../lib/confirm'
 import { lockScreenSupported } from '../../lib/lockScreen'
-import { refreshMe, useMe } from '../../lib/me'
+import type { ProviderId } from '@fit/shared'
+import { refreshMe, strapLabel, useMe } from '../../lib/me'
 import {
   getThemePref,
   setThemePref,
@@ -44,6 +45,8 @@ function StrapRow({ api }: { api: Api }) {
   const me = useMe()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // More than one band on offer: Connect opens the choice first
+  const [choosing, setChoosing] = useState(false)
 
   const refetch = useCallback(async () => {
     await refreshMe(api)
@@ -54,11 +57,11 @@ function StrapRow({ api }: { api: Api }) {
     void refetch()
   }, [refetch])
 
-  async function connect() {
+  async function connect(provider: ProviderId) {
     setBusy(true)
     setError(null)
     try {
-      const res = await api.get('/api/whoop/connect')
+      const res = await api.get(`/api/${provider}/connect`)
       const body = await res.json()
       if (!res.ok) throw new Error(body.error ?? `API responded ${res.status}`)
       window.location.assign(body.url)
@@ -74,8 +77,10 @@ function StrapRow({ api }: { api: Api }) {
     setBusy(true)
     setError(null)
     try {
-      const res = await api.send('DELETE', '/api/whoop')
+      // The route forgets whichever band is linked
+      const res = await api.send('DELETE', `/api/${linkedProvider ?? 'whoop'}`)
       if (!res.ok) throw new Error(`API responded ${res.status}`)
+      setChoosing(false)
       await refetch()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not disconnect')
@@ -84,20 +89,31 @@ function StrapRow({ api }: { api: Api }) {
     }
   }
 
-  const isError = me?.whoop.status === 'error'
-  const isConnectedActive = !!me?.whoop.connected && !isError
+  const strap = me?.strap
+  const linkedProvider = strap?.provider
+  const providers = me?.providers ?? []
+  const isError = strap?.status === 'error'
+  const isConnectedActive = !!strap?.connected && !isError
+  const name = strapLabel(me)
 
   let caption = 'Loading'
   if (me) {
     if (isConnectedActive) {
-      caption = me.whoop.lastSyncAt
-        ? `Last synced ${fmtDay(me.whoop.lastSyncAt)}`
-        : 'Nothing synced yet'
+      caption = strap?.lastSyncAt
+        ? `${name} · last synced ${fmtDay(strap.lastSyncAt)}`
+        : `${name} · nothing synced yet`
     } else if (isError) {
-      caption = 'Needs attention'
+      caption = `${name} needs attention`
     } else {
       caption = 'Not connected'
     }
+  }
+
+  function startConnect() {
+    // A band waiting on a re-auth reconnects as itself
+    if (isError && linkedProvider) return void connect(linkedProvider)
+    if (providers.length === 1) return void connect(providers[0].id)
+    setChoosing((open) => !open)
   }
 
   return (
@@ -123,11 +139,51 @@ function StrapRow({ api }: { api: Api }) {
               </Button>
             </div>
           ) : (
-            <Button variant="tonal" size="sm" disabled={busy} onClick={connect}>
-              {isError ? 'Reconnect' : 'Connect'}
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Switching bands means forgetting this one first */}
+              {isError && (
+                <Button
+                  variant="ghost-danger"
+                  size="sm"
+                  disabled={busy}
+                  onClick={disconnect}
+                >
+                  Disconnect
+                </Button>
+              )}
+              <Button
+                variant="tonal"
+                size="sm"
+                disabled={busy || providers.length === 0}
+                onClick={startConnect}
+              >
+                {isError ? 'Reconnect' : 'Connect'}
+              </Button>
+            </div>
           ))}
       </div>
+      {choosing && !isConnectedActive && !isError && (
+        <div className="flex flex-col gap-2">
+          {providers.map((p) => (
+            <Button
+              key={p.id}
+              variant="quiet"
+              disabled={busy}
+              onClick={() => connect(p.id)}
+            >
+              {p.label}
+            </Button>
+          ))}
+          {providers.some((p) => p.id === 'google') && (
+            <p className="text-caption text-ink-3">
+              Fitbit Air: FIT reads your sleep, heart rate variability, resting
+              heart rate, blood oxygen, skin temperature and steps from Google
+              Health to show your recovery trends. Sign in to the Google Health
+              app with the same Google account first.
+            </p>
+          )}
+        </div>
+      )}
       {error && <Banner tone="error">{error}</Banner>}
     </>
   )

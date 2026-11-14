@@ -2,12 +2,20 @@
  * Fully client-side demo: deterministic synthetic data behind the same Api
  * seam the real backend serves. No network, no accounts, nothing to abuse.
  */
+import type {
+  DailyLoad,
+  DailySteps,
+  DailyVitals,
+  MeResponse,
+  SleepRecord,
+} from '@fit/shared'
 import { builtinReply } from './agent/builtin'
 import type { WireMessage } from './agent/types'
 import type { Api } from './api'
 import type { Checkin } from './checkins'
 import type { CustomExercise } from './exercises'
 import type { Mesocycle } from './mesocycle'
+import { localDate } from './metrics'
 import type { RomTest } from './romtests'
 import type { WeightEntry } from './weights'
 import type { Template } from './templates'
@@ -35,11 +43,15 @@ function rng(seed: number): () => number {
   }
 }
 
+/** Which band the demo athlete wears. */
+export type DemoStrap = 'whoop' | 'google'
+
 interface DemoStore {
-  me: unknown
-  recoveries: unknown[]
-  sleeps: unknown[]
-  cycles: unknown[]
+  me: MeResponse | null
+  recoveries: DailyVitals[]
+  sleeps: SleepRecord[]
+  cycles: DailyLoad[]
+  steps: DailySteps[]
   sessions: SessionRecord[]
   workouts: Workout[]
   templates: Template[]
@@ -59,6 +71,7 @@ function generate(): DemoStore {
     recoveries: [],
     sleeps: [],
     cycles: [],
+    steps: [],
     sessions: [],
     workouts: [],
     templates: [],
@@ -437,18 +450,103 @@ function generate(): DemoStore {
       ],
     },
   ]
+  const whoop = {
+    connected: true,
+    status: 'active' as const,
+    lastSyncAt: new Date(now - 2 * 3_600_000).toISOString(),
+    backfillDone: true,
+    bodyWeightLb: 181,
+  }
   store.me = {
     userId: 'demo',
     createdAt: new Date(now - DAYS * DAY).toISOString(),
-    whoop: {
-      connected: true,
-      status: 'active',
-      lastSyncAt: new Date(now - 2 * 3_600_000).toISOString(),
-      backfillDone: true,
-      bodyWeightLb: 181,
+    whoop,
+    strap: {
+      provider: 'whoop',
+      ...whoop,
+      capabilities: { recoveryScore: true, strain: true, sessions: true, steps: false },
+      syncOnOpen: false,
     },
+    providers: DEMO_PROVIDERS,
   }
   return store
+}
+
+const DEMO_PROVIDERS: MeResponse['providers'] = [
+  { id: 'whoop', label: 'WHOOP' },
+  { id: 'google', label: 'Fitbit Air' },
+]
+
+/**
+ * The same athlete wearing a Fitbit Air instead: what the Google Health
+ * API gives the app. Vitals arrive per civil date with no recovery score,
+ * sleep has stages but no "% of need", there is no strain and no captured
+ * workout — and there are steps. Its own seed stream, so the WHOOP story
+ * above is untouched.
+ */
+function asFitbit(store: DemoStore): DemoStore {
+  const rand = rng(20261114)
+  const noise = (scale: number) => (rand() - 0.5) * 2 * scale
+  const trainedOn = new Set(
+    store.workouts
+      .filter((w) => w.kind !== 'recovery')
+      .map((w) => localDate(w.start, TZ)),
+  )
+  const days = store.recoveries.map((r) => localDate(r.date, TZ))
+  return {
+    ...store,
+    recoveries: store.recoveries.map((r, i) => {
+      const hrvMs = Math.round(((r.hrvMs ?? 80) * 0.82 + noise(2)) * 10) / 10
+      const skinTempC = Math.round((34 + noise(0.35)) * 100) / 100
+      return {
+        source: 'google',
+        date: days[i],
+        hrvMs,
+        // Deep-sleep RMSSD runs above the whole-night average
+        hrvDeepSleepMs: Math.round((hrvMs * 1.14 + noise(2)) * 10) / 10,
+        rhr: r.rhr,
+        spo2Pct: Math.round((96.2 + noise(1.1)) * 10) / 10,
+        skinTempC,
+        skinTempDeviationC: Math.round((skinTempC - 34) * 100) / 100,
+      }
+    }),
+    sleeps: store.sleeps.map((s) => ({
+      source: 'google',
+      end: s.end,
+      timezoneOffset: s.timezoneOffset,
+      nap: s.nap,
+      inBedMin: s.inBedMin,
+      awakeMin: s.awakeMin,
+      lightMin: s.lightMin,
+      deepMin: s.deepMin,
+      remMin: s.remMin,
+      efficiencyPct: s.efficiencyPct,
+    })),
+    cycles: [],
+    sessions: [],
+    steps: days.map((date) => ({
+      source: 'google',
+      date,
+      steps: Math.round(6200 + (trainedOn.has(date) ? 3400 : 0) + noise(2100)),
+    })),
+    // A workout can only be linked to a session the band captured
+    workouts: store.workouts.map(({ linkedSessionSk: _linked, ...w }) => w),
+    me: {
+      userId: 'demo',
+      createdAt: store.me?.createdAt,
+      whoop: { connected: false },
+      strap: {
+        provider: 'google',
+        connected: true,
+        status: 'active',
+        lastSyncAt: new Date(Date.now() - 20 * 60_000).toISOString(),
+        backfillDone: true,
+        capabilities: { recoveryScore: false, strain: false, sessions: false, steps: true },
+        syncOnOpen: true,
+      },
+      providers: DEMO_PROVIDERS,
+    },
+  }
 }
 
 function respond(body: unknown, status = 200): Response {
@@ -468,8 +566,8 @@ function since(days: number): string {
   return new Date(Date.now() - days * DAY).toISOString()
 }
 
-export function makeDemoApi(): Api {
-  const store = generate()
+export function makeDemoApi(opts: { strap?: DemoStrap } = {}): Api {
+  const store = opts.strap === 'google' ? asFitbit(generate()) : generate()
   const wait = () => new Promise((r) => setTimeout(r, 120 + Math.random() * 120))
 
   async function get(path: string): Promise<Response> {
@@ -482,13 +580,10 @@ export function makeDemoApi(): Api {
       const from = since(daysParam(path, 90))
       return respond({
         days: daysParam(path, 90),
-        recoveries: store.recoveries.filter(
-          (r) => (r as { date: string }).date >= from,
-        ),
-        sleeps: store.sleeps.filter((s) => (s as { end: string }).end >= from),
-        cycles: store.cycles.filter(
-          (c) => (c as { start: string }).start >= from,
-        ),
+        recoveries: store.recoveries.filter((r) => r.date >= from.slice(0, 10)),
+        sleeps: store.sleeps.filter((s) => s.end >= from),
+        cycles: store.cycles.filter((c) => c.start >= from),
+        steps: store.steps.filter((d) => d.date >= from.slice(0, 10)),
       })
     }
     if (pathname === '/api/sessions') {
@@ -511,7 +606,7 @@ export function makeDemoApi(): Api {
       })
     }
     if (pathname === '/api/romtests') return respond({ tests: store.romtests })
-    if (pathname === '/api/whoop/connect') {
+    if (pathname === '/api/whoop/connect' || pathname === '/api/google/connect') {
       return respond({ error: 'Not available in the demo' }, 400)
     }
     // The demo never spends a model call: its coach is the built-in one
@@ -597,10 +692,15 @@ export function makeDemoApi(): Api {
       store.romtests = store.romtests.filter((t) => t.date !== date)
       return respond({ deleted: date })
     }
-    if (path.startsWith('/api/whoop')) {
-      if (method === 'DELETE') {
-        store.me = { ...(store.me as Record<string, unknown>), whoop: { connected: false } }
-        return respond({ ok: true })
+    if (path === '/api/strap/sync') return respond({ started: false, reason: 'recent' })
+    if (path === '/api/whoop' || path === '/api/google') {
+      if (method === 'DELETE' && store.me) {
+        store.me = {
+          ...store.me,
+          whoop: { connected: false },
+          strap: { connected: false },
+        }
+        return respond({ disconnected: true })
       }
       return respond({ error: 'not found in demo' })
     }

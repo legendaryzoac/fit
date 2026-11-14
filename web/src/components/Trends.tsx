@@ -16,13 +16,15 @@ import {
 import type { Api } from '../lib/api'
 import { CHECKIN_ITEMS, type Checkin } from '../lib/checkins'
 import { confirm } from '../lib/confirm'
-import { useMe } from '../lib/me'
+import { strapCaps, useMe } from '../lib/me'
 import {
+  dayTime,
   localDate,
   mean,
   withRollingMean,
   type Metrics,
 } from '../lib/metrics'
+import { hasVital } from '../lib/strap'
 import {
   ROM_TESTS,
   RETEST_DAYS,
@@ -140,27 +142,41 @@ const ZONE_KEYS = ZONES.map((color, i) => ({
   color,
 }))
 
-/** The WHOOP OAuth redirect lands here with its result in the query. */
-function whoopLanding(): {
+/** Connection failures a person can do something about, in plain words. */
+const CONNECT_ERRORS: Record<string, string> = {
+  'not-linked':
+    'That Google account has no Google Health profile yet. Open the Google Health app, sign in with the same account, then connect again.',
+  consent:
+    'No data was shared. Connect again and leave at least one permission ticked.',
+  'other-strap': 'Another strap is already connected. Disconnect it in Settings first.',
+}
+
+/**
+ * A band's OAuth redirect lands here with its result in the query:
+ * ?whoop=connected|error or ?google=connected|error, plus a reason.
+ */
+function strapLanding(): {
   group: Group | null
   banner: { tone: BannerTone; text: string } | null
 } {
   const q = new URLSearchParams(window.location.search)
-  const whoop = q.get('whoop')
-  if (whoop === 'connected') {
+  const outcome = q.get('whoop') ?? q.get('google')
+  if (outcome === 'connected') {
     return {
       group: 'recovery',
       banner: { tone: 'info', text: 'Strap connected. History is syncing.' },
     }
   }
-  if (whoop === 'error') {
+  if (outcome === 'error') {
     const reason = q.get('reason') ?? 'unknown'
     const detail = q.get('detail')
     return {
       group: 'recovery',
       banner: {
         tone: 'error',
-        text: `Connection failed (${reason}${detail ? `: ${detail}` : ''}).`,
+        text:
+          CONNECT_ERRORS[reason] ??
+          `Connection failed (${reason}${detail ? `: ${detail}` : ''}).`,
       },
     }
   }
@@ -589,10 +605,11 @@ export function Trends({
   checkins: Checkin[]
   /** A wearable is linked. Without one the Sleep group, the recovery,
    * HRV and resting-HR cards and the strain overlay are not shown;
-   * connecting lives in Settings. */
+   * connecting lives in Settings. Which of them a linked band fills
+   * depends on the band: each card shows when its data is there. */
   strapLinked: boolean
 }) {
-  const [landing] = useState(whoopLanding)
+  const [landing] = useState(strapLanding)
   const [picked, setPicked] = useState<Group | null>(landing.group)
   const me = useMe()
   const unit = useUnitPref()
@@ -612,7 +629,7 @@ export function Trends({
       // Nothing to fetch: the strap groups are hidden, and the log-based
       // cards settle without a round trip. (Old scores outlive a
       // disconnect on the server, so the gate sits here, not there.)
-      setMetrics({ days: Number(days), recoveries: [], sleeps: [], cycles: [] })
+      setMetrics({ days: Number(days), recoveries: [], sleeps: [], cycles: [], steps: [] })
       return
     }
     api
@@ -630,15 +647,28 @@ export function Trends({
     if (!metrics) return []
     const byDate = new Map<
       string,
-      { date: string; score: number | null; hrv: number | null; rhr: number | null }
+      {
+        date: string
+        score: number | null
+        hrv: number | null
+        rhr: number | null
+        spo2: number | null
+        temp: number | null
+        tempDeviation: number | null
+      }
     >()
     for (const r of metrics.recoveries) {
-      if (r.recoveryScore == null) continue
+      // A day with nothing measured on it (synced, not yet scored) is
+      // skipped; a day from a band with no score of its own is kept
+      if (!hasVital(r)) continue
       byDate.set(r.date.slice(0, 10), {
         date: r.date.slice(0, 10),
-        score: r.recoveryScore,
+        score: r.recoveryScore ?? null,
         hrv: r.hrvMs ?? null,
         rhr: r.rhr ?? null,
+        spo2: r.spo2Pct ?? null,
+        temp: r.skinTempC ?? null,
+        tempDeviation: r.skinTempDeviationC ?? null,
       })
     }
     return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
@@ -722,11 +752,16 @@ export function Trends({
     [metrics],
   )
 
+  const stepSeries = useMemo(
+    () => [...(metrics?.steps ?? [])].sort((a, b) => a.date.localeCompare(b.date)),
+    [metrics],
+  )
+
   const latest = recoverySeries.at(-1)
   /** Days since the newest recovery record — drives the stale banner. */
   const staleDays =
     latest?.date != null
-      ? Math.floor((Date.now() - new Date(latest.date).getTime()) / 86_400_000)
+      ? Math.floor((Date.now() - dayTime(latest.date)) / 86_400_000)
       : null
   const hrv30 = mean(
     recoverySeries.slice(-30).flatMap((p) => (p.hrv == null ? [] : [p.hrv])),
@@ -823,6 +858,10 @@ export function Trends({
 
   const settled = metrics != null || apiError != null
   const hasRecovery = strapLinked && recoverySeries.length > 0
+  // Some bands publish a recovery score and some only the vitals under it
+  const hasScore = recoverySeries.some((p) => p.score != null)
+  const hasSleep = strapLinked && sleepSeries.length > 0
+  const caps = strapCaps(me)
   const hasCheckin = checkins.length > 0
   const hasRecoveryWorkout = workouts.some((w) => w.kind === 'recovery')
   // Recovery leads whenever there is a wearable-free or strap signal at all;
@@ -838,7 +877,7 @@ export function Trends({
     : GROUPS.filter((g) => g.value !== 'sleep')
   const chosen = picked ?? fallback
   const group: Group = chosen === 'sleep' && !strapLinked ? 'recovery' : chosen
-  const connected = me?.whoop.connected === true
+  const connected = me?.strap.connected === true
 
   const range = (
     <Segment options={RANGES} value={days} onChange={setDays} ariaLabel="Range" />
@@ -976,47 +1015,92 @@ export function Trends({
     } else {
       strapCards = (
         <>
-          <Card>
-            <CardHead title="Recovery" action={range} />
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <Well
-                label="Recovery"
-                value={latest?.score != null ? String(latest.score) : '—'}
-                unit="%"
-                sub={latest?.date ? shortDate(latest.date) : undefined}
-                tone={latest?.score != null ? recoveryTone(latest.score) : undefined}
+          {hasScore ? (
+            <Card>
+              <CardHead title="Recovery" action={range} />
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <Well
+                  label="Recovery"
+                  value={latest?.score != null ? String(latest.score) : '—'}
+                  unit="%"
+                  sub={latest?.date ? shortDate(latest.date) : undefined}
+                  tone={latest?.score != null ? recoveryTone(latest.score) : undefined}
+                />
+                <Well
+                  label="HRV"
+                  value={latest?.hrv != null ? String(Math.round(latest.hrv)) : '—'}
+                  unit="ms"
+                  sub={delta(latest?.hrv, hrv30)}
+                />
+                <Well
+                  label="Resting HR"
+                  value={latest?.rhr != null ? String(Math.round(latest.rhr)) : '—'}
+                  unit="bpm"
+                  sub={delta(latest?.rhr, rhr30)}
+                />
+                <Well
+                  label="Sleep"
+                  value={
+                    lastSleep?.value != null ? String(Math.round(lastSleep.value)) : '—'
+                  }
+                  unit="%"
+                  sub={lastSleep?.date ? shortDate(lastSleep.date) : undefined}
+                />
+              </div>
+              <div className="mt-4">
+                <TrendChart
+                  data={scoreSeries}
+                  tone="brand"
+                  unit="%"
+                  domain={[0, 100]}
+                  baselineLabel="7 d baseline"
+                />
+              </div>
+            </Card>
+          ) : (
+            // A band with no score of its own: the readings a score would
+            // be built from, as they are
+            <Card>
+              <CardHead
+                title="Vitals"
+                action={range}
               />
-              <Well
-                label="HRV"
-                value={latest?.hrv != null ? String(Math.round(latest.hrv)) : '—'}
-                unit="ms"
-                sub={delta(latest?.hrv, hrv30)}
-              />
-              <Well
-                label="Resting HR"
-                value={latest?.rhr != null ? String(Math.round(latest.rhr)) : '—'}
-                unit="bpm"
-                sub={delta(latest?.rhr, rhr30)}
-              />
-              <Well
-                label="Sleep"
-                value={
-                  lastSleep?.value != null ? String(Math.round(lastSleep.value)) : '—'
-                }
-                unit="%"
-                sub={lastSleep?.date ? shortDate(lastSleep.date) : undefined}
-              />
-            </div>
-            <div className="mt-4">
-              <TrendChart
-                data={scoreSeries}
-                tone="brand"
-                unit="%"
-                domain={[0, 100]}
-                baselineLabel="7 d baseline"
-              />
-            </div>
-          </Card>
+              <p className="mt-1 text-caption text-ink-3">
+                {latest?.date ? shortDate(latest.date) : ''}
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Well
+                  label="HRV"
+                  value={latest?.hrv != null ? String(Math.round(latest.hrv)) : '—'}
+                  unit="ms"
+                  sub={delta(latest?.hrv, hrv30)}
+                />
+                <Well
+                  label="Resting HR"
+                  value={latest?.rhr != null ? String(Math.round(latest.rhr)) : '—'}
+                  unit="bpm"
+                  sub={delta(latest?.rhr, rhr30)}
+                />
+                <Well
+                  label="Blood oxygen"
+                  value={latest?.spo2 != null ? String(Math.round(latest.spo2)) : '—'}
+                  unit="%"
+                />
+                <Well
+                  label="Skin temp"
+                  value={
+                    latest?.tempDeviation != null
+                      ? `${latest.tempDeviation >= 0 ? '+' : '−'}${Math.abs(latest.tempDeviation).toFixed(1)}`
+                      : latest?.temp != null
+                        ? latest.temp.toFixed(1)
+                        : '—'
+                  }
+                  unit="°C"
+                  sub={latest?.tempDeviation != null ? 'vs baseline' : undefined}
+                />
+              </div>
+            </Card>
+          )}
           <Card>
             <CardHead title="HRV" />
             <div className="mt-4">
@@ -1039,6 +1123,14 @@ export function Trends({
               />
             </div>
           </Card>
+          {stepSeries.length > 1 && (
+            <Card>
+              <CardHead title="Steps" />
+              <div className="mt-4">
+                <Bars data={stepSeries} xKey="date" dataKey="steps" unit="" />
+              </div>
+            </Card>
+          )}
           {weekdays.length > 1 && (
             <Card>
               <CardHead title="Recovery by weekday" />
@@ -1070,7 +1162,7 @@ export function Trends({
   } else if (group === 'sleep') {
     if (!settled) {
       cards = <p className="py-8 text-center text-caption text-ink-3">Loading</p>
-    } else if (!hasRecovery) {
+    } else if (!hasSleep && !hasRecovery) {
       cards = strapEmpty
     } else {
       cards = (
@@ -1086,18 +1178,21 @@ export function Trends({
               />
             </div>
           </Card>
-          <Card>
-            <CardHead title="Sleep performance" />
-            <div className="mt-4">
-              <TrendChart
-                data={sleepPerfSeries}
-                tone="rest"
-                unit="%"
-                domain={[0, 100]}
-                baselineLabel="30 d baseline"
-              />
-            </div>
-          </Card>
+          {/* Sleep against sleep need: only some bands report it */}
+          {sleepPerfSeries.length > 0 && (
+            <Card>
+              <CardHead title="Sleep performance" />
+              <div className="mt-4">
+                <TrendChart
+                  data={sleepPerfSeries}
+                  tone="rest"
+                  unit="%"
+                  domain={[0, 100]}
+                  baselineLabel="30 d baseline"
+                />
+              </div>
+            </Card>
+          )}
           {bedtimes.length > 1 && (
             <Card>
               <CardHead title="Bedtime" />
@@ -1380,7 +1475,7 @@ export function Trends({
               {thisWeek.rated} of {thisWeek.sessions} rated this week
             </p>
           </Card>
-          {strapLinked && overlay.length > 0 && (
+          {strapLinked && caps.strain && overlay.length > 0 && (
             <Card>
               <CardHead title="Load and recovery" action={range} />
               <div className="mt-4">
@@ -1420,7 +1515,7 @@ export function Trends({
         <BodyCard
           entries={weights}
           onLog={onLogWeight}
-          whoopLb={strapLinked ? me?.whoop.bodyWeightLb : undefined}
+          whoopLb={strapLinked ? me?.strap.bodyWeightLb : undefined}
           unit={unit}
         />
         <MobilityCard api={api} />

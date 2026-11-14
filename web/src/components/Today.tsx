@@ -22,7 +22,8 @@ import {
   SLEEP_ROUTINE_ID,
   type Routine,
 } from '../lib/routines'
-import type { StrapMetrics } from '../lib/strap'
+import { dayTime } from '../lib/metrics'
+import { hasVital, type StrapMetrics } from '../lib/strap'
 import { fmtSec, totalSec, type Template } from '../lib/templates'
 import { localToday } from '../lib/weights'
 import { consistencyPct, durationMinutes, localDay } from '../lib/wellness'
@@ -146,29 +147,50 @@ export function Today({
   // part of this screen hides on its own.
   const recoveries = strapLinked ? strap.recoveries : []
   const sleeps = strapLinked ? strap.sleeps : []
+  const stepDays = strapLinked ? strap.steps : []
 
-  // An unscored most-recent day (strap synced but not yet scored) must
-  // not blank the section — fall back to the last SCORED entry.
-  const latest = [...(recoveries ?? [])]
-    .reverse()
-    .find((r) => r.recoveryScore != null)
-  // …but a score from last month is not "today's readiness". When the
+  // An empty most-recent day (strap synced but not yet scored) must not
+  // blank the section — fall back to the last entry with a reading on it.
+  // Bands without a recovery score still count: their HRV and resting
+  // heart rate are the reading.
+  const latest = [...(recoveries ?? [])].reverse().find(hasVital)
+  // …but a reading from last month is not "today's readiness". When the
   // strap stops reporting (subscription lapsed, device shelved) we say
   // so instead of dressing stale data up as current.
   const latestAgeDays =
     latest?.date != null
-      ? Math.floor(
-          (Date.now() - new Date(latest.date).getTime()) / 86_400_000,
-        )
+      ? Math.floor((Date.now() - dayTime(latest.date)) / 86_400_000)
       : null
   const stale = latestAgeDays != null && latestAgeDays > 2
-  // Fresh: a scored recovery at most two days old. A 3-to-7-day gap gets
-  // a banner; anything older (or no data at all) is training alone.
+  // Fresh: a reading at most two days old. A 3-to-7-day gap gets a
+  // banner; anything older (or no data at all) is training alone.
   const fresh = latest != null && !stale
   const staleBanner = stale && latestAgeDays != null && latestAgeDays <= 7
   const score = stale ? null : (latest?.recoveryScore ?? null)
   const hrv = latest?.hrvMs ?? null
   const rhr = latest?.rhr ?? null
+  const spo2 = latest?.spo2Pct ?? null
+  // Against the wearer's own baseline where the band gives one, which is
+  // how skin temperature is meant to be read; otherwise the raw reading
+  const tempDeviation = latest?.skinTempDeviationC ?? null
+  const temp = latest?.skinTempC ?? null
+  const spo2Series = (recoveries ?? [])
+    .flatMap((r) => (r.spo2Pct == null ? [] : [r.spo2Pct]))
+    .slice(-30)
+  const tempSeries = (recoveries ?? [])
+    .flatMap((r) => {
+      const v = r.skinTempDeviationC ?? r.skinTempC
+      return v == null ? [] : [v]
+    })
+    .slice(-30)
+  // Steps: the newest day counted, if it is today or yesterday
+  const stepDay = stepDays.at(-1)
+  const stepAgeDays =
+    stepDay != null ? Math.floor((Date.now() - dayTime(stepDay.date)) / 86_400_000) : null
+  const steps = stepDay != null && stepAgeDays != null && stepAgeDays <= 1 ? stepDay : null
+  const stepsIsToday = steps?.date === localToday()
+  const steps30 = mean(stepDays.slice(-31, -1).map((d) => d.steps))
+  const stepsSeries = stepDays.map((d) => d.steps).slice(-30)
   const hrv30 = mean(
     (recoveries ?? []).flatMap((r) => (r.hrvMs == null ? [] : [r.hrvMs])),
   )
@@ -517,6 +539,20 @@ export function Today({
       )}
 
       <Card hero>
+        {/* A band with no score of its own: the morning's readings stand
+            where the ring would, without a verdict nobody computed. */}
+        {fresh && score == null && vitals.length > 0 && (
+          <>
+            <div className="min-w-0">
+              <p className="text-eyebrow text-ink-2">This morning</p>
+              {/* Each reading stays whole; the line breaks between them */}
+              <p className="mt-0.5 text-body-lg text-ink">
+                {vitals.map((v) => v.replaceAll(' ', '\u00a0')).join(' · ')}
+              </p>
+            </div>
+            <div className="my-4 h-px bg-hairline" />
+          </>
+        )}
         {fresh && score != null && (
           <>
             <div className="flex items-center gap-5">
@@ -625,6 +661,46 @@ export function Today({
               deltaTone="neutral"
               values={sleepSeries}
               tone="rest"
+            />
+          )}
+          {steps != null && (
+            <MetricTile
+              label="Steps"
+              value={steps.steps.toLocaleString()}
+              delta={
+                !stepsIsToday
+                  ? 'yesterday'
+                  : steps30 != null
+                    ? `avg ${Math.round(steps30).toLocaleString()}`
+                    : undefined
+              }
+              deltaTone="neutral"
+              values={stepsSeries}
+              tone="brand"
+            />
+          )}
+          {spo2 != null && (
+            <MetricTile
+              label="Blood oxygen"
+              value={Math.round(spo2)}
+              unit="%"
+              values={spo2Series}
+              tone="rest"
+            />
+          )}
+          {(tempDeviation != null || temp != null) && (
+            <MetricTile
+              label="Skin temp"
+              value={
+                tempDeviation != null
+                  ? `${tempDeviation >= 0 ? '+' : '−'}${Math.abs(tempDeviation).toFixed(1)}`
+                  : (temp as number).toFixed(1)
+              }
+              unit="°C"
+              delta={tempDeviation != null ? 'vs baseline' : undefined}
+              deltaTone="neutral"
+              values={tempSeries}
+              tone="effort"
             />
           )}
         </div>

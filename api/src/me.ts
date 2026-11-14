@@ -63,6 +63,7 @@ export async function getMe(userId: string): Promise<LambdaFunctionURLResult> {
             provider: connection.provider,
             ...status,
             capabilities: getProvider(connection.provider).capabilities,
+            syncOnOpen: !getProvider(connection.provider).pushesChanges,
           }
         : { connected: false },
     providers,

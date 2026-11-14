@@ -273,6 +273,7 @@ describe('GET /api/me', () => {
       backfillDone: true,
       bodyWeightLb: 176.4,
       capabilities: { recoveryScore: true, strain: true, sessions: true, steps: false },
+      syncOnOpen: false,
     })
     expect(asResult(res).body).not.toContain('secret-')
   })
@@ -396,6 +397,7 @@ describe('Fitbit Air (Google) connect', () => {
       lastSyncAt: null,
       backfillDone: false,
       capabilities: { recoveryScore: false, strain: false, sessions: false, steps: true },
+      syncOnOpen: true,
     })
   })
 

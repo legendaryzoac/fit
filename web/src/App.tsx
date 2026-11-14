@@ -108,7 +108,13 @@ export default function App() {
               // …and so would yesterday's demo conversation and plan
               setCoachScope('')
               clearCoach()
-              setAuth({ phase: 'demo', api: makeDemoApi() })
+              // /?demo=fitbit shows the app as a Fitbit Air wearer sees it
+              const fitbit =
+                new URLSearchParams(window.location.search).get('demo') === 'fitbit'
+              setAuth({
+                phase: 'demo',
+                api: makeDemoApi({ strap: fitbit ? 'google' : 'whoop' }),
+              })
             }}
           >
             No account? Try the demo

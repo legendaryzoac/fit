@@ -129,6 +129,8 @@ export interface StrapStatus {
   backfillDone?: boolean
   bodyWeightLb?: number
   capabilities?: Capabilities
+  /** The band does not push changes: ask for a sync when the app opens. */
+  syncOnOpen?: boolean
 }
 
 export interface ProviderInfo {

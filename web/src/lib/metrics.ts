@@ -1,48 +1,14 @@
-export interface RecoveryPoint {
-  date: string
-  recoveryScore?: number
-  rhr?: number
-  hrvMs?: number
-  scoreState?: string
-  userCalibrating?: boolean
-}
+// The wearable records and the /api/metrics shape come from the shared
+// contract; the names below are the ones this app has always used.
+export type {
+  DailyLoad as CycleRecord,
+  DailySteps,
+  DailyVitals as RecoveryPoint,
+  MetricsResponse as Metrics,
+  SleepRecord,
+} from '@fit/shared'
 
-export interface SleepRecord {
-  end: string
-  timezoneOffset?: string
-  nap: boolean
-  inBedMin?: number
-  awakeMin?: number
-  lightMin?: number
-  deepMin?: number
-  remMin?: number
-  performancePct?: number
-  efficiencyPct?: number
-  consistencyPct?: number
-  respiratoryRate?: number
-  disturbances?: number
-  scoreState?: string
-}
-
-export interface CycleRecord {
-  start: string
-  end?: string
-  timezoneOffset?: string
-  strain?: number
-  kilojoule?: number
-  avgHr?: number
-  maxHr?: number
-  scoreState?: string
-}
-
-export interface Metrics {
-  days: number
-  recoveries: RecoveryPoint[]
-  sleeps: SleepRecord[]
-  cycles: CycleRecord[]
-}
-
-/** UTC timestamp + WHOOP "-06:00"-style offset → the user's local date. */
+/** UTC timestamp + the wearer's "-06:00"-style offset → their local date. */
 export function localDate(iso: string, offset?: string): string {
   const match = offset?.match(/^([+-])(\d{2}):(\d{2})/)
   if (!match) return iso.slice(0, 10)
@@ -51,6 +17,18 @@ export function localDate(iso: string, offset?: string): string {
     60_000 *
     (match[1] === '-' ? -1 : 1)
   return new Date(new Date(iso).getTime() + shift).toISOString().slice(0, 10)
+}
+
+/**
+ * A reading's moment as epoch ms, for "how old is this". Bands that
+ * report per day send a bare date, which JavaScript would read as UTC
+ * midnight — the evening before, west of Greenwich — so a bare date
+ * means local noon of that day. A full timestamp is taken as it is.
+ */
+export function dayTime(date: string): number {
+  const bare = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!bare) return new Date(date).getTime()
+  return new Date(Number(bare[1]), Number(bare[2]) - 1, Number(bare[3]), 12).getTime()
 }
 
 /** Trailing mean over the previous `window` non-null values (inclusive). */
