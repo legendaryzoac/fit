@@ -125,8 +125,8 @@ export class SiteStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     })
 
-    // Sparse index: only WHOOP connection items set gsi1pk, so this lists
-    // connected users without scanning entity data.
+    // Sparse index: only strap connection items set gsi1pk (one value per
+    // band), so this lists connected users without scanning entity data.
     table.addGlobalSecondaryIndex({
       indexName: 'gsi1',
       partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
@@ -192,7 +192,9 @@ export class SiteStack extends Stack {
       sourceArn: `arn:aws:cloudfront::${this.account}:distribution/${distribution.distributionId}`,
     })
 
-    // ---- WHOOP ingestion (M2) ----
+    // ---- Wearable ingestion (M2) ----
+    // Construct ids below still say "Whoop": renaming one replaces its
+    // Lambda, and with it the webhook URL registered with WHOOP.
 
     // Untouched vendor JSON, kept for reprocessing when adapters change
     const rawBucket = new s3.Bucket(this, 'RawBucket', {
@@ -202,11 +204,19 @@ export class SiteStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
     })
 
-    // WHOOP client id/secret are hand-written SSM SecureStrings, never in code
+    // Each band's OAuth client id/secret are hand-written SSM SecureStrings,
+    // never in code: /fit/whoop/* for WHOOP, /fit/google/* for Fitbit Air
+    // (the Google Health API). A band stays hidden until its pair exists.
     const whoopSsmRead = new iam.PolicyStatement({
       actions: ['ssm:GetParameter'],
       resources: [
         `arn:aws:ssm:${this.region}:${this.account}:parameter/fit/whoop/*`,
+      ],
+    })
+    const googleSsmRead = new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/fit/google/*`,
       ],
     })
 
@@ -224,20 +234,25 @@ export class SiteStack extends Stack {
         TABLE_NAME: table.tableName,
         RAW_BUCKET: rawBucket.bucketName,
         WHOOP_SSM_PREFIX: '/fit/whoop',
+        GOOGLE_SSM_PREFIX: '/fit/google',
       },
     })
     table.grantReadWriteData(syncFn)
     rawBucket.grantPut(syncFn)
     syncFn.addToRolePolicy(whoopSsmRead)
+    syncFn.addToRolePolicy(googleSsmRead)
 
     apiFn.addToRolePolicy(whoopSsmRead)
+    apiFn.addToRolePolicy(googleSsmRead)
     apiFn.addEnvironment('SYNC_FUNCTION_NAME', syncFn.functionName)
     apiFn.addEnvironment('APP_URL', `https://${DOMAIN}`)
     apiFn.addEnvironment('WHOOP_SSM_PREFIX', '/fit/whoop')
+    apiFn.addEnvironment('GOOGLE_SSM_PREFIX', '/fit/google')
     syncFn.grantInvoke(apiFn)
 
-    // Reconciliation pass: scores change after the fact (sleep rescoring,
-    // late uploads), webhooks cover the real-time path.
+    // Reconciliation pass for every band: scores change after the fact
+    // (sleep rescoring, late uploads). WHOOP's webhooks and the app's
+    // sync-on-open (POST /api/strap/sync) cover the real-time path.
     new events.Rule(this, 'NightlyWhoopSync', {
       schedule: events.Schedule.cron({ minute: '0', hour: '17' }),
       targets: [

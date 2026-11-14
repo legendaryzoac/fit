@@ -10,6 +10,7 @@ import {
   putItem,
   resetAws,
 } from '../testing/aws'
+import { googleNotLinked, googleScopes } from '../testing/google-fixtures'
 
 vi.mock('../db', async () => (await import('../testing/aws')).dbMock())
 vi.mock('@aws-sdk/client-s3', async () => (await import('../testing/aws')).s3Mock())
@@ -291,5 +292,223 @@ describe('GET /api/me', () => {
       lastSyncAt: null,
       backfillDone: false,
     })
+  })
+})
+
+// ---- a second band: Fitbit Air through Google ----
+
+function configureGoogle(): void {
+  aws.params.set('/fit/google/client-id', 'gid')
+  aws.params.set('/fit/google/client-secret', 'gsecret')
+}
+
+/** Google's token and identity endpoints, answering one login. */
+function googleLogin(opts: { scope?: string; identity?: () => Response } = {}): void {
+  fetchMock.mockImplementation(async (input) => {
+    const url = String(input)
+    if (url === 'https://oauth2.googleapis.com/token') {
+      return jsonResponse({
+        access_token: 'g-access',
+        refresh_token: 'g-refresh',
+        expires_in: 3599,
+        scope: opts.scope ?? googleScopes.join(' '),
+      })
+    }
+    if (url.endsWith('/v4/users/me/identity')) {
+      return opts.identity ? opts.identity() : jsonResponse({ healthUserId: 'abc123' })
+    }
+    return new Response('not found', { status: 404 })
+  })
+}
+
+async function startGoogleConnect(user = 'u1'): Promise<string> {
+  const res = await handler(apiEvent('GET', '/api/google/connect', { user }))
+  return new URL(bodyOf(res).url).searchParams.get('state')!
+}
+
+const googleCallback = (query: Record<string, string>) =>
+  handler(apiEvent('GET', '/api/google/callback', { query }))
+
+describe('Fitbit Air (Google) connect', () => {
+  beforeEach(() => {
+    configureWhoop()
+    configureGoogle()
+  })
+
+  it('offers both bands once both are configured', async () => {
+    const res = await handler(apiEvent('GET', '/api/me', { user: 'u1' }))
+    expect(bodyOf(res).providers).toEqual([
+      { id: 'whoop', label: 'WHOOP' },
+      { id: 'google', label: 'Fitbit Air' },
+    ])
+  })
+
+  it('sends the browser to Google with its own callback', async () => {
+    const res = await handler(apiEvent('GET', '/api/google/connect', { user: 'u1' }))
+    const url = new URL(bodyOf(res).url)
+    expect(url.host).toBe('accounts.google.com')
+    expect(url.searchParams.get('redirect_uri')).toBe('https://app.test/api/google/callback')
+    const nonce = url.searchParams.get('state')!
+    expect(getItem(`OAUTH#${nonce}`, 'STATE')).toMatchObject({ userId: 'u1', provider: 'google' })
+  })
+
+  it('saves the connection under its own keys and starts a backfill', async () => {
+    googleLogin()
+    const state = await startGoogleConnect()
+    const res = await googleCallback({ code: 'the-code', state })
+    expect(location(res)).toBe('https://app.test/?google=connected')
+
+    expect(getItem('USER#u1', 'GOOGLE#CONNECTION')).toEqual({
+      pk: 'USER#u1',
+      sk: 'GOOGLE#CONNECTION',
+      type: 'google-connection',
+      gsi1pk: 'GOOGLECONN',
+      gsi1sk: 'u1',
+      accessToken: 'g-access',
+      refreshToken: 'g-refresh',
+      expiresAt: Date.parse(NOW) + 3_599_000,
+      scope: googleScopes.join(' '),
+      provider: 'google',
+      externalUserId: 'abc123',
+      status: 'active',
+      connectedAt: NOW,
+    })
+    expect(getItem('GOOGLE#abc123', 'MAPPING')).toEqual({
+      pk: 'GOOGLE#abc123',
+      sk: 'MAPPING',
+      type: 'google-mapping',
+      userId: 'u1',
+    })
+    expect(aws.invokes).toEqual([
+      { FunctionName: 'sync-fn', InvocationType: 'Event', payload: { mode: 'backfill', userId: 'u1' } },
+    ])
+  })
+
+  it('reports the strap and its capabilities in /api/me, leaving the whoop key empty', async () => {
+    googleLogin()
+    await googleCallback({ code: 'c', state: await startGoogleConnect() })
+    const me = bodyOf(await handler(apiEvent('GET', '/api/me', { user: 'u1' })))
+    expect(me.whoop).toEqual({ connected: false })
+    expect(me.strap).toEqual({
+      provider: 'google',
+      connected: true,
+      status: 'active',
+      lastSyncAt: null,
+      backfillDone: false,
+      capabilities: { recoveryScore: false, strain: false, sessions: false, steps: true },
+    })
+  })
+
+  it('tells the user to set up Google Health when the account has no profile', async () => {
+    googleLogin({ identity: () => jsonResponse(googleNotLinked, 400) })
+    const res = await googleCallback({ code: 'c', state: await startGoogleConnect() })
+    expect(location(res)).toBe('https://app.test/?google=error&reason=not-linked')
+    expect(getItem('USER#u1', 'GOOGLE#CONNECTION')).toBeUndefined()
+    expect(aws.invokes).toEqual([])
+  })
+
+  it('reports a consent screen where every scope was unticked', async () => {
+    googleLogin({ scope: 'openid' })
+    const res = await googleCallback({ code: 'c', state: await startGoogleConnect() })
+    expect(location(res)).toBe('https://app.test/?google=error&reason=consent')
+    expect(getItem('USER#u1', 'GOOGLE#CONNECTION')).toBeUndefined()
+  })
+
+  it('refuses a state issued for the other band', async () => {
+    googleLogin()
+    const whoopState = await startConnect()
+    const res = await googleCallback({ code: 'c', state: whoopState })
+    expect(location(res)).toBe('https://app.test/?google=error&reason=state')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('one strap per user', () => {
+  beforeEach(() => {
+    configureWhoop()
+    configureGoogle()
+    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', whoopUserId: '10129', status: 'active' })
+    putItem({ pk: 'WHOOP#10129', sk: 'MAPPING', userId: 'u1' })
+  })
+
+  it('answers 409 to connecting a second band', async () => {
+    const res = await handler(apiEvent('GET', '/api/google/connect', { user: 'u1' }))
+    expect(asResult(res).statusCode).toBe(409)
+    expect(bodyOf(res).provider).toBe('whoop')
+  })
+
+  it('still lets the linked band be reconnected', async () => {
+    const res = await handler(apiEvent('GET', '/api/whoop/connect', { user: 'u1' }))
+    expect(asResult(res).statusCode).toBe(200)
+  })
+
+  it('re-checks at the callback, in case the other band was linked meanwhile', async () => {
+    aws.items.delete('USER#u1|WHOOP#CONNECTION')
+    const state = await startGoogleConnect()
+    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', whoopUserId: '10129', status: 'active' })
+    googleLogin()
+    const res = await googleCallback({ code: 'c', state })
+    expect(location(res)).toBe('https://app.test/?google=error&reason=other-strap')
+    expect(getItem('USER#u1', 'GOOGLE#CONNECTION')).toBeUndefined()
+  })
+
+  it('disconnects whichever band is linked, whatever the route names', async () => {
+    const res = await handler(apiEvent('DELETE', '/api/google', { user: 'u1' }))
+    expect(bodyOf(res)).toEqual({ disconnected: true })
+    expect(getItem('USER#u1', 'WHOOP#CONNECTION')).toBeUndefined()
+    expect(getItem('WHOOP#10129', 'MAPPING')).toBeUndefined()
+  })
+
+  it('leaves unrelated DELETE routes alone', async () => {
+    const res = await handler(apiEvent('DELETE', '/api/strap', { user: 'u1' }))
+    expect(asResult(res).statusCode).toBe(404)
+    expect(getItem('USER#u1', 'WHOOP#CONNECTION')).toBeDefined()
+  })
+})
+
+describe('POST /api/strap/sync', () => {
+  const sync = (user = 'u1') => handler(apiEvent('POST', '/api/strap/sync', { user }))
+  const google = (over: Record<string, unknown> = {}) =>
+    putItem({ pk: 'USER#u1', sk: 'GOOGLE#CONNECTION', status: 'active', ...over })
+
+  it('starts a recent sync for a band that does not push changes', async () => {
+    google({ lastSyncAt: '2026-11-12T11:00:00.000Z' })
+    expect(bodyOf(await sync())).toEqual({ started: true })
+    expect(aws.invokes).toEqual([
+      {
+        FunctionName: 'sync-fn',
+        InvocationType: 'Event',
+        payload: { mode: 'recent', userId: 'u1', reason: 'app-open' },
+      },
+    ])
+    expect(getItem('USER#u1', 'GOOGLE#CONNECTION')!.syncRequestedAt).toBe(NOW)
+  })
+
+  it('does nothing within ten minutes of the last sync or request', async () => {
+    google({ lastSyncAt: '2026-11-12T11:51:00.000Z' })
+    expect(bodyOf(await sync())).toEqual({ started: false, reason: 'recent' })
+    google({ lastSyncAt: '2026-11-12T09:00:00.000Z' })
+    expect(bodyOf(await sync())).toEqual({ started: true })
+    // The request itself now holds the next one off, before any sync lands
+    expect(bodyOf(await sync())).toEqual({ started: false, reason: 'recent' })
+    expect(aws.invokes).toHaveLength(1)
+  })
+
+  it('syncs a freshly connected band that has never synced', async () => {
+    google()
+    expect(bodyOf(await sync())).toEqual({ started: true })
+  })
+
+  it('leaves WHOOP to its webhooks', async () => {
+    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', status: 'active' })
+    expect(bodyOf(await sync())).toEqual({ started: false, reason: 'pushed' })
+    expect(aws.invokes).toEqual([])
+  })
+
+  it('does nothing without a strap, or with one awaiting reconnect', async () => {
+    expect(bodyOf(await sync())).toEqual({ started: false, reason: 'not-connected' })
+    google({ status: 'error' })
+    expect(bodyOf(await sync())).toEqual({ started: false, reason: 'not-connected' })
+    expect(aws.invokes).toEqual([])
   })
 })

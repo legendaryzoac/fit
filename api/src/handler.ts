@@ -43,6 +43,7 @@ import {
   handleCallback,
   handleConnect,
   handleDisconnect,
+  handleSyncNow,
 } from './providers/routes'
 
 const verifier = CognitoJwtVerifier.create({
@@ -111,6 +112,7 @@ export async function handler(
   if (route === 'POST /api/agent') return handleAgent(userId, event)
   if (strap?.action === 'GET/connect') return handleConnect(strap.provider, userId)
   if (strap?.action === 'DELETE') return handleDisconnect(userId)
+  if (route === 'POST /api/strap/sync') return handleSyncNow(userId)
 
   return json(404, { error: 'not found' })
 }

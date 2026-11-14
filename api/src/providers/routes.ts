@@ -6,15 +6,21 @@ import type {
 } from 'aws-lambda'
 import { json, redirect } from '../http'
 import { getCredentials } from './config'
+import { getProvider } from './registry'
 import {
   consumeOauthState,
   deleteConnection,
   loadConnection,
+  patchConnection,
   putMapping,
   putOauthState,
   saveConnection,
 } from './store'
-import { StrapNotLinkedError, type StrapProvider } from './types'
+import {
+  StrapConsentError,
+  StrapNotLinkedError,
+  type StrapProvider,
+} from './types'
 
 const lambda = new LambdaClient({})
 const APP_URL = process.env.APP_URL ?? 'https://fit.zackwithers.com'
@@ -69,6 +75,38 @@ export async function handleDisconnect(
 ): Promise<LambdaFunctionURLResult> {
   const removed = await deleteConnection(userId)
   return json(200, { disconnected: removed })
+}
+
+const SYNC_NOW_MIN_GAP_MS = 10 * 60_000
+
+/**
+ * POST /api/strap/sync (JWT-authenticated) — pull the latest data now.
+ * For bands that do not push changes to us, this is what keeps the
+ * morning's numbers fresh: the app calls it when it comes to the front.
+ * At most one sync per ten minutes; anything sooner is a no-op.
+ */
+export async function handleSyncNow(
+  userId: string,
+): Promise<LambdaFunctionURLResult> {
+  const connection = await loadConnection(userId)
+  if (!connection || connection.status !== 'active') {
+    return json(200, { started: false, reason: 'not-connected' })
+  }
+  if (getProvider(connection.provider).pushesChanges) {
+    return json(200, { started: false, reason: 'pushed' })
+  }
+  const last = Math.max(
+    Date.parse(connection.lastSyncAt ?? '') || 0,
+    Date.parse(connection.syncRequestedAt ?? '') || 0,
+  )
+  if (Date.now() - last < SYNC_NOW_MIN_GAP_MS) {
+    return json(200, { started: false, reason: 'recent' })
+  }
+  await patchConnection(connection.provider, userId, {
+    syncRequestedAt: new Date().toISOString(),
+  })
+  await triggerSync({ mode: 'recent', userId, reason: 'app-open' })
+  return json(200, { started: true })
 }
 
 /** GET /api/<provider>/callback?code&state — browser redirect from the vendor, no JWT. */
@@ -128,6 +166,9 @@ export async function handleCallback(
     console.error(`${provider.id} callback failed`, err)
     if (err instanceof StrapNotLinkedError) {
       return landing(provider, 'error&reason=not-linked')
+    }
+    if (err instanceof StrapConsentError) {
+      return landing(provider, 'error&reason=consent')
     }
     return landing(provider, 'error&reason=exchange')
   }

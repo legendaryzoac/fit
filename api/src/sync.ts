@@ -44,7 +44,10 @@ async function syncUser(
   const since = days ? new Date(Date.now() - days * DAY_MS) : undefined
 
   const counts: Record<string, number> = {}
+  const granted = connection.scope.split(' ')
   for (const collection of provider.collections) {
+    // A scope the user withheld at consent switches its collections off
+    if (collection.requiresScope && !granted.includes(collection.requiresScope)) continue
     counts[collection.type] = 0
     const write = collection.write === 'merge' ? mergeEntity : putEntity
     try {

@@ -75,6 +75,8 @@ export interface Collection {
   write?: 'put' | 'merge'
   /** A failure is logged and the rest of the sync carries on. */
   optional?: boolean
+  /** Skipped unless the user granted this OAuth scope. */
+  requiresScope?: string
 }
 
 export interface StrapProvider {
@@ -128,3 +130,6 @@ export interface Connection extends Tokens {
 
 /** The account authorised us but has nothing to sync yet. */
 export class StrapNotLinkedError extends Error {}
+
+/** The user went through the consent screen and granted nothing usable. */
+export class StrapConsentError extends Error {}
