@@ -14,10 +14,15 @@ export interface RangeReading {
   status: RangeStatus | null
   /** One or two words for the status, so colour never stands alone. */
   caption: string
-  /** Where the value sits along the gauge, 0 (low end) to 1 (high end). */
+  /**
+   * How far round the gauge the reading reaches, 0 to 1. The gauge always
+   * runs toward better, so a fuller ring is a better reading whichever
+   * way the number itself points (a low resting heart rate fills it).
+   */
   at: number
-  /** The ideal range along the same gauge, or null without a baseline. */
-  ideal: [number, number] | null
+  /** Where the ideal range begins on that gauge (it runs on to the end),
+   * or null without a baseline. */
+  idealFrom: number | null
 }
 
 /** Readings needed before a personal baseline means anything. */
@@ -54,7 +59,7 @@ function againstBaseline(
   if (value === undefined) return null
   const history = series.slice(0, -1).slice(-30)
   if (history.length < MIN_BASELINE) {
-    return { value, status: null, caption: 'Building baseline', at: 0.5, ideal: null }
+    return { value, status: null, caption: 'Building baseline', at: 0.5, idealFrom: null }
   }
   const { mean, sd: rawSd } = stats(history)
   const sd = Math.max(rawSd, mean * minSpread)
@@ -62,14 +67,15 @@ function againstBaseline(
   // How far onto the unhealthy side the reading sits, in SDs
   const off = better === 'higher' ? -z : z
   const status: RangeStatus = off <= GOOD_SD ? 'good' : off <= FADING_SD ? 'fading' : 'bad'
-  const position = (zScore: number) => clamp01((zScore + SPAN_SD) / (2 * SPAN_SD))
+  // Along the gauge: 0 is three SDs onto the unhealthy side, 1 three SDs
+  // onto the healthy one
+  const position = (offBy: number) => clamp01((SPAN_SD - offBy) / (2 * SPAN_SD))
   return {
     value,
     status,
     caption: status === 'good' ? 'In range' : captions[status],
-    at: position(z),
-    ideal:
-      better === 'higher' ? [position(-GOOD_SD), 1] : [0, position(GOOD_SD)],
+    at: position(off),
+    idealFrom: position(GOOD_SD),
   }
 }
 
@@ -102,6 +108,6 @@ export function sleepReading(inBedMin: number | null | undefined): RangeReading 
     status,
     caption: status === 'good' ? 'In range' : status === 'fading' ? 'Fading' : 'Short',
     at: position(hours),
-    ideal: [position(SLEEP_GOOD_H), 1],
+    idealFrom: position(SLEEP_GOOD_H),
   }
 }

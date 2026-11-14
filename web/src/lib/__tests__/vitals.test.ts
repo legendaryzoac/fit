@@ -23,23 +23,27 @@ describe('readings against a personal baseline', () => {
     expect(rhrReading([...steady, 70])).toMatchObject({ status: 'bad', caption: 'High' })
   })
 
-  it('places the value and the ideal range on the same gauge', () => {
+  it('fills the gauge toward better, with the ideal range at its far end', () => {
     const hrv = hrvReading([...steady, 60])!
     expect(hrv.at).toBeCloseTo(0.5, 1)
-    expect(hrv.ideal![1]).toBe(1)
-    expect(hrv.ideal![0]).toBeLessThan(hrv.at)
+    expect(hrv.idealFrom!).toBeLessThan(hrv.at)
 
+    // A low HRV stops short of the ideal range
     const low = hrvReading([...steady, 48])!
-    expect(low.at).toBeLessThan(low.ideal![0])
+    expect(low.at).toBeLessThan(low.idealFrom!)
 
-    const rhr = rhrReading([...steady, 70])!
-    expect(rhr.ideal![0]).toBe(0)
-    expect(rhr.at).toBeGreaterThan(rhr.ideal![1])
+    // Resting heart rate runs the other way: a low one fills the ring
+    const calm = rhrReading([...steady, 52])!
+    const raised = rhrReading([...steady, 70])!
+    expect(calm.at).toBeGreaterThan(calm.idealFrom!)
+    expect(raised.at).toBeLessThan(raised.idealFrom!)
+    expect(calm.idealFrom).toBe(hrv.idealFrom)
   })
 
   it('keeps a far-off reading on the gauge', () => {
     expect(hrvReading([...steady, 5])!.at).toBe(0)
     expect(hrvReading([...steady, 500])!.at).toBe(1)
+    expect(rhrReading([...steady, 200])!.at).toBe(0)
   })
 
   it('does not let a dead-steady history turn a small wobble into an alarm', () => {
@@ -55,7 +59,7 @@ describe('readings against a personal baseline', () => {
       status: null,
       caption: 'Building baseline',
       at: 0.5,
-      ideal: null,
+      idealFrom: null,
     })
     expect(hrvReading([])).toBeNull()
   })
@@ -82,7 +86,7 @@ describe('sleep against the hours an adult needs', () => {
 
   it('marks seven hours as the start of the ideal range on a 4–10 h gauge', () => {
     const sleep = sleepReading(420)!
-    expect(sleep.ideal).toEqual([0.5, 1])
+    expect(sleep.idealFrom).toBe(0.5)
     expect(sleep.at).toBe(0.5)
     expect(sleepReading(120)!.at).toBe(0)
     expect(sleepReading(null)).toBeNull()

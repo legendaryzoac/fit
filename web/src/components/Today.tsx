@@ -577,7 +577,7 @@ export function Today({
         {fresh && score == null && rings.length > 0 && (
           <>
             <p className="text-eyebrow text-ink-2">This morning</p>
-            <div className="mt-3 grid grid-cols-3 gap-1">
+            <div className="mt-3 grid grid-cols-3 gap-3">
               {rings.map((ring) => (
                 <RangeRing key={ring.label} {...ring} />
               ))}
