@@ -3,6 +3,7 @@ import type {
   LambdaFunctionURLEvent,
   LambdaFunctionURLResult,
 } from 'aws-lambda'
+import type { MetricsResponse, SessionsResponse } from '@fit/shared'
 import { TABLE_NAME, ddb } from './db'
 import { json } from './http'
 
@@ -35,7 +36,7 @@ async function queryRange(
   return items
 }
 
-/** GET /api/sessions?days=N — WHOOP-detected workout sessions, for linking. */
+/** GET /api/sessions?days=N — workouts the band captured itself, for linking. */
 export async function handleSessions(
   userId: string,
   event: LambdaFunctionURLEvent,
@@ -44,9 +45,10 @@ export async function handleSessions(
   const days = Math.min(Math.max(Number.isFinite(daysRaw) ? daysRaw : 120, 7), 730)
   const startIso = new Date(Date.now() - days * 86_400_000).toISOString()
   const sessions = await queryRange(userId, 'SESSION#', startIso)
-  return json(200, {
+  const body: SessionsResponse = {
     sessions: sessions.map((i) => ({
       sk: i.sk,
+      source: i.source,
       sport: i.sport,
       start: i.start,
       end: i.end,
@@ -59,10 +61,11 @@ export async function handleSessions(
       zoneMin: i.zoneMin,
       scoreState: i.scoreState,
     })),
-  })
+  }
+  return json(200, body)
 }
 
-/** GET /api/metrics?days=N — recovery/sleep/cycle series for the dashboard. */
+/** GET /api/metrics?days=N — vitals/sleep/load/steps series for the dashboard. */
 export async function handleMetrics(
   userId: string,
   event: LambdaFunctionURLEvent,
@@ -71,25 +74,35 @@ export async function handleMetrics(
   const days = Math.min(Math.max(Number.isFinite(daysRaw) ? daysRaw : 90, 7), 365)
   const startIso = new Date(Date.now() - days * 86_400_000).toISOString()
 
-  const [recoveries, sleeps, cycles] = await Promise.all([
+  const [recoveries, sleeps, cycles, steps] = await Promise.all([
     queryRange(userId, 'RECOVERY#', startIso),
     queryRange(userId, 'SLEEP#', startIso),
     queryRange(userId, 'CYCLE#', startIso),
+    // Day-keyed (STEPS#YYYY-MM-DD), so the range starts on a whole day
+    queryRange(userId, 'STEPS#', startIso.slice(0, 10)),
   ])
 
-  return json(200, {
+  const body: MetricsResponse = {
     days,
     recoveries: recoveries.map((i) => ({
-      // recovery items carry no timestamp field of their own — it lives in
-      // the sort key (RECOVERY#<created_at>#<cycle_id>)
-      date: (i.sk as string).split('#')[1],
+      source: i.source,
+      // Bands that report per day store a civil date; WHOOP rows carry
+      // their timestamp in the sort key (RECOVERY#<created_at>#<cycle_id>)
+      date: i.date ?? (i.sk as string).split('#')[1],
       recoveryScore: i.recoveryScore,
+      scoreSource: i.scoreSource,
       rhr: i.rhr,
       hrvMs: i.hrvMs,
+      hrvDeepSleepMs: i.hrvDeepSleepMs,
+      spo2Pct: i.spo2Pct,
+      skinTempC: i.skinTempC,
+      skinTempDeviationC: i.skinTempDeviationC,
       scoreState: i.scoreState,
       userCalibrating: i.userCalibrating,
     })),
     sleeps: sleeps.map((i) => ({
+      source: i.source,
+      start: i.start,
       end: i.end,
       timezoneOffset: i.timezoneOffset,
       nap: i.nap,
@@ -106,6 +119,7 @@ export async function handleMetrics(
       scoreState: i.scoreState,
     })),
     cycles: cycles.map((i) => ({
+      source: i.source,
       start: i.start,
       end: i.end,
       timezoneOffset: i.timezoneOffset,
@@ -115,5 +129,7 @@ export async function handleMetrics(
       maxHr: i.maxHr,
       scoreState: i.scoreState,
     })),
-  })
+    steps: steps.map((i) => ({ source: i.source, date: i.date, steps: i.steps })),
+  }
+  return json(200, body)
 }

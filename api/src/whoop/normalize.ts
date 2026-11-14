@@ -6,17 +6,19 @@
  * are dropped by the document client (removeUndefinedValues).
  */
 
-type WhoopRecord = Record<string, any>
+import type {
+  LoadEntity,
+  SessionEntity,
+  SleepEntity,
+  VitalsEntity,
+} from '../providers/types'
 
-export interface Entity {
-  sk: string
-  [key: string]: unknown
-}
+type WhoopRecord = Record<string, any>
 
 const toMin = (ms: unknown): number | undefined =>
   typeof ms === 'number' ? Math.round(ms / 6000) / 10 : undefined
 
-export function normalizeSleep(r: WhoopRecord): Entity {
+export function normalizeSleep(r: WhoopRecord): SleepEntity {
   const stages = r.score?.stage_summary ?? {}
   return {
     sk: `SLEEP#${r.end}#${r.id}`,
@@ -43,7 +45,7 @@ export function normalizeSleep(r: WhoopRecord): Entity {
   }
 }
 
-export function normalizeWorkout(r: WhoopRecord): Entity {
+export function normalizeWorkout(r: WhoopRecord): SessionEntity {
   const zones = r.score?.zone_durations ?? {}
   return {
     sk: `SESSION#${r.start}#${r.id}`,
@@ -74,7 +76,7 @@ export function normalizeWorkout(r: WhoopRecord): Entity {
   }
 }
 
-export function normalizeCycle(r: WhoopRecord): Entity {
+export function normalizeCycle(r: WhoopRecord): LoadEntity {
   return {
     sk: `CYCLE#${r.start}#${r.id}`,
     type: 'cycle',
@@ -92,7 +94,7 @@ export function normalizeCycle(r: WhoopRecord): Entity {
   }
 }
 
-export function normalizeRecovery(r: WhoopRecord): Entity {
+export function normalizeRecovery(r: WhoopRecord): VitalsEntity {
   return {
     sk: `RECOVERY#${r.created_at}#${r.cycle_id}`,
     type: 'recovery',

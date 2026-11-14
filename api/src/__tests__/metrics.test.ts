@@ -22,7 +22,7 @@ vi.mock('aws-jwt-verify', async () => (await import('../testing/aws')).jwtMock()
 // The wire shapes the dashboards read: /api/metrics and /api/sessions.
 
 let handler: (event: any) => Promise<unknown>
-const store = (entity: Record<string, unknown>) => putItem({ pk: 'USER#u1', ...entity })
+const store = (entity: object) => putItem({ pk: 'USER#u1', ...entity })
 
 beforeEach(async () => {
   resetAws()
@@ -46,16 +46,21 @@ describe('GET /api/metrics', () => {
       days: 90,
       recoveries: [
         {
+          source: 'whoop',
           date: '2026-11-10T11:25:44.774Z',
           recoveryScore: 44,
           rhr: 64,
           hrvMs: 31.813562,
+          spo2Pct: 95.6875,
+          skinTempC: 33.7,
           scoreState: 'SCORED',
           userCalibrating: false,
         },
       ],
       sleeps: [
         {
+          source: 'whoop',
+          start: '2026-11-10T02:25:44.774Z',
           end: '2026-11-10T10:25:44.774Z',
           timezoneOffset: '-05:00',
           nap: false,
@@ -74,6 +79,7 @@ describe('GET /api/metrics', () => {
       ],
       cycles: [
         {
+          source: 'whoop',
           start: '2026-11-10T02:25:44.774Z',
           end: '2026-11-11T02:10:00.000Z',
           timezoneOffset: '-05:00',
@@ -84,6 +90,46 @@ describe('GET /api/metrics', () => {
           scoreState: 'SCORED',
         },
       ],
+      steps: [],
+    })
+  })
+
+  it('returns daily steps by civil date, from the first whole day of the window', async () => {
+    store({ sk: 'STEPS#2026-11-11', type: 'steps', source: 'google', date: '2026-11-11', steps: 9120 })
+    store({ sk: 'STEPS#2026-11-05', type: 'steps', source: 'google', date: '2026-11-05', steps: 4000 })
+    store({ sk: 'STEPS#2026-11-04', type: 'steps', source: 'google', date: '2026-11-04', steps: 1 })
+    const res = bodyOf(
+      await handler(apiEvent('GET', '/api/metrics', { user: 'u1', query: { days: '7' } })),
+    )
+    expect(res.steps).toEqual([
+      { source: 'google', date: '2026-11-05', steps: 4000 },
+      { source: 'google', date: '2026-11-11', steps: 9120 },
+    ])
+  })
+
+  it('reads a per-day vitals row by its stored civil date', async () => {
+    store({
+      sk: 'RECOVERY#2026-11-11#google',
+      type: 'recovery',
+      source: 'google',
+      date: '2026-11-11',
+      hrvMs: 48.2,
+      hrvDeepSleepMs: 55.1,
+      rhr: 54,
+      spo2Pct: 96.4,
+      skinTempC: 34.1,
+      skinTempDeviationC: 0.2,
+    })
+    const res = bodyOf(await handler(apiEvent('GET', '/api/metrics', { user: 'u1' })))
+    expect(res.recoveries.at(-1)).toEqual({
+      source: 'google',
+      date: '2026-11-11',
+      hrvMs: 48.2,
+      hrvDeepSleepMs: 55.1,
+      rhr: 54,
+      spo2Pct: 96.4,
+      skinTempC: 34.1,
+      skinTempDeviationC: 0.2,
     })
   })
 
@@ -101,7 +147,7 @@ describe('GET /api/metrics', () => {
 
   it("only reads the caller's rows", async () => {
     const other = bodyOf(await handler(apiEvent('GET', '/api/metrics', { user: 'u2' })))
-    expect(other).toEqual({ days: 90, recoveries: [], sleeps: [], cycles: [] })
+    expect(other).toEqual({ days: 90, recoveries: [], sleeps: [], cycles: [], steps: [] })
   })
 })
 
@@ -112,6 +158,7 @@ describe('GET /api/sessions', () => {
       sessions: [
         {
           sk: 'SESSION#2026-11-10T17:25:44.774Z#1043e0f5-5d1c-4f0a-9a7e-2b0c3a0c7f11',
+          source: 'whoop',
           sport: 'running',
           start: '2026-11-10T17:25:44.774Z',
           end: '2026-11-10T18:25:44.774Z',

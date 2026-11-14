@@ -97,6 +97,7 @@ describe('GET /api/whoop/connect', () => {
       sk: 'STATE',
       type: 'oauth-state',
       userId: 'u1',
+      provider: 'whoop',
       ttl: Date.parse(NOW) / 1000 + 600,
     })
   })
@@ -163,6 +164,8 @@ describe('GET /api/whoop/callback', () => {
       refreshToken: 'refresh-1',
       expiresAt: Date.parse(NOW) + 3_600_000,
       scope: 'offline read:sleep',
+      provider: 'whoop',
+      externalUserId: '10129',
       whoopUserId: '10129',
       status: 'active',
       connectedAt: NOW,
@@ -226,7 +229,13 @@ describe('DELETE /api/whoop', () => {
 describe('GET /api/me', () => {
   it('creates the profile on first sight and reports no strap', async () => {
     const res = await handler(apiEvent('GET', '/api/me', { user: 'u1' }))
-    expect(bodyOf(res)).toMatchObject({ userId: 'u1', createdAt: NOW, whoop: { connected: false } })
+    expect(bodyOf(res)).toEqual({
+      userId: 'u1',
+      createdAt: NOW,
+      whoop: { connected: false },
+      strap: { connected: false },
+      providers: [],
+    })
     expect(getItem('USER#u1', 'PROFILE')).toEqual({
       pk: 'USER#u1',
       sk: 'PROFILE',
@@ -255,7 +264,22 @@ describe('GET /api/me', () => {
       backfillDone: true,
       bodyWeightLb: 176.4,
     })
+    expect(bodyOf(res).strap).toEqual({
+      provider: 'whoop',
+      connected: true,
+      status: 'active',
+      lastSyncAt: '2026-11-12T11:00:00.000Z',
+      backfillDone: true,
+      bodyWeightLb: 176.4,
+      capabilities: { recoveryScore: true, strain: true, sessions: true, steps: false },
+    })
     expect(asResult(res).body).not.toContain('secret-')
+  })
+
+  it('lists only the bands whose credentials are configured', async () => {
+    configureWhoop()
+    const res = await handler(apiEvent('GET', '/api/me', { user: 'u1' }))
+    expect(bodyOf(res).providers).toEqual([{ id: 'whoop', label: 'WHOOP' }])
   })
 
   it('reports a strap that needs a reconnect as not connected, status error', async () => {

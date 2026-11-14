@@ -7,6 +7,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@fit/shared": "*",
     "@types/aws-lambda": "^8.10.162",
     "typescript": "^6.0.3",
     "vitest": "^5.1.0"

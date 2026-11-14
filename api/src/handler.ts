@@ -1,4 +1,3 @@
-import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb'
 import { CognitoJwtVerifier } from 'aws-jwt-verify'
 import type {
   LambdaFunctionURLEvent,
@@ -10,7 +9,6 @@ import {
   handleListCheckins,
   handleSaveCheckin,
 } from './checkins'
-import { TABLE_NAME, ddb } from './db'
 import {
   handleDeleteExercise,
   handleListExercises,
@@ -39,12 +37,13 @@ import {
   handleListWorkouts,
   handleSaveWorkout,
 } from './workouts'
+import { getMe } from './me'
+import { getProvider, isProviderId } from './providers/registry'
 import {
-  handleWhoopCallback,
-  handleWhoopConnect,
-  handleWhoopDisconnect,
-} from './whoop/routes'
-import { loadConnection } from './whoop/store'
+  handleCallback,
+  handleConnect,
+  handleDisconnect,
+} from './providers/routes'
 
 const verifier = CognitoJwtVerifier.create({
   userPoolId: process.env.USER_POOL_ID!,
@@ -52,51 +51,22 @@ const verifier = CognitoJwtVerifier.create({
   clientId: process.env.CLIENT_ID!,
 })
 
-async function getMe(userId: string): Promise<LambdaFunctionURLResult> {
-  const key = { pk: `USER#${userId}`, sk: 'PROFILE' }
-  const existing = await ddb.send(
-    new GetCommand({ TableName: TABLE_NAME, Key: key }),
-  )
-  let profile = existing.Item
-  if (!profile) {
-    profile = {
-      ...key,
-      type: 'profile',
-      userId,
-      createdAt: new Date().toISOString(),
-    }
-    await ddb.send(new PutCommand({ TableName: TABLE_NAME, Item: profile }))
-  }
-
-  const connection = await loadConnection(userId)
-  return json(200, {
-    userId,
-    createdAt: profile.createdAt,
-    // Never the tokens — only presentation state
-    whoop: connection
-      ? {
-          connected: connection.status === 'active',
-          status: connection.status,
-          lastSyncAt: connection.lastSyncAt ?? null,
-          backfillDone: connection.backfillDone ?? false,
-          bodyWeightLb:
-            typeof connection.bodyWeightKg === 'number'
-              ? Math.round(connection.bodyWeightKg * 2.20462 * 10) / 10
-              : undefined,
-        }
-      : { connected: false },
-  })
-}
-
 export async function handler(
   event: LambdaFunctionURLEvent,
 ): Promise<LambdaFunctionURLResult> {
   const route = `${event.requestContext.http.method} ${event.rawPath}`
 
-  // The browser redirect from WHOOP can't carry our JWT; this route
+  // /api/<band>/connect, /api/<band>/callback and DELETE /api/<band>
+  const strapRoute = /^(GET|DELETE) \/api\/([a-z]+)(\/connect|\/callback)?$/.exec(route)
+  const strap =
+    strapRoute && isProviderId(strapRoute[2])
+      ? { provider: getProvider(strapRoute[2]), action: `${strapRoute[1]}${strapRoute[3] ?? ''}` }
+      : null
+
+  // The browser redirect from the vendor can't carry our JWT; this route
   // authenticates by its one-shot OAuth state nonce instead. (The WHOOP
   // webhook lives on its own function URL — see webhook.ts.)
-  if (route === 'GET /api/whoop/callback') return handleWhoopCallback(event)
+  if (strap?.action === 'GET/callback') return handleCallback(strap.provider, event)
 
   // The app token rides in x-authorization: CloudFront's OAC signing owns the
   // real Authorization header on origin requests. (Function URLs lowercase
@@ -139,8 +109,8 @@ export async function handler(
   if (route === 'DELETE /api/exercises') return handleDeleteExercise(userId, event)
   if (route === 'GET /api/agent') return handleAgentStatus(userId)
   if (route === 'POST /api/agent') return handleAgent(userId, event)
-  if (route === 'GET /api/whoop/connect') return handleWhoopConnect(userId)
-  if (route === 'DELETE /api/whoop') return handleWhoopDisconnect(userId)
+  if (strap?.action === 'GET/connect') return handleConnect(strap.provider, userId)
+  if (strap?.action === 'DELETE') return handleDisconnect(userId)
 
   return json(404, { error: 'not found' })
 }
