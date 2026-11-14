@@ -25,6 +25,7 @@ import {
 import { dayTime } from '../lib/metrics'
 import { hasVital, type StrapMetrics } from '../lib/strap'
 import { fmtSec, totalSec, type Template } from '../lib/templates'
+import { hrvReading, rhrReading, sleepReading } from '../lib/vitals'
 import { localToday } from '../lib/weights'
 import { consistencyPct, durationMinutes, localDay } from '../lib/wellness'
 import type { Workout } from '../lib/workouts'
@@ -33,6 +34,7 @@ import { Button } from './cadence/Button'
 import { Card, CardHead } from './cadence/Card'
 import { ListItem } from './cadence/ListItem'
 import { MetricTile } from './cadence/MetricTile'
+import { RangeRing } from './cadence/RangeRing'
 import { RecoveryRing } from './cadence/RecoveryRing'
 import { StatusPill } from './cadence/StatusPill'
 import { WeekStrip } from './cadence/WeekStrip'
@@ -393,6 +395,36 @@ export function Today({
       ].filter((x): x is string => x != null)
     : []
 
+  // The same three readings as rings, for a band with no score: HRV and
+  // resting heart rate against the wearer's last thirty days, sleep
+  // against the hours an adult needs. The series end on the latest row.
+  const upToLatest = (recoveries ?? []).slice(
+    0,
+    latest ? (recoveries ?? []).indexOf(latest) + 1 : 0,
+  )
+  const hrvRing = fresh && hrv != null
+    ? hrvReading(upToLatest.flatMap((r) => (r.hrvMs == null ? [] : [r.hrvMs])))
+    : null
+  const rhrRing = fresh && rhr != null
+    ? rhrReading(upToLatest.flatMap((r) => (r.rhr == null ? [] : [r.rhr])))
+    : null
+  const sleepRing = fresh ? sleepReading(sleep?.inBedMin) : null
+  const rings = [
+    hrvRing && { ...hrvRing, label: 'HRV', value: String(Math.round(hrvRing.value)), unit: 'ms' },
+    rhrRing && {
+      ...rhrRing,
+      label: 'Resting HR',
+      value: String(Math.round(rhrRing.value)),
+      unit: 'bpm',
+    },
+    sleepRing && {
+      ...sleepRing,
+      label: 'Sleep',
+      value: fmtSleepClock(sleepRing.value),
+      unit: 'h',
+    },
+  ].filter((ring) => ring != null)
+
   const sessionBlock =
     finished && meso ? (
       <>
@@ -540,15 +572,15 @@ export function Today({
 
       <Card hero>
         {/* A band with no score of its own: the morning's readings stand
-            where the ring would, without a verdict nobody computed. */}
-        {fresh && score == null && vitals.length > 0 && (
+            where the score ring would, each against its own ideal range.
+            They are judged one by one; nothing here adds them up. */}
+        {fresh && score == null && rings.length > 0 && (
           <>
-            <div className="min-w-0">
-              <p className="text-eyebrow text-ink-2">This morning</p>
-              {/* Each reading stays whole; the line breaks between them */}
-              <p className="mt-0.5 text-body-lg text-ink">
-                {vitals.map((v) => v.replaceAll(' ', '\u00a0')).join(' · ')}
-              </p>
+            <p className="text-eyebrow text-ink-2">This morning</p>
+            <div className="mt-3 grid grid-cols-3 gap-1">
+              {rings.map((ring) => (
+                <RangeRing key={ring.label} {...ring} />
+              ))}
             </div>
             <div className="my-4 h-px bg-hairline" />
           </>
