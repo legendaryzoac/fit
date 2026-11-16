@@ -8,10 +8,10 @@ import { json, redirect } from '../http'
 import { getCredentials } from './config'
 import { getProvider } from './registry'
 import {
+  claimSyncSlot,
   consumeOauthState,
   deleteConnection,
   loadConnection,
-  patchConnection,
   putMapping,
   putOauthState,
   saveConnection,
@@ -95,16 +95,14 @@ export async function handleSyncNow(
   if (getProvider(connection.provider).pushesChanges) {
     return json(200, { started: false, reason: 'pushed' })
   }
-  const last = Math.max(
-    Date.parse(connection.lastSyncAt ?? '') || 0,
-    Date.parse(connection.syncRequestedAt ?? '') || 0,
-  )
-  if (Date.now() - last < SYNC_NOW_MIN_GAP_MS) {
+  const lastSync = Date.parse(connection.lastSyncAt ?? '') || 0
+  if (Date.now() - lastSync < SYNC_NOW_MIN_GAP_MS) {
     return json(200, { started: false, reason: 'recent' })
   }
-  await patchConnection(connection.provider, userId, {
-    syncRequestedAt: new Date().toISOString(),
-  })
+  // Several requests can get this far at once; only one takes the slot
+  if (!(await claimSyncSlot(connection.provider, userId, SYNC_NOW_MIN_GAP_MS))) {
+    return json(200, { started: false, reason: 'recent' })
+  }
   await triggerSync({ mode: 'recent', userId, reason: 'app-open' })
   return json(200, { started: true })
 }

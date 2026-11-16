@@ -1740,7 +1740,13 @@ export function Workouts({
   const topLift = useMemo(() => exercisesByFrequency(workouts)[0], [workouts])
   // Fetched here rather than in Today so the coach reads the same strap
   // numbers the home screen draws, whichever tab it is opened from.
-  const strap = useStrapMetrics(api, strapLinked, tab, me?.strap.syncOnOpen === true)
+  const strap = useStrapMetrics(
+    api,
+    strapLinked,
+    tab,
+    me?.strap.syncOnOpen === true,
+    me?.strap.provider,
+  )
   const dayPlan = useDayPlan()
   const coach = useCoach(
     api,

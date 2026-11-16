@@ -70,9 +70,11 @@ export interface Collection {
   idOf(record: VendorRecord): string | number
   /**
    * 'put' replaces the item. 'merge' sets only the fields present, for
-   * bands that deliver one entity across several collections.
+   * bands that deliver one entity across several collections. 'replace'
+   * is 'put' for records whose sort key can move when the vendor revises
+   * them: the copy left at the old key is removed.
    */
-  write?: 'put' | 'merge'
+  write?: 'put' | 'merge' | 'replace'
   /** A failure is logged and the rest of the sync carries on. */
   optional?: boolean
   /** Skipped unless the user granted this OAuth scope. */

@@ -75,10 +75,12 @@ export async function handleMetrics(
   const startIso = new Date(Date.now() - days * 86_400_000).toISOString()
 
   const [recoveries, sleeps, cycles, steps] = await Promise.all([
-    queryRange(userId, 'RECOVERY#', startIso),
+    // Bands that report per day key their rows by date (RECOVERY#YYYY-MM-DD…,
+    // STEPS#YYYY-MM-DD), which sorts before any timestamp on that day, so
+    // both ranges start on the whole day
+    queryRange(userId, 'RECOVERY#', startIso.slice(0, 10)),
     queryRange(userId, 'SLEEP#', startIso),
     queryRange(userId, 'CYCLE#', startIso),
-    // Day-keyed (STEPS#YYYY-MM-DD), so the range starts on a whole day
     queryRange(userId, 'STEPS#', startIso.slice(0, 10)),
   ])
 

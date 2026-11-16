@@ -210,7 +210,7 @@ describe('GET /api/whoop/callback', () => {
 
 describe('DELETE /api/whoop', () => {
   it('forgets the connection and mapping but keeps the synced history', async () => {
-    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', whoopUserId: '10129', status: 'active' })
+    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', accessToken: 'access', refreshToken: 'refresh', whoopUserId: '10129', status: 'active' })
     putItem({ pk: 'WHOOP#10129', sk: 'MAPPING', userId: 'u1' })
     putItem({ pk: 'USER#u1', sk: 'SLEEP#2026-11-10T10:00:00.000Z#s1', type: 'sleep' })
 
@@ -285,7 +285,7 @@ describe('GET /api/me', () => {
   })
 
   it('reports a strap that needs a reconnect as not connected, status error', async () => {
-    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', status: 'error' })
+    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', accessToken: 'access', refreshToken: 'refresh', status: 'error' })
     const res = await handler(apiEvent('GET', '/api/me', { user: 'u1' }))
     expect(bodyOf(res).whoop).toEqual({
       connected: false,
@@ -429,7 +429,7 @@ describe('one strap per user', () => {
   beforeEach(() => {
     configureWhoop()
     configureGoogle()
-    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', whoopUserId: '10129', status: 'active' })
+    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', accessToken: 'access', refreshToken: 'refresh', whoopUserId: '10129', status: 'active' })
     putItem({ pk: 'WHOOP#10129', sk: 'MAPPING', userId: 'u1' })
   })
 
@@ -437,6 +437,15 @@ describe('one strap per user', () => {
     const res = await handler(apiEvent('GET', '/api/google/connect', { user: 'u1' }))
     expect(asResult(res).statusCode).toBe(409)
     expect(bodyOf(res).provider).toBe('whoop')
+  })
+
+  it('ignores a tokenless leftover row when linking another band', async () => {
+    aws.items.delete('USER#u1|WHOOP#CONNECTION')
+    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', lastSyncAt: '2026-11-01T00:00:00.000Z' })
+    const res = await handler(apiEvent('GET', '/api/google/connect', { user: 'u1' }))
+    expect(asResult(res).statusCode).toBe(200)
+    const me = await handler(apiEvent('GET', '/api/me', { user: 'u1' }))
+    expect(bodyOf(me).strap).toEqual({ connected: false })
   })
 
   it('still lets the linked band be reconnected', async () => {
@@ -447,7 +456,7 @@ describe('one strap per user', () => {
   it('re-checks at the callback, in case the other band was linked meanwhile', async () => {
     aws.items.delete('USER#u1|WHOOP#CONNECTION')
     const state = await startGoogleConnect()
-    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', whoopUserId: '10129', status: 'active' })
+    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', accessToken: 'access', refreshToken: 'refresh', whoopUserId: '10129', status: 'active' })
     googleLogin()
     const res = await googleCallback({ code: 'c', state })
     expect(location(res)).toBe('https://app.test/?google=error&reason=other-strap')
@@ -471,7 +480,7 @@ describe('one strap per user', () => {
 describe('POST /api/strap/sync', () => {
   const sync = (user = 'u1') => handler(apiEvent('POST', '/api/strap/sync', { user }))
   const google = (over: Record<string, unknown> = {}) =>
-    putItem({ pk: 'USER#u1', sk: 'GOOGLE#CONNECTION', status: 'active', ...over })
+    putItem({ pk: 'USER#u1', sk: 'GOOGLE#CONNECTION', accessToken: 'access', refreshToken: 'refresh', status: 'active', ...over })
 
   it('starts a recent sync for a band that does not push changes', async () => {
     google({ lastSyncAt: '2026-11-12T11:00:00.000Z' })
@@ -496,13 +505,21 @@ describe('POST /api/strap/sync', () => {
     expect(aws.invokes).toHaveLength(1)
   })
 
+  it('starts one sync when many requests arrive together', async () => {
+    google({ lastSyncAt: '2026-11-12T10:00:00.000Z' })
+    const bodies = (await Promise.all(Array.from({ length: 10 }, () => sync()))).map(bodyOf)
+    expect(bodies.filter((b) => b.started === true)).toHaveLength(1)
+    expect(bodies.filter((b) => b.started === false && b.reason === 'recent')).toHaveLength(9)
+    expect(aws.invokes).toHaveLength(1)
+  })
+
   it('syncs a freshly connected band that has never synced', async () => {
     google()
     expect(bodyOf(await sync())).toEqual({ started: true })
   })
 
   it('leaves WHOOP to its webhooks', async () => {
-    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', status: 'active' })
+    putItem({ pk: 'USER#u1', sk: 'WHOOP#CONNECTION', accessToken: 'access', refreshToken: 'refresh', status: 'active' })
     expect(bodyOf(await sync())).toEqual({ started: false, reason: 'pushed' })
     expect(aws.invokes).toEqual([])
   })

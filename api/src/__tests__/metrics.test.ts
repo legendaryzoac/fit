@@ -107,6 +107,17 @@ describe('GET /api/metrics', () => {
     ])
   })
 
+  it('includes a per-day vitals row from the first whole day of the window', async () => {
+    store({ sk: 'RECOVERY#2026-11-05#google', type: 'recovery', source: 'google', date: '2026-11-05', rhr: 55 })
+    store({ sk: 'RECOVERY#2026-11-04#google', type: 'recovery', source: 'google', date: '2026-11-04', rhr: 99 })
+    const res = bodyOf(
+      await handler(apiEvent('GET', '/api/metrics', { user: 'u1', query: { days: '7' } })),
+    )
+    const dates = res.recoveries.map((r: { date: string }) => r.date)
+    expect(dates).toContain('2026-11-05')
+    expect(dates).not.toContain('2026-11-04')
+  })
+
   it('reads a per-day vitals row by its stored civil date', async () => {
     store({
       sk: 'RECOVERY#2026-11-11#google',

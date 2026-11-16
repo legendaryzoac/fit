@@ -10,6 +10,8 @@ interface AwsState {
   rawPuts: Array<{ Bucket: string; Key: string; Body: string }>
   invokes: Array<{ FunctionName: string; InvocationType: string; payload: Item }>
   params: Map<string, string>
+  ssmCalls: number
+  ssmFailures: number
 }
 
 const g = globalThis as typeof globalThis & { __fitAws?: AwsState }
@@ -18,6 +20,8 @@ export const aws: AwsState = (g.__fitAws ??= {
   rawPuts: [],
   invokes: [],
   params: new Map(),
+  ssmCalls: 0,
+  ssmFailures: 0,
 })
 
 export function resetAws(): void {
@@ -25,6 +29,8 @@ export function resetAws(): void {
   aws.rawPuts.length = 0
   aws.invokes.length = 0
   aws.params.clear()
+  aws.ssmCalls = 0
+  aws.ssmFailures = 0
 }
 
 const keyOf = (k: Item) => `${k.pk}|${k.sk}`
@@ -59,6 +65,29 @@ async function tableSend(command: { constructor: { name: string }; input: Item }
     case 'UpdateCommand': {
       const expr = input.UpdateExpression as string
       if (!expr.startsWith('SET ')) throw new Error(`fake table: unsupported update ${expr}`)
+      const condition = input.ConditionExpression as string | undefined
+      if (condition) {
+        const existing = aws.items.get(keyOf(input.Key))
+        let holds: boolean
+        if (condition === 'attribute_exists(pk)') {
+          holds = existing !== undefined
+        } else if (
+          condition ===
+          'attribute_exists(pk) AND (attribute_not_exists(syncRequestedAt) OR syncRequestedAt < :cutoff)'
+        ) {
+          holds =
+            existing !== undefined &&
+            (existing.syncRequestedAt === undefined ||
+              existing.syncRequestedAt < input.ExpressionAttributeValues[':cutoff'])
+        } else {
+          throw new Error(`fake table: unsupported condition ${condition}`)
+        }
+        if (!holds) {
+          throw Object.assign(new Error('The conditional request failed'), {
+            name: 'ConditionalCheckFailedException',
+          })
+        }
+      }
       const item = { ...(aws.items.get(keyOf(input.Key)) ?? input.Key) }
       for (const part of expr.slice(4).split(',')) {
         const [name, value] = part.split('=').map((s) => s.trim())
@@ -137,8 +166,15 @@ export const lambdaMock = () => ({
 export const ssmMock = () => ({
   SSMClient: class {
     async send(c: Command) {
+      aws.ssmCalls++
+      if (aws.ssmFailures > 0) {
+        aws.ssmFailures--
+        throw Object.assign(new Error('Rate exceeded'), { name: 'ThrottlingException' })
+      }
       const value = aws.params.get(c.input.Name)
-      if (value === undefined) throw new Error('ParameterNotFound')
+      if (value === undefined) {
+        throw Object.assign(new Error('ParameterNotFound'), { name: 'ParameterNotFound' })
+      }
       return { Parameter: { Value: value } }
     }
   },

@@ -3,6 +3,8 @@ import type { Credentials, StrapProvider } from './types'
 
 const ssm = new SSMClient({})
 
+class NotConfigured extends Error {}
+
 const found = new Map<string, Credentials>()
 const missingUntil = new Map<string, number>()
 
@@ -27,12 +29,18 @@ export async function getCredentials(
         ),
       ),
     )
-    if (!id.Parameter?.Value || !secret.Parameter?.Value) throw new Error('empty')
+    if (!id.Parameter?.Value || !secret.Parameter?.Value) throw new NotConfigured()
     const creds = { clientId: id.Parameter.Value, clientSecret: secret.Parameter.Value }
     found.set(prefix, creds)
     return creds
-  } catch {
-    missingUntil.set(prefix, Date.now() + 60_000)
-    return null // ParameterNotFound → not configured yet
+  } catch (err) {
+    // Only a parameter that is really absent is remembered. A throttle or a
+    // network blip must not switch a band off for the next minute: the
+    // nightly run would then fail every user after the first.
+    const absent =
+      err instanceof NotConfigured ||
+      (err instanceof Error && err.name === 'ParameterNotFound')
+    if (absent) missingUntil.set(prefix, Date.now() + 60_000)
+    return null
   }
 }

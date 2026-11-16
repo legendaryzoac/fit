@@ -202,6 +202,34 @@ describe('what it writes', () => {
     steps: [googleStepsDay(12, '2210'), googleStepsDay(11, '9120'), googleStepsDay(10)],
   }
 
+  const revised = (point: any) => ({
+    ...point,
+    sleep: { ...point.sleep, interval: { ...point.sleep.interval, endTime: '2026-11-11T07:00:00Z' } },
+  })
+
+  it('moves a sleep whose wake time was corrected instead of duplicating it', async () => {
+    connect('u1')
+    serveGoogle({ points: { sleep: [[googleSleep]] } })
+    await handler({ mode: 'recent', userId: 'u1' })
+    serveGoogle({ points: { sleep: [[revised(googleSleep)]] } })
+    await handler({ mode: 'recent', userId: 'u1' })
+    const rows = itemsWithPrefix('USER#u1', 'SLEEP#')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].sk).toBe('SLEEP#2026-11-11T07:00:00.000Z#sleep-8841')
+  })
+
+  it('leaves other sleeps around it alone', async () => {
+    connect('u1')
+    serveGoogle({ points: { sleep: [[googleSleep, googleNap]] } })
+    await handler({ mode: 'recent', userId: 'u1' })
+    serveGoogle({ points: { sleep: [[revised(googleSleep)]] } })
+    await handler({ mode: 'recent', userId: 'u1' })
+    expect(itemsWithPrefix('USER#u1', 'SLEEP#').map((r) => r.sk)).toEqual([
+      'SLEEP#2026-11-11T07:00:00.000Z#sleep-8841',
+      'SLEEP#2026-11-11T19:50:00.000Z#sleep-8842',
+    ])
+  })
+
   it('merges the four daily types into one vitals row per day, with no score', async () => {
     connect('u1')
     serveGoogle(everything)

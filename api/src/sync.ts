@@ -9,6 +9,7 @@ import {
   patchConnection,
   putEntity,
   putRaw,
+  replaceEntity,
 } from './providers/store'
 
 interface SyncEvent {
@@ -49,7 +50,9 @@ async function syncUser(
     // A scope the user withheld at consent switches its collections off
     if (collection.requiresScope && !granted.includes(collection.requiresScope)) continue
     counts[collection.type] = 0
-    const write = collection.write === 'merge' ? mergeEntity : putEntity
+    const write = { put: putEntity, merge: mergeEntity, replace: replaceEntity }[
+      collection.write ?? 'put'
+    ]
     try {
       for await (const records of collection.pages({ accessToken, since })) {
         await Promise.all(

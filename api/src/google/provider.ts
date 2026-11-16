@@ -134,6 +134,8 @@ export const google: StrapProvider = {
       pages: reconciled('sleep', (from) => `sleep.interval.civil_end_time >= "${from}"`, 25),
       normalize: normalizeSleep,
       idOf: (r) => (r.dataPointName ?? r.name ?? '').split('/').pop() || 'unknown',
+      // An edited sleep keeps its id and moves in time
+      write: 'replace',
       requiresScope: SCOPE.sleep,
     },
     dailyVitals('daily-heart-rate-variability'),

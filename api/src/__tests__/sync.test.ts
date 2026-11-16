@@ -297,7 +297,39 @@ describe('recent', () => {
   })
 })
 
+describe('disconnect during a sync', () => {
+  it('does not bring a connection back when the user disconnects mid-sync', async () => {
+    connect('u1')
+    serveWhoop({ pages: { '/v2/cycle': [[whoopCycle]] } })
+    onWait = () => {
+      aws.items.delete('USER#u1|WHOOP#CONNECTION')
+    }
+    await handler({ mode: 'recent', userId: 'u1' })
+    expect(getItem('USER#u1', 'WHOOP#CONNECTION')).toBeUndefined()
+  })
+})
+
 describe('nightly', () => {
+  it('retries the credentials after a transient SSM failure instead of failing every user', async () => {
+    connect('u1')
+    connect('u2')
+    serveWhoop({ pages: {} })
+    // The two parameters are read together, so both of the first read fail
+    aws.ssmFailures = 2
+    await handler({ mode: 'nightly' })
+    expect(connection('u1').lastSyncAt).toBeUndefined()
+    expect(connection('u2').lastSyncAt).toBeDefined()
+  })
+
+  it('remembers that a band is not configured, without asking SSM again', async () => {
+    aws.params.clear()
+    connect('u1')
+    connect('u2')
+    serveWhoop({ pages: {} })
+    await handler({ mode: 'nightly' })
+    expect(aws.ssmCalls).toBe(2)
+  })
+
   it('re-pulls fourteen days for every connected user, one after another', async () => {
     connect('u1')
     connect('u2')

@@ -24,7 +24,7 @@ import {
   withRollingMean,
   type Metrics,
 } from '../lib/metrics'
-import { hasVital } from '../lib/strap'
+import { hasVital, ownRows } from '../lib/strap'
 import {
   ROM_TESTS,
   RETEST_DAYS,
@@ -623,6 +623,7 @@ export function Trends({
     if (landing.banner) window.history.replaceState(null, '', '/')
   }, [landing])
 
+  const provider = me?.strap.provider
   useEffect(() => {
     setMetrics(null)
     if (!strapLinked) {
@@ -636,10 +637,18 @@ export function Trends({
       .get(`/api/metrics?days=${days}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`API responded ${res.status}`)
-        setMetrics(await res.json())
+        const body = (await res.json()) as Metrics
+        // The linked band's rows only; see ownRows
+        setMetrics({
+          ...body,
+          recoveries: ownRows(body.recoveries ?? [], provider),
+          sleeps: ownRows(body.sleeps ?? [], provider),
+          cycles: ownRows(body.cycles ?? [], provider),
+          steps: ownRows(body.steps ?? [], provider),
+        })
       })
       .catch((err: Error) => setApiError(err.message))
-  }, [api, days, strapLinked])
+  }, [api, days, strapLinked, provider])
 
   // ---- recovery and sleep, from the strap ----
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { hasVital, strapSummary, type StrapMetrics } from '../strap'
+import { hrvReading } from '../vitals'
+import { hasVital, ownRows, recentSteps, strapSummary, type StrapMetrics } from '../strap'
 
 const NOW = new Date(2026, 10, 12, 8, 0).getTime()
 const metrics = (over: Partial<StrapMetrics>): StrapMetrics => ({
@@ -78,5 +79,62 @@ describe('hasVital', () => {
     expect(hasVital({ date: '2026-11-11', spo2Pct: 96 })).toBe(false)
     expect(hasVital({ date: '2026-11-11', rhr: 54 })).toBe(true)
     expect(hasVital({ date: '2026-11-11', recoveryScore: 0 })).toBe(true)
+  })
+})
+
+describe('ownRows', () => {
+  const rows = [
+    { source: 'whoop' as const, id: 1 },
+    { source: 'google' as const, id: 2 },
+    { id: 3 },
+  ]
+
+  it("keeps only the linked band's rows", () => {
+    expect(ownRows(rows, 'google').map((r) => r.id)).toEqual([2])
+    expect(ownRows(rows, 'whoop').map((r) => r.id)).toEqual([1, 3])
+  })
+
+  it('returns everything when no band is known', () => {
+    expect(ownRows(rows, undefined)).toEqual(rows)
+  })
+
+  it("does not judge a switched user's HRV against the old band's baseline", () => {
+    const day = (i: number) => `2026-10-${String(i + 1).padStart(2, '0')}`
+    const rows = [
+      ...Array.from({ length: 20 }, (_, i) => ({
+        source: 'whoop' as const,
+        date: day(i),
+        hrvMs: 80 + (i % 3) - 1,
+      })),
+      ...Array.from({ length: 8 }, (_, i) => ({
+        source: 'google' as const,
+        date: day(20 + i),
+        hrvMs: 66 + (i % 3) - 1,
+      })),
+    ]
+    expect(hrvReading(rows.map((r) => r.hrvMs))?.status).toBe('bad')
+    expect(hrvReading(ownRows(rows, 'google').map((r) => r.hrvMs))?.status).toBe('good')
+  })
+})
+
+describe('recentSteps', () => {
+  const now = new Date(2026, 10, 16, 8, 0)
+  const row = (date: string) => [{ date, steps: 5000 }]
+
+  it("takes today's and yesterday's row", () => {
+    expect(recentSteps(row('2026-11-16'), now)).toMatchObject({ isToday: true })
+    expect(recentSteps(row('2026-11-15'), now)).toMatchObject({ isToday: false })
+  })
+
+  it('drops the day before yesterday, morning or evening', () => {
+    expect(recentSteps(row('2026-11-14'), now)).toBeNull()
+    expect(recentSteps(row('2026-11-14'), new Date(2026, 10, 16, 20, 0))).toBeNull()
+    expect(recentSteps([], now)).toBeNull()
+  })
+
+  it('finds yesterday across a month boundary', () => {
+    expect(recentSteps(row('2026-11-30'), new Date(2026, 11, 1, 8, 0))).toMatchObject({
+      isToday: false,
+    })
   })
 })

@@ -23,7 +23,7 @@ import {
   type Routine,
 } from '../lib/routines'
 import { dayTime } from '../lib/metrics'
-import { hasVital, type StrapMetrics } from '../lib/strap'
+import { hasVital, recentSteps, type StrapMetrics } from '../lib/strap'
 import { fmtSec, totalSec, type Template } from '../lib/templates'
 import { hrvReading, rhrReading, sleepReading } from '../lib/vitals'
 import { localToday } from '../lib/weights'
@@ -179,12 +179,10 @@ export function Today({
       return v == null ? [] : [v]
     })
     .slice(-30)
-  // Steps: the newest day counted, if it is today or yesterday
-  const stepDay = stepDays.at(-1)
-  const stepAgeDays =
-    stepDay != null ? Math.floor((Date.now() - dayTime(stepDay.date)) / 86_400_000) : null
-  const steps = stepDay != null && stepAgeDays != null && stepAgeDays <= 1 ? stepDay : null
-  const stepsIsToday = steps?.date === localToday()
+  // Steps: the newest day counted, if it is today's or yesterday's
+  const recent = recentSteps(stepDays)
+  const steps = recent?.day ?? null
+  const stepsIsToday = recent?.isToday === true
   const steps30 = mean(stepDays.slice(-31, -1).map((d) => d.steps))
   const stepsSeries = stepDays.map((d) => d.steps).slice(-30)
   const hrv30 = mean(

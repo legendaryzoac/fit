@@ -2,6 +2,7 @@ import {
   DeleteCommand,
   GetCommand,
   PutCommand,
+  QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
@@ -20,6 +21,11 @@ const RAW_BUCKET = process.env.RAW_BUCKET
 
 // ---- connections: one item per user per band, at most one band linked ----
 
+// An update creates the item if it is missing. A connection must only ever
+// be patched while it exists: a sync that outlives a disconnect would
+// otherwise write back a tokenless row that reads as a linked strap.
+const CONNECTION_EXISTS = 'attribute_exists(pk)'
+
 const connectionKey = (provider: StrapProvider, userId: string) => ({
   pk: `USER#${userId}`,
   sk: provider.storage.connectionSk,
@@ -33,6 +39,9 @@ async function loadFor(
     new GetCommand({ TableName: TABLE_NAME, Key: connectionKey(provider, userId) }),
   )
   if (!res.Item) return null
+  // A row without tokens is not a connection: the code before the provider
+  // layer could leave one behind when a sync outlived a disconnect.
+  if (typeof res.Item.refreshToken !== 'string') return null
   const alias = provider.storage.externalIdAlias
   return {
     ...res.Item,
@@ -99,7 +108,8 @@ export async function deleteConnection(userId: string): Promise<boolean> {
 async function setFields(
   key: { pk: string; sk: string },
   patch: Record<string, unknown>,
-): Promise<void> {
+  condition?: { expression: string; values?: Record<string, unknown> },
+): Promise<boolean> {
   const names: Record<string, string> = {}
   const values: Record<string, unknown> = {}
   const sets = Object.entries(patch)
@@ -109,24 +119,58 @@ async function setFields(
       values[`:v${i}`] = value
       return `#k${i} = :v${i}`
     })
-  if (sets.length === 0) return
-  await ddb.send(
-    new UpdateCommand({
-      TableName: TABLE_NAME,
-      Key: key,
-      UpdateExpression: `SET ${sets.join(', ')}`,
-      ExpressionAttributeNames: names,
-      ExpressionAttributeValues: values,
-    }),
-  )
+  if (sets.length === 0) return true
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: key,
+        UpdateExpression: `SET ${sets.join(', ')}`,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: { ...values, ...condition?.values },
+        ...(condition && { ConditionExpression: condition.expression }),
+      }),
+    )
+    return true
+  } catch (err) {
+    if (condition && (err as Error).name === 'ConditionalCheckFailedException') return false
+    throw err
+  }
 }
 
-export function patchConnection(
+export async function patchConnection(
   providerId: ProviderId,
   userId: string,
   patch: Record<string, unknown>,
 ): Promise<void> {
-  return setFields(connectionKey(getProvider(providerId), userId), patch)
+  await setFields(connectionKey(getProvider(providerId), userId), patch, {
+    expression: CONNECTION_EXISTS,
+  })
+}
+
+/** Free when no sync was asked for inside the window. */
+const SYNC_SLOT_FREE =
+  'attribute_exists(pk) AND (attribute_not_exists(syncRequestedAt) OR syncRequestedAt < :cutoff)'
+
+/**
+ * Takes the user's sync-on-demand slot, atomically: of any number of
+ * requests arriving together, exactly one gets true. False means a sync
+ * was already asked for within `minGapMs`, or the connection is gone.
+ */
+export function claimSyncSlot(
+  providerId: ProviderId,
+  userId: string,
+  minGapMs: number,
+): Promise<boolean> {
+  const now = Date.now()
+  return setFields(
+    connectionKey(getProvider(providerId), userId),
+    { syncRequestedAt: new Date(now).toISOString() },
+    {
+      expression: SYNC_SLOT_FREE,
+      values: { ':cutoff': new Date(now - minGapMs).toISOString() },
+    },
+  )
 }
 
 /**
@@ -257,14 +301,49 @@ export async function putEntity(userId: string, entity: Entity): Promise<void> {
   )
 }
 
+const DAY_MS = 86_400_000
+
+/**
+ * Stores an entity whose sort key can change when the vendor revises it
+ * (a sleep whose wake time was corrected keeps its id but moves in time),
+ * and removes the copy left at the old key. It looks two days either
+ * side, which is further than any correction moves a record.
+ */
+export async function replaceEntity(userId: string, entity: Entity): Promise<void> {
+  await putEntity(userId, entity)
+  const [prefix, at] = entity.sk.split('#')
+  const when = Date.parse(at)
+  if (entity.id == null || !Number.isFinite(when)) return
+  const pk = `USER#${userId}`
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: 'pk = :pk AND sk BETWEEN :from AND :to',
+      ExpressionAttributeValues: {
+        ':pk': pk,
+        ':from': `${prefix}#${new Date(when - 2 * DAY_MS).toISOString()}`,
+        ':to': `${prefix}#${new Date(when + 2 * DAY_MS).toISOString()}`,
+      },
+    }),
+  )
+  const moved = (res.Items ?? []).filter(
+    (item) => item.id === entity.id && item.source === entity.source && item.sk !== entity.sk,
+  )
+  await Promise.all(
+    moved.map((item) =>
+      ddb.send(new DeleteCommand({ TableName: TABLE_NAME, Key: { pk, sk: item.sk } })),
+    ),
+  )
+}
+
 /**
  * Sets only the fields the entity carries, leaving the rest of the item
  * as it is: several collections can each contribute part of one day's
  * record, and a score we compute later survives the next re-sync.
  */
-export function mergeEntity(userId: string, entity: Entity): Promise<void> {
+export async function mergeEntity(userId: string, entity: Entity): Promise<void> {
   const { sk, ...fields } = entity
-  return setFields(
+  await setFields(
     { pk: `USER#${userId}`, sk },
     { ...fields, syncedAt: new Date().toISOString() },
   )

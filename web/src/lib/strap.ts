@@ -4,7 +4,7 @@
 // old scores after a disconnect, so the gate sits here).
 
 import { useEffect, useState } from 'react'
-import type { DailySteps, DailyVitals, SleepRecord } from '@fit/shared'
+import type { DailySteps, DailyVitals, ProviderId, SleepRecord } from '@fit/shared'
 import type { StrapSummary } from './agent/types'
 import type { Api } from './api'
 import { dayTime } from './metrics'
@@ -26,6 +26,40 @@ export const hasVital = (r: DailyVitals): boolean =>
   r.recoveryScore != null || r.hrvMs != null || r.rhr != null
 
 /**
+ * Only the linked band's rows. History from a band worn before stays on
+ * the server, but two bands measure differently (WHOOP's HRV comes from
+ * deep sleep, Fitbit's is a whole-night average), so one must not set the
+ * baseline the other is judged against. Rows from before records carried
+ * a source are WHOOP's, the only band there was.
+ */
+export function ownRows<T extends { source?: ProviderId }>(
+  rows: T[],
+  provider: ProviderId | undefined,
+): T[] {
+  return provider ? rows.filter((r) => (r.source ?? 'whoop') === provider) : rows
+}
+
+/**
+ * The newest day's steps, if that day is today or yesterday by the
+ * calendar. Going by hours elapsed instead would call the day before
+ * yesterday "yesterday" until noon.
+ */
+export function recentSteps(
+  days: DailySteps[],
+  now: Date = new Date(),
+): { day: DailySteps; isToday: boolean } | null {
+  const day = days.at(-1)
+  if (!day) return null
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  const today = ymd(now)
+  if (day.date !== today && day.date !== ymd(yesterday)) return null
+  return { day, isToday: day.date === today }
+}
+
+/**
  * `refreshKey` refetches when it changes (the shell passes the open tab, so
  * returning to Home asks again, as the screen did when it owned the fetch).
  * Coming back to a backgrounded app refetches too: an installed app left
@@ -36,12 +70,15 @@ export const hasVital = (r: DailyVitals): boolean =>
  * each time the app comes to the front it asks the server to pull, then
  * reads again once that has had time to land. (The server ignores a
  * request made within ten minutes of the last.)
+ *
+ * `provider` is the linked band: only its rows are kept.
  */
 export function useStrapMetrics(
   api: Api,
   linked: boolean,
   refreshKey?: string,
   syncOnOpen = false,
+  provider?: ProviderId,
 ): StrapMetrics {
   const [metrics, setMetrics] = useState<StrapMetrics>({
     recoveries: null,
@@ -83,16 +120,16 @@ export function useStrapMetrics(
         const body = await res.json()
         if (!alive) return
         setMetrics({
-          recoveries: Array.isArray(body.recoveries) ? body.recoveries : [],
-          sleeps: Array.isArray(body.sleeps) ? body.sleeps : [],
-          steps: Array.isArray(body.steps) ? body.steps : [],
+          recoveries: ownRows(Array.isArray(body.recoveries) ? body.recoveries : [], provider),
+          sleeps: ownRows(Array.isArray(body.sleeps) ? body.sleeps : [], provider),
+          steps: ownRows(Array.isArray(body.steps) ? body.steps : [], provider),
         })
       })
       .catch(() => {})
     return () => {
       alive = false
     }
-  }, [api, linked, refreshKey, woke, synced])
+  }, [api, linked, refreshKey, woke, synced, provider])
   return metrics
 }
 
