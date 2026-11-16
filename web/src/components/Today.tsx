@@ -54,12 +54,6 @@ const mean = (xs: number[]) =>
 
 const signed = (n: number) => `${n >= 0 ? '+' : '-'}${Math.abs(n)}`
 
-/** "7 h 42" from minutes in bed; whole minutes first so 479.6 is 8 h 00. */
-function fmtSleepWords(min: number): string {
-  const m = Math.round(min)
-  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`
-}
-
 /** "7:42" from minutes in bed. */
 function fmtSleepClock(min: number): string {
   const m = Math.round(min)
@@ -385,19 +379,9 @@ export function Today({
   const sessionsPlanned = meso ? meso.days.length : 0
   const finished = meso != null && mesoOverdue(meso, now)
 
-  const vitals = fresh
-    ? [
-        hrv != null ? `HRV ${Math.round(hrv)} ms` : null,
-        rhr != null ? `Resting ${Math.round(rhr)} bpm` : null,
-        sleep?.inBedMin != null
-          ? `Slept ${fmtSleepWords(sleep.inBedMin)}`
-          : null,
-      ].filter((x): x is string => x != null)
-    : []
-
-  // The same three readings as rings, for a band with no score: HRV and
-  // resting heart rate against the wearer's last thirty days, sleep
-  // against the hours an adult needs. The series end on the latest row.
+  // The three readings as rings, shown for every band: HRV and resting
+  // heart rate against the wearer's last thirty days, sleep against the
+  // hours an adult needs. The series end on the latest row.
   const upToLatest = (recoveries ?? []).slice(
     0,
     latest ? (recoveries ?? []).indexOf(latest) + 1 : 0,
@@ -424,6 +408,15 @@ export function Today({
       unit: 'h',
     },
   ].filter((ring) => ring != null)
+
+  // The rings as a row, three abreast; shared by both hero layouts below
+  const ringRow = rings.length > 0 && (
+    <div className="grid grid-cols-3 gap-3">
+      {rings.map((ring) => (
+        <RangeRing key={ring.label} {...ring} />
+      ))}
+    </div>
+  )
 
   const sessionBlock =
     finished && meso ? (
@@ -574,17 +567,15 @@ export function Today({
         {/* A band with no score of its own: the morning's readings stand
             where the score ring would, each against its own ideal range.
             They are judged one by one; nothing here adds them up. */}
-        {fresh && score == null && rings.length > 0 && (
+        {fresh && score == null && ringRow && (
           <>
             <p className="text-eyebrow text-ink-2">This morning</p>
-            <div className="mt-3 grid grid-cols-3 gap-3">
-              {rings.map((ring) => (
-                <RangeRing key={ring.label} {...ring} />
-              ))}
-            </div>
+            <div className="mt-3">{ringRow}</div>
             <div className="my-4 h-px bg-hairline" />
           </>
         )}
+        {/* A band with a score of its own: its ring and verdict lead, and
+            the readings behind it follow as the same rings. */}
         {fresh && score != null && (
           <>
             <div className="flex items-center gap-5">
@@ -594,13 +585,9 @@ export function Today({
                 {verdict && (
                   <p className="mt-0.5 text-body-lg text-ink">{verdict}</p>
                 )}
-                {vitals.length > 0 && (
-                  <p className="mt-1 text-caption text-ink-3">
-                    {vitals.join(' · ')}
-                  </p>
-                )}
               </div>
             </div>
+            {ringRow && <div className="mt-4">{ringRow}</div>}
             <div className="my-4 h-px bg-hairline" />
           </>
         )}

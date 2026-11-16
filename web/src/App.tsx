@@ -108,12 +108,17 @@ export default function App() {
               // …and so would yesterday's demo conversation and plan
               setCoachScope('')
               clearCoach()
-              // /?demo=fitbit shows the app as a Fitbit Air wearer sees it
-              const fitbit =
-                new URLSearchParams(window.location.search).get('demo') === 'fitbit'
+              // /?demo=fitbit shows the app as a Fitbit Air wearer sees it;
+              // /?demo=rough and /?demo=fitbit-rough, the morning after a
+              // bad night, when the rings leave their ideal range
+              const flavour =
+                new URLSearchParams(window.location.search).get('demo') ?? ''
               setAuth({
                 phase: 'demo',
-                api: makeDemoApi({ strap: fitbit ? 'google' : 'whoop' }),
+                api: makeDemoApi({
+                  strap: flavour.startsWith('fitbit') ? 'google' : 'whoop',
+                  roughNight: flavour.endsWith('rough'),
+                }),
               })
             }}
           >

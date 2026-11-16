@@ -566,8 +566,55 @@ function since(days: number): string {
   return new Date(Date.now() - days * DAY).toISOString()
 }
 
-export function makeDemoApi(opts: { strap?: DemoStrap } = {}): Api {
-  const store = opts.strap === 'google' ? asFitbit(generate()) : generate()
+/**
+ * The morning after a bad night, for seeing the app's warning states
+ * (/?demo=rough, /?demo=fitbit-rough). Only the newest day changes: HRV
+ * well under its usual level, resting heart rate well over, five hours
+ * and a bit in bed.
+ */
+function withRoughNight(store: DemoStore): DemoStore {
+  const morning = store.recoveries.at(-1)
+  const night = store.sleeps.filter((s) => !s.nap).at(-1)
+  const ROUGH_IN_BED_MIN = 318
+  return {
+    ...store,
+    recoveries: store.recoveries.map((r) =>
+      r !== morning
+        ? r
+        : {
+            ...r,
+            ...(r.recoveryScore != null && { recoveryScore: 22 }),
+            ...(r.hrvMs != null && { hrvMs: Math.round(r.hrvMs * 0.6) }),
+            ...(r.hrvDeepSleepMs != null && {
+              hrvDeepSleepMs: Math.round(r.hrvDeepSleepMs * 0.6),
+            }),
+            ...(r.rhr != null && { rhr: r.rhr + 9 }),
+          },
+    ),
+    sleeps: store.sleeps.map((s) => {
+      if (s !== night) return s
+      // Every stage shrinks with the night, so the stages still add up
+      const k = ROUGH_IN_BED_MIN / (s.inBedMin ?? ROUGH_IN_BED_MIN)
+      const cut = (min: number | undefined) =>
+        min == null ? undefined : Math.round(min * k)
+      return {
+        ...s,
+        inBedMin: ROUGH_IN_BED_MIN,
+        awakeMin: cut(s.awakeMin),
+        lightMin: cut(s.lightMin),
+        deepMin: cut(s.deepMin),
+        remMin: cut(s.remMin),
+        ...(s.performancePct != null && { performancePct: 55 }),
+      }
+    }),
+  }
+}
+
+export function makeDemoApi(
+  opts: { strap?: DemoStrap; roughNight?: boolean } = {},
+): Api {
+  const flavoured = opts.strap === 'google' ? asFitbit(generate()) : generate()
+  const store = opts.roughNight ? withRoughNight(flavoured) : flavoured
   const wait = () => new Promise((r) => setTimeout(r, 120 + Math.random() * 120))
 
   async function get(path: string): Promise<Response> {
