@@ -6,4 +6,4 @@
  * WHOOP's webhook senders will never provide. The function URL is public
  * (authType NONE) — authentication is the HMAC signature check inside.
  */
-export { handleWhoopWebhook as handler } from './whoop/routes'
+export { handleWhoopWebhook as handler } from './whoop/webhook'

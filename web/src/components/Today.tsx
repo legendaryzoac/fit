@@ -22,8 +22,10 @@ import {
   SLEEP_ROUTINE_ID,
   type Routine,
 } from '../lib/routines'
-import type { StrapMetrics } from '../lib/strap'
+import { dayTime } from '../lib/metrics'
+import { hasVital, recentSteps, type StrapMetrics } from '../lib/strap'
 import { fmtSec, totalSec, type Template } from '../lib/templates'
+import { hrvReading, rhrReading, sleepReading } from '../lib/vitals'
 import { localToday } from '../lib/weights'
 import { consistencyPct, durationMinutes, localDay } from '../lib/wellness'
 import type { Workout } from '../lib/workouts'
@@ -32,6 +34,7 @@ import { Button } from './cadence/Button'
 import { Card, CardHead } from './cadence/Card'
 import { ListItem } from './cadence/ListItem'
 import { MetricTile } from './cadence/MetricTile'
+import { RangeRing } from './cadence/RangeRing'
 import { RecoveryRing } from './cadence/RecoveryRing'
 import { StatusPill } from './cadence/StatusPill'
 import { WeekStrip } from './cadence/WeekStrip'
@@ -50,12 +53,6 @@ const mean = (xs: number[]) =>
   xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null
 
 const signed = (n: number) => `${n >= 0 ? '+' : '-'}${Math.abs(n)}`
-
-/** "7 h 42" from minutes in bed; whole minutes first so 479.6 is 8 h 00. */
-function fmtSleepWords(min: number): string {
-  const m = Math.round(min)
-  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`
-}
 
 /** "7:42" from minutes in bed. */
 function fmtSleepClock(min: number): string {
@@ -146,29 +143,48 @@ export function Today({
   // part of this screen hides on its own.
   const recoveries = strapLinked ? strap.recoveries : []
   const sleeps = strapLinked ? strap.sleeps : []
+  const stepDays = strapLinked ? strap.steps : []
 
-  // An unscored most-recent day (strap synced but not yet scored) must
-  // not blank the section — fall back to the last SCORED entry.
-  const latest = [...(recoveries ?? [])]
-    .reverse()
-    .find((r) => r.recoveryScore != null)
-  // …but a score from last month is not "today's readiness". When the
+  // An empty most-recent day (strap synced but not yet scored) must not
+  // blank the section — fall back to the last entry with a reading on it.
+  // Bands without a recovery score still count: their HRV and resting
+  // heart rate are the reading.
+  const latest = [...(recoveries ?? [])].reverse().find(hasVital)
+  // …but a reading from last month is not "today's readiness". When the
   // strap stops reporting (subscription lapsed, device shelved) we say
   // so instead of dressing stale data up as current.
   const latestAgeDays =
     latest?.date != null
-      ? Math.floor(
-          (Date.now() - new Date(latest.date).getTime()) / 86_400_000,
-        )
+      ? Math.floor((Date.now() - dayTime(latest.date)) / 86_400_000)
       : null
   const stale = latestAgeDays != null && latestAgeDays > 2
-  // Fresh: a scored recovery at most two days old. A 3-to-7-day gap gets
-  // a banner; anything older (or no data at all) is training alone.
+  // Fresh: a reading at most two days old. A 3-to-7-day gap gets a
+  // banner; anything older (or no data at all) is training alone.
   const fresh = latest != null && !stale
   const staleBanner = stale && latestAgeDays != null && latestAgeDays <= 7
   const score = stale ? null : (latest?.recoveryScore ?? null)
   const hrv = latest?.hrvMs ?? null
   const rhr = latest?.rhr ?? null
+  const spo2 = latest?.spo2Pct ?? null
+  // Against the wearer's own baseline where the band gives one, which is
+  // how skin temperature is meant to be read; otherwise the raw reading
+  const tempDeviation = latest?.skinTempDeviationC ?? null
+  const temp = latest?.skinTempC ?? null
+  const spo2Series = (recoveries ?? [])
+    .flatMap((r) => (r.spo2Pct == null ? [] : [r.spo2Pct]))
+    .slice(-30)
+  const tempSeries = (recoveries ?? [])
+    .flatMap((r) => {
+      const v = r.skinTempDeviationC ?? r.skinTempC
+      return v == null ? [] : [v]
+    })
+    .slice(-30)
+  // Steps: the newest day counted, if it is today's or yesterday's
+  const recent = recentSteps(stepDays)
+  const steps = recent?.day ?? null
+  const stepsIsToday = recent?.isToday === true
+  const steps30 = mean(stepDays.slice(-31, -1).map((d) => d.steps))
+  const stepsSeries = stepDays.map((d) => d.steps).slice(-30)
   const hrv30 = mean(
     (recoveries ?? []).flatMap((r) => (r.hrvMs == null ? [] : [r.hrvMs])),
   )
@@ -361,15 +377,44 @@ export function Today({
   const sessionsPlanned = meso ? meso.days.length : 0
   const finished = meso != null && mesoOverdue(meso, now)
 
-  const vitals = fresh
-    ? [
-        hrv != null ? `HRV ${Math.round(hrv)} ms` : null,
-        rhr != null ? `Resting ${Math.round(rhr)} bpm` : null,
-        sleep?.inBedMin != null
-          ? `Slept ${fmtSleepWords(sleep.inBedMin)}`
-          : null,
-      ].filter((x): x is string => x != null)
-    : []
+  // The three readings as rings, shown for every band: HRV and resting
+  // heart rate against the wearer's last thirty days, sleep against the
+  // hours an adult needs. The series end on the latest row.
+  const upToLatest = (recoveries ?? []).slice(
+    0,
+    latest ? (recoveries ?? []).indexOf(latest) + 1 : 0,
+  )
+  const hrvRing = fresh && hrv != null
+    ? hrvReading(upToLatest.flatMap((r) => (r.hrvMs == null ? [] : [r.hrvMs])))
+    : null
+  const rhrRing = fresh && rhr != null
+    ? rhrReading(upToLatest.flatMap((r) => (r.rhr == null ? [] : [r.rhr])))
+    : null
+  const sleepRing = fresh ? sleepReading(sleep?.inBedMin) : null
+  const rings = [
+    hrvRing && { ...hrvRing, label: 'HRV', value: String(Math.round(hrvRing.value)), unit: 'ms' },
+    rhrRing && {
+      ...rhrRing,
+      label: 'Resting HR',
+      value: String(Math.round(rhrRing.value)),
+      unit: 'bpm',
+    },
+    sleepRing && {
+      ...sleepRing,
+      label: 'Sleep',
+      value: fmtSleepClock(sleepRing.value),
+      unit: 'h',
+    },
+  ].filter((ring) => ring != null)
+
+  // The rings as a row, three abreast; shared by both hero layouts below
+  const ringRow = rings.length > 0 && (
+    <div className="grid grid-cols-3 gap-3">
+      {rings.map((ring) => (
+        <RangeRing key={ring.label} {...ring} />
+      ))}
+    </div>
+  )
 
   const sessionBlock =
     finished && meso ? (
@@ -517,6 +562,18 @@ export function Today({
       )}
 
       <Card hero>
+        {/* A band with no score of its own: the morning's readings stand
+            where the score ring would, each against its own ideal range.
+            They are judged one by one; nothing here adds them up. */}
+        {fresh && score == null && ringRow && (
+          <>
+            <p className="text-eyebrow text-ink-2">This morning</p>
+            <div className="mt-3">{ringRow}</div>
+            <div className="my-4 h-px bg-hairline" />
+          </>
+        )}
+        {/* A band with a score of its own: its ring and verdict lead, and
+            the readings behind it follow as the same rings. */}
         {fresh && score != null && (
           <>
             <div className="flex items-center gap-5">
@@ -526,13 +583,9 @@ export function Today({
                 {verdict && (
                   <p className="mt-0.5 text-body-lg text-ink">{verdict}</p>
                 )}
-                {vitals.length > 0 && (
-                  <p className="mt-1 text-caption text-ink-3">
-                    {vitals.join(' · ')}
-                  </p>
-                )}
               </div>
             </div>
+            {ringRow && <div className="mt-4">{ringRow}</div>}
             <div className="my-4 h-px bg-hairline" />
           </>
         )}
@@ -625,6 +678,46 @@ export function Today({
               deltaTone="neutral"
               values={sleepSeries}
               tone="rest"
+            />
+          )}
+          {steps != null && (
+            <MetricTile
+              label="Steps"
+              value={steps.steps.toLocaleString()}
+              delta={
+                !stepsIsToday
+                  ? 'yesterday'
+                  : steps30 != null
+                    ? `avg ${Math.round(steps30).toLocaleString()}`
+                    : undefined
+              }
+              deltaTone="neutral"
+              values={stepsSeries}
+              tone="brand"
+            />
+          )}
+          {spo2 != null && (
+            <MetricTile
+              label="Blood oxygen"
+              value={Math.round(spo2)}
+              unit="%"
+              values={spo2Series}
+              tone="rest"
+            />
+          )}
+          {(tempDeviation != null || temp != null) && (
+            <MetricTile
+              label="Skin temp"
+              value={
+                tempDeviation != null
+                  ? `${tempDeviation >= 0 ? '+' : '−'}${Math.abs(tempDeviation).toFixed(1)}`
+                  : (temp as number).toFixed(1)
+              }
+              unit="°C"
+              delta={tempDeviation != null ? 'vs baseline' : undefined}
+              deltaTone="neutral"
+              values={tempSeries}
+              tone="effort"
             />
           )}
         </div>

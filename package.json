@@ -2,7 +2,12 @@
   "name": "fit",
   "private": true,
   "version": "0.0.0",
-  "workspaces": ["web", "api", "infra"],
+  "workspaces": [
+    "shared",
+    "web",
+    "api",
+    "infra"
+  ],
   "scripts": {
     "dev": "npm run dev -w web",
     "build": "npm run build -w web",

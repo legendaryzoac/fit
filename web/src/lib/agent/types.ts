@@ -54,7 +54,8 @@ export interface AgentReply {
 
 /** The wearable's morning numbers, already reduced to what matters. */
 export interface StrapSummary {
-  recovery: number
+  /** The band's own 0–100 score; absent on bands that publish none. */
+  recovery?: number
   hrvMs?: number
   /** Difference from the 30-day mean, same unit. */
   hrvVs30d?: number

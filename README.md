@@ -45,7 +45,15 @@ by hand. See [How the coach works](#how-the-coach-works).
 ### Recovery
 
 Daily HRV, resting HR and recovery trends plotted against rolling baselines,
-plus sleep-stage breakdowns and sleep performance, all ingested from WHOOP.
+plus sleep-stage breakdowns and sleep performance, ingested from the strap
+you link: a WHOOP, or a Fitbit Air through the Google Health API. One strap
+per account.
+
+The two bands do not report the same things, and the app shows what each
+one has. WHOOP brings a recovery score, strain and captured workouts. Fitbit
+Air brings HRV, resting heart rate, blood oxygen, skin temperature against
+your baseline, sleep stages and daily steps, with no vendor score; the
+readings stand where the score ring would.
 
 ### Workout logger
 
@@ -128,7 +136,7 @@ same tool format, so the cards and engine checks are identical.
 
 ```
 WHOOP strap ──> WHOOP app/cloud ──webhook──> Lambda (fn URL, HMAC-verified) ──┐
-                       │                                                      ▼
+Fitbit Air ───> Google Health  <──on app open──┐                              ▼
                        └───────nightly EventBridge──> sync Lambda ──> DynamoDB single table
                                                           │           (wearable-agnostic
                                                           ▼            entities, USER#-keyed)
@@ -142,7 +150,7 @@ Browser (React PWA) <──CloudFront── S3 static site          api Lambda (
 |---|---|
 | **Frontend** | React 19 + Vite + Tailwind 4 PWA. Service-worker precached; Recharts is lazy-loaded off the critical path (~100 KB gzipped first load). |
 | **API** | A single Lambda behind a CloudFront `/api/*` behavior with an OAC-signed function URL. Cognito JWTs are verified in-function and carried in `x-authorization`, because OAC signing owns the real `Authorization` header. Requests with a body carry `x-amz-content-sha256`. |
-| **Ingestion** | Per-user WHOOP OAuth with rotating token refresh. Webhooks arrive on a dedicated public function URL (WHOOP can't sign OAC payload hashes), so HMAC is the auth. A nightly reconciliation re-pulls 14 days per connected user, and raw vendor JSON is archived to S3 for future reprocessing. |
+| **Ingestion** | A provider layer (`api/src/providers`): each band supplies OAuth, its collections and a conversion into the shared record format; connection storage, token refresh, the sync loop and the routes are common. **WHOOP**: rotating token refresh, and webhooks on a dedicated public function URL (WHOOP can't sign OAC payload hashes), so HMAC is the auth. **Fitbit Air**: Google OAuth and the Google Health API, pulled when the app is opened (at most once per ten minutes) since its webhooks are not wired up yet. For both, a nightly reconciliation re-pulls 14 days per connected user, and raw vendor JSON is archived to S3 for future reprocessing. |
 | **Data** | DynamoDB single table: a `USER#<id>` partition with ISO-dated sort keys (`SLEEP#`, `RECOVERY#`, `CYCLE#`, `SESSION#`, `WORKOUT#`, `TEMPLATE#`, `EXERCISE#`), so every dashboard query is a key range. Editing a workout's start time moves its rows transactionally. |
 | **Infra** | Everything is AWS CDK (TypeScript) in one stack, including the GitHub Actions OIDC deploy role. |
 
@@ -152,8 +160,9 @@ An npm workspaces monorepo:
 
 | Path | What's in it |
 |---|---|
+| `shared/` | The wearable data contract: types only, imported by both `web/` and `api/` |
 | `web/` | The React PWA, including the progression engine and the built-in coach |
-| `api/` | Lambda handlers: the API, WHOOP sync, and the webhook receiver |
+| `api/` | Lambda handlers: the API, strap sync (`providers/`, `whoop/`, `google/`), and the webhook receiver |
 | `infra/` | The CDK stack |
 | `PROGRESSION.md` | How the auto-progression engine decides what to recommend, with sources |
 
@@ -164,7 +173,8 @@ npm install
 npm run dev      # Vite dev server (proxies /api to production)
 npm run build    # typecheck + production build
 npm run lint     # oxlint over web/
-npm test -w web  # unit tests for the coach's engine checks
+npm test -w web  # unit tests for the coach's engine checks and strap state
+npm test -w api  # ingestion end to end against in-memory AWS and fake vendor APIs
 npm run synth    # synthesize the CDK stack to validate infra
 ```
 
@@ -173,6 +183,35 @@ npm run synth    # synthesize the CDK stack to validate infra
 - **Web** ships automatically: every push to `main` runs the GitHub Actions
   workflow, which builds the PWA and syncs it to S3 in about 30 seconds.
 - **Infra** deploys run locally with `npm run deploy`.
+
+### Enabling a strap
+
+Each band's OAuth client id and secret are SSM SecureStrings written once by
+hand. A band is not offered in Settings until its pair exists.
+
+```sh
+# WHOOP — redirect URI https://<domain>/api/whoop/callback
+aws ssm put-parameter --type SecureString --name /fit/whoop/client-id --value ...
+aws ssm put-parameter --type SecureString --name /fit/whoop/client-secret --value ...
+
+# Fitbit Air — redirect URI https://<domain>/api/google/callback
+aws ssm put-parameter --type SecureString --name /fit/google/client-id --value ...
+aws ssm put-parameter --type SecureString --name /fit/google/client-secret --value ...
+```
+
+For Fitbit Air, the client comes from a Google Cloud project with the
+[Google Health API](https://developers.google.com/health/setup) enabled and
+three scopes added: `googlehealth.sleep.readonly`,
+`googlehealth.health_metrics_and_measurements.readonly` and
+`googlehealth.activity_and_fitness.readonly`. An unverified project serves up
+to 100 people, each added as a test user. While its consent screen is in
+"Testing", Google expires refresh tokens after 7 days and the strap asks to be
+reconnected; "In production" removes that. Each person signs in to the Google
+Health app with their Google account before connecting.
+
+Adding another band is one adapter: implement `StrapProvider`
+(`api/src/providers/types.ts`), convert its records into the shared format,
+and list it in `api/src/providers/registry.ts`.
 
 ### Enabling the live coach
 
@@ -215,7 +254,8 @@ daily per-account cap bounds the worst case at pennies.
 
 - [x] **M0 — Infrastructure:** subdomain, CDK stack, OIDC CI deploy
 - [x] **M1 — Accounts & authenticated API:** invite-only Cognito, login, DynamoDB
-- [x] **M2 — Ingestion:** WHOOP OAuth, webhooks, nightly sync, full-history backfill
+- [x] **M2 — Ingestion:** WHOOP OAuth, webhooks, nightly sync, full-history backfill;
+  Fitbit Air through the Google Health API behind a shared provider layer
 - [x] **M3 — Recovery dashboard:** RHR/HRV/sleep trends with rolling baselines
 - [x] **M4 — Workout logger:** offline-capable sessions, templates, interval timer
 - [x] **M5 — Training analytics:** e1RM, volume, PRs, zones, load vs. recovery

@@ -108,7 +108,18 @@ export default function App() {
               // …and so would yesterday's demo conversation and plan
               setCoachScope('')
               clearCoach()
-              setAuth({ phase: 'demo', api: makeDemoApi() })
+              // /?demo=fitbit shows the app as a Fitbit Air wearer sees it;
+              // /?demo=rough and /?demo=fitbit-rough, the morning after a
+              // bad night, when the rings leave their ideal range
+              const flavour =
+                new URLSearchParams(window.location.search).get('demo') ?? ''
+              setAuth({
+                phase: 'demo',
+                api: makeDemoApi({
+                  strap: flavour.startsWith('fitbit') ? 'google' : 'whoop',
+                  roughNight: flavour.endsWith('rough'),
+                }),
+              })
             }}
           >
             No account? Try the demo

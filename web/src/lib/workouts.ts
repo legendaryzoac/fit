@@ -140,27 +140,8 @@ export function workoutVolume(w: Workout): { sets: number; volume: number } {
   return { sets, volume }
 }
 
-export interface SessionRecord {
-  sk: string
-  sport?: string
-  start: string
-  end?: string
-  timezoneOffset?: string
-  strain?: number
-  avgHr?: number
-  maxHr?: number
-  kilojoule?: number
-  distanceM?: number
-  zoneMin?: {
-    z0?: number
-    z1?: number
-    z2?: number
-    z3?: number
-    z4?: number
-    z5?: number
-  }
-  scoreState?: string
-}
+/** A workout the band captured on its own (shared contract). */
+export type { SessionRecord } from '@fit/shared'
 
 export function newWorkout(kind: WorkoutKind): Workout {
   return {

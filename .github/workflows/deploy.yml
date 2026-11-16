@@ -25,6 +25,12 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # Nothing ships unless the ingestion and app tests pass
+      - run: npm run typecheck -w api
+      - run: npm test -w api
+      - run: npm test -w web
+
       - run: npm run build -w web
 
       - name: Configure AWS credentials

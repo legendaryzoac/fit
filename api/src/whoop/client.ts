@@ -1,4 +1,4 @@
-import type { WhoopCredentials } from './config'
+import type { Credentials, Tokens } from '../providers/types'
 
 const AUTH_URL = 'https://api.prod.whoop.com/oauth/oauth2/auth'
 const TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token'
@@ -8,12 +8,7 @@ const API_BASE = 'https://api.prod.whoop.com/developer'
 export const WHOOP_SCOPES =
   'offline read:profile read:recovery read:cycles read:sleep read:workout read:body_measurement'
 
-export interface WhoopTokens {
-  accessToken: string
-  refreshToken: string
-  expiresAt: number // epoch ms
-  scope: string
-}
+export type WhoopTokens = Tokens
 
 export class WhoopApiError extends Error {
   readonly status: number
@@ -59,7 +54,7 @@ async function tokenRequest(
 }
 
 export function exchangeCode(
-  creds: WhoopCredentials,
+  creds: Credentials,
   code: string,
   redirectUri: string,
 ): Promise<WhoopTokens> {
@@ -74,7 +69,7 @@ export function exchangeCode(
 
 /** WHOOP rotates both tokens on refresh — callers must persist the result. */
 export function refreshTokens(
-  creds: WhoopCredentials,
+  creds: Credentials,
   refreshToken: string,
 ): Promise<WhoopTokens> {
   return tokenRequest({
