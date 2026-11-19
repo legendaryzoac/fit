@@ -19,8 +19,8 @@ const WELL =
   'motion-quick w-full min-h-11 rounded-sm bg-surface-2 px-3.5 text-body text-ink ' +
   `placeholder:text-ink-3 transition-[background-color,box-shadow] hover:bg-surface-3 ${WELL_FOCUS}`
 
-/** A native <select> as a well, matching TextInput. */
-export const SELECT_WELL = `h-11 w-full rounded-sm bg-surface-2 px-3.5 text-body text-ink hover:bg-surface-3 ${WELL_FOCUS}`
+/** A native <select> as a well, matching TextInput, with an inset chevron. */
+export const SELECT_WELL = `select-chevron h-11 w-full truncate rounded-sm bg-surface-2 pr-10 pl-3.5 text-body text-ink hover:bg-surface-3 ${WELL_FOCUS}`
 
 /** A labelled control: caption label above, help (or an error) below. */
 export function Field({
