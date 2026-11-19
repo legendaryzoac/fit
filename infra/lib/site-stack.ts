@@ -163,6 +163,21 @@ export class SiteStack extends Stack {
       }),
     )
 
+    // In-app bug reports become GitHub issues. The token (a fine-grained PAT
+    // with Issues: read & write on this repo only) is a hand-written SSM
+    // SecureString (/fit/github/token); until it exists the route answers
+    // 503 and the app offers a prefilled GitHub link instead.
+    apiFn.addEnvironment('GITHUB_REPO', 'legendaryzoac/fit')
+    apiFn.addEnvironment('GITHUB_TOKEN_PARAM', '/fit/github/token')
+    apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [
+          `arn:aws:ssm:${this.region}:${this.account}:parameter/fit/github/*`,
+        ],
+      }),
+    )
+
     // Same-origin API: CloudFront routes /api/* to the function URL (OAC-signed),
     // so the browser never talks to the Lambda URL directly and CORS never exists.
     const fnUrl = apiFn.addFunctionUrl({
