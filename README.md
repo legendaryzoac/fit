@@ -174,6 +174,25 @@ npm run synth    # synthesize the CDK stack to validate infra
   workflow, which builds the PWA and syncs it to S3 in about 30 seconds.
 - **Infra** deploys run locally with `npm run deploy`.
 
+### Enabling in-app bug reports
+
+*Settings → Report a bug* files a GitHub issue on this repository with the
+app version (commit SHA), device, browser and settings attached, labelled
+`bug`, `user-report` and `area: <where>`. To let the API file issues, create
+a fine-grained personal access token scoped to this repository only, with
+**Issues: Read and write**, and store it once:
+
+```sh
+aws ssm put-parameter --type SecureString \
+  --name /fit/github/token --value github_pat_...
+```
+
+Until that parameter exists (and always in the demo), the form opens
+GitHub's own new-issue page prefilled instead. Each account may file
+`BUG_DAILY_LIMIT` reports a day (default 10). The repository is public, so
+the form says so next to its *Include my email* switch; reports also carry
+a short hashed account ref so reports from one person can be grouped.
+
 ### Enabling the live coach
 
 After the first `npm run deploy`, store an Anthropic API key once:

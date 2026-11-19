@@ -30,6 +30,7 @@ import {
 } from './shell/Dock'
 import { ConfirmDialog } from './shell/ConfirmDialog'
 import { SettingsSheet } from './shell/SettingsSheet'
+import { BugReportSheet } from './BugReportSheet'
 import { TopBar } from './shell/TopBar'
 import { Workouts, type WorkoutsTab } from './Workouts'
 
@@ -59,6 +60,7 @@ export function AppShell({
     new URLSearchParams(window.location.search).has('whoop') ? 'trends' : 'today',
   )
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [bugOpen, setBugOpen] = useState(false)
   // Owned by the shell so Today, the ledger and (eventually) the Recovery
   // tab all see the same check-ins.
   const { checkins, save: saveCheckin } = useCheckins(api)
@@ -121,7 +123,18 @@ export function AppShell({
           setSettingsOpen(false)
           setTab('plan')
         }}
+        onReportBug={() => {
+          setSettingsOpen(false)
+          setBugOpen(true)
+        }}
         api={api}
+      />
+      <BugReportSheet
+        open={bugOpen}
+        onClose={() => setBugOpen(false)}
+        api={api}
+        demo={demo}
+        email={email}
       />
       <ConfirmDialog />
     </div>

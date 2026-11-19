@@ -140,6 +140,7 @@ export function SettingsSheet({
   email,
   onSignOut,
   onExercises,
+  onReportBug,
   api,
 }: {
   open: boolean
@@ -148,6 +149,7 @@ export function SettingsSheet({
   email: string
   onSignOut: () => void
   onExercises?: () => void
+  onReportBug?: () => void
   api: Api
 }) {
   const pref = useSyncExternalStore(subscribeTheme, getThemePref, getThemePref)
@@ -207,6 +209,12 @@ export function SettingsSheet({
           sub="Custom exercises and templates"
           chevron
           onClick={onExercises}
+        />
+        <ListItem
+          title="Report a bug"
+          sub="Something broken? Tell us what happened"
+          chevron
+          onClick={onReportBug}
         />
       </div>
 
