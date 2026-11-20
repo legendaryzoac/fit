@@ -211,6 +211,22 @@ export interface TimerDraft {
   /** A warm-up started from inside a strength session: the strength draft
    * stays put and the ledger comes back when this timer ends. */
   resumeStrength?: boolean
+  /** Set once the timer has ended (run out or ended early). The draft
+   * stays until the session is saved or discarded, so closing the app on
+   * the summary screen can't lose it. */
+  done?: { elapsedMs: number; at: number }
+  /** What has been entered on the summary screen so far. */
+  summary?: TimerSummary
+}
+
+export interface TimerSummary {
+  title?: string
+  miles?: string
+  notes?: string
+  linkedSk?: string
+  drills?: WorkoutExercise[]
+  rpe?: number
+  feel?: number
 }
 
 /**
@@ -234,16 +250,22 @@ export interface TimerSnapshot {
 }
 
 export function timerSnapshot(draft: TimerDraft, nowMs: number): TimerSnapshot {
-  const elapsedMs = draft.paused
-    ? draft.pausedElapsedMs
-    : nowMs - draft.startEpoch + draft.skipOffsetMs
+  const elapsedMs = draft.done
+    ? draft.done.elapsedMs
+    : draft.paused
+      ? draft.pausedElapsedMs
+      : nowMs - draft.startEpoch + draft.skipOffsetMs
   const elapsedSec = elapsedMs / 1000
   let acc = 0
   const cumEnd = draft.sections.map((s) => (acc += s.durationSec))
   const stopwatch = draft.sections.length === 0
   const idx = cumEnd.findIndex((end) => elapsedSec < end)
-  const finished = !stopwatch && idx === -1
-  const index = finished ? draft.sections.length - 1 : Math.max(idx, 0)
+  // An ended timer is finished wherever its clock stopped, stopwatch or not
+  const finished = draft.done != null || (!stopwatch && idx === -1)
+  const index =
+    finished && !stopwatch && idx === -1
+      ? draft.sections.length - 1
+      : Math.max(idx, 0)
   return {
     elapsedMs,
     stopwatch,
@@ -265,7 +287,7 @@ function jumpTo(d: TimerDraft, elapsedMs: number, targetMs: number): TimerDraft 
 
 /** Jump to the start of the next section (no-op for stopwatch/finished). */
 export function skipSection(d: TimerDraft, nowMs: number): TimerDraft {
-  if (d.sections.length === 0) return d
+  if (d.sections.length === 0 || d.done) return d
   const snap = timerSnapshot(d, nowMs)
   if (snap.finished) return d
   let end = 0
@@ -278,7 +300,7 @@ export function skipSection(d: TimerDraft, nowMs: number): TimerDraft {
  * section back (music-player prev-track semantics). No-op for stopwatches.
  */
 export function backSection(d: TimerDraft, nowMs: number): TimerDraft {
-  if (d.sections.length === 0) return d
+  if (d.sections.length === 0 || d.done) return d
   const snap = timerSnapshot(d, nowMs)
   let start = 0
   for (let i = 0; i < snap.index; i++) start += d.sections[i].durationSec

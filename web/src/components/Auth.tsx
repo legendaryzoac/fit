@@ -4,6 +4,7 @@ import type {
   CognitoUserSession,
 } from 'amazon-cognito-identity-js'
 import { completeNewPassword, signIn } from '../auth'
+import { loadDraft, loadTimerDraft } from '../lib/workouts'
 import { Banner } from './cadence/Banner'
 import { Button } from './cadence/Button'
 import { Field, TextInput } from './cadence/Field'
@@ -25,6 +26,9 @@ export function LoginCard({
   const [busy, setBusy] = useState(false)
   const emailId = useId()
   const passwordId = useId()
+  // A sign-out never takes the live session with it: say so, or a
+  // workout stranded behind this form reads as lost.
+  const [liveSaved] = useState(() => loadDraft() != null || loadTimerDraft() != null)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -45,6 +49,14 @@ export function LoginCard({
 
   return (
     <div className="flex w-full flex-col gap-4">
+      {liveSaved && (
+        <Banner>
+          <span>
+            <b>Your workout in progress is saved on this phone.</b> Sign in to
+            pick it up where you left off.
+          </span>
+        </Banner>
+      )}
       <form onSubmit={submit} className="flex w-full flex-col gap-3">
         <Field label="Email" htmlFor={emailId}>
           <TextInput
