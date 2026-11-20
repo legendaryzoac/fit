@@ -229,7 +229,7 @@ function ShellDock({
           time: snap.stopwatch
             ? fmtSec(snap.elapsedMs / 1000)
             : snap.finished
-              ? fmtSec(snap.totalSec)
+              ? fmtSec(td.done ? td.done.elapsedMs / 1000 : snap.totalSec)
               : fmtSec(Math.ceil(snap.remainingSec)),
           paused: td.paused,
         })

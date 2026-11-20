@@ -234,22 +234,24 @@ export function IntervalSession({
 }) {
   const [draft, setDraft] = useState<TimerDraft>(initial)
   const [now, setNow] = useState(Date.now())
-  const [phase, setPhase] = useState<'run' | 'done'>('run')
-  const [title, setTitle] = useState(initial.title ?? '')
-  const [miles, setMiles] = useState('')
-  const [notes, setNotes] = useState('')
-  const [linkedSk, setLinkedSk] = useState<string | undefined>()
-  const [drills, setDrills] = useState<WorkoutExercise[]>([])
-  const [rpe, setRpe] = useState<number | undefined>()
-  const [feel, setFeel] = useState<number | undefined>()
+  // An ended timer reopens on its summary, with whatever was entered there
+  const [phase, setPhase] = useState<'run' | 'done'>(
+    initial.done ? 'done' : 'run',
+  )
+  const saved = initial.summary
+  const [title, setTitle] = useState(saved?.title ?? initial.title ?? '')
+  const [miles, setMiles] = useState(saved?.miles ?? '')
+  const [notes, setNotes] = useState(saved?.notes ?? '')
+  const [linkedSk, setLinkedSk] = useState<string | undefined>(saved?.linkedSk)
+  const [drills, setDrills] = useState<WorkoutExercise[]>(saved?.drills ?? [])
+  const [rpe, setRpe] = useState<number | undefined>(saved?.rpe)
+  const [feel, setFeel] = useState<number | undefined>(saved?.feel)
   const [speakOn, setSpeakOn] = useState(getSpeakPref)
   const lastIdxRef = useRef(0)
   const lastWarnRef = useRef(-1)
-  const doneElapsedRef = useRef(0)
   // When the timer actually ENDED — lingering on the summary screen must
   // not drift the workout's date (a meso session bucketed by start date
   // could land in the wrong week if saved the next morning).
-  const doneAtRef = useRef(Date.now())
   // A timer that ran out while this screen was unmounted already announced
   // itself (lock-screen driver) — resuming into it shouldn't beep again.
   const finishedAtMount = useRef(
@@ -272,9 +274,19 @@ export function IntervalSession({
     return sections.map((s) => (acc += s.durationSec))
   }, [sections])
 
+  // The draft outlives the countdown: once the timer ends it carries the
+  // summary too, and goes only when the session is saved or discarded.
+  // Closing the app on the summary screen must not lose the session.
   useEffect(() => {
-    if (phase === 'run') saveTimerDraft(draft)
-  }, [draft, phase])
+    saveTimerDraft(
+      phase === 'done'
+        ? {
+            ...draft,
+            summary: { title, miles, notes, linkedSk, drills, rpe, feel },
+          }
+        : draft,
+    )
+  }, [draft, phase, title, miles, notes, linkedSk, drills, rpe, feel])
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 250)
@@ -306,9 +318,11 @@ export function IntervalSession({
       }
     }
     if (finished) {
-      doneElapsedRef.current = Math.min(elapsedMs, total * 1000)
-      doneAtRef.current = Date.now()
-      saveTimerDraft(null)
+      // Stamped with when the timer actually ran out, which may have been
+      // while this screen was closed
+      const doneMs = Math.min(elapsedMs, total * 1000)
+      const at = draft.paused ? Date.now() : now - (elapsedMs - doneMs)
+      setDraft((d) => ({ ...d, done: { elapsedMs: doneMs, at } }))
       if (!finishedAtMount.current) cue(3)
       setPhase('done')
     }
@@ -408,23 +422,21 @@ export function IntervalSession({
     setDraft((d) => backSection(d, Date.now()))
   }
 
-  // The one-tap way out of a running timer that keeps nothing: no summary,
-  // no confirmation, the draft goes with it.
+  // The way out that keeps nothing: the running timer's one-tap discard
+  // and the summary's Discard button. The draft goes with it.
   function discard() {
     saveTimerDraft(null)
     dismiss(onCancel)
   }
 
   function endEarly() {
-    doneElapsedRef.current = elapsedMs
-    doneAtRef.current = Date.now()
-    saveTimerDraft(null)
+    setDraft((d) => ({ ...d, done: { elapsedMs, at: Date.now() } }))
     setPhase('done')
   }
 
   function save() {
-    const durMs = doneElapsedRef.current
-    const doneAt = doneAtRef.current
+    const durMs = draft.done?.elapsedMs ?? elapsedMs
+    const doneAt = draft.done?.at ?? Date.now()
     // A session ended early only logs the holds it reached. (A skipped
     // hold still counts — skipping advances the clock — which is the
     // honest limit of what the draft records today.)
@@ -468,6 +480,7 @@ export function IntervalSession({
     } else if (
       await confirm({ title: 'Discard this session?', action: 'Discard' })
     ) {
+      saveTimerDraft(null)
       dismiss(onCancel)
     }
   }
@@ -492,7 +505,7 @@ export function IntervalSession({
       <>
         <h2 className="text-title text-ink">Session complete</h2>
         <p className="text-display text-ink tabular-nums">
-          {fmtSec(doneElapsedRef.current / 1000)}
+          {fmtSec((draft.done?.elapsedMs ?? 0) / 1000)}
         </p>
         <Field label="Title" htmlFor={titleId}>
           <TextInput
@@ -584,7 +597,7 @@ export function IntervalSession({
         <Button variant="primary" block onClick={() => dismiss(save)}>
           Save
         </Button>
-        <Button variant="ghost" block onClick={() => dismiss(onCancel)}>
+        <Button variant="ghost" block onClick={discard}>
           Discard
         </Button>
       </>

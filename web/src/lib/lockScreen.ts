@@ -153,14 +153,14 @@ function notify(): void {
 
 function draftPause(): void {
   const d = loadTimerDraft()
-  if (!d || d.paused) return
+  if (!d || d.paused || d.done) return
   const snap = timerSnapshot(d, Date.now())
   saveTimerDraft({ ...d, paused: true, pausedElapsedMs: snap.elapsedMs })
 }
 
 function draftResume(): void {
   const d = loadTimerDraft()
-  if (!d?.paused) return
+  if (!d?.paused || d.done) return
   saveTimerDraft({
     ...d,
     paused: false,
